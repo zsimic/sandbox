@@ -1,0 +1,13 @@
+*.egg-info
+*.lock
+*.py[cod]
+.cache/
+.DS_Store
+.eggs/
+.idea/
+.python-version
+.tox/
+.venv/
+__pycache__/
+build/
+dist/
