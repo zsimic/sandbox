@@ -4,7 +4,7 @@ from setuptools import setup
 
 
 setup(
-    name='yaml',
+    name='zyaml',
     setup_requires='setupmeta',
     versioning='post',
     author='Zoran Simic zoran@simicweb.com',

@@ -1,1 +1,5 @@
 pytest-cov
+PyYAML
+poyo
+toml
+ruamel.yaml

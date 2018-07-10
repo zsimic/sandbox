@@ -1,0 +1,7 @@
+app-type: python-cli
+python:
+  test-versions:
+  - "2.7"
+  - "3.6"
+tool-versions:
+  python: "3.6"
