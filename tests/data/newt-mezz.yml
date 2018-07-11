@@ -1,8 +1,9 @@
-a: "3.6"
-b: "3.\"6"
+"a": "3.6"  # foo
+2: "3.\"6"
 d: "3.\t6"
+e: FALSE
 
-app-type: python-cli
+app-type: python-cli  # foo
 image-name: mce/mezzfs-build
 
 package-name: mezzfs-{{index (split "/" .GitBranch) 0}}
