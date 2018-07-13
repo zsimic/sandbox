@@ -113,7 +113,10 @@ class Buffer:
     def __repr__(self):
         if self.stream is None:
             return "%s,%s" % (self.line, self.column)
-        return "%s,%s %s" % (self.line, self.column, len(self.stream.getvalue()))
+        text = self.stream.getvalue()
+        if len(text) > 128:
+            text = len(text)
+        return "%s,%s %s" % (self.line, self.column, text)
 
     def pop(self):
         if self.stream is None:
@@ -205,39 +208,54 @@ class Scanner:
             if not self.current:
                 break
 
-            if self.current == '#':
-                if self.buffer:
-                    yield Scalar(self.buffer)
+            if self.column == 1:
+                if self.current == '%':
+                    if self.buffer:
+                        yield Scalar(self.buffer)
+                    yield Directive(line=self.line, column=self.column, text=self.pop('#\n'))
+                    continue
 
-                text = self.pop('\n')
-                if comments:
-                    yield Comment(line=self.line, column=self.column, text=text)
-                continue
-
-            if self.column == 1 and self.current == '%':
-                yield Directive(line=self.line, column=self.column, text=self.pop('#\n'))
-                continue
-
-            if self.current == '\n':
-                if self.buffer:
-                    yield Scalar(self.buffer)
-                continue
-
-            if self.current == ':':
-                if self.buffer:
-                    yield Key(self.buffer)
-                continue
+                if self.current == '#':
+                    if self.buffer:
+                        yield Scalar(self.buffer)
+                    text = self.pop('\n')
+                    if comments:
+                        yield Comment(line=self.line, column=self.column, text=text)
+                    continue
 
             if self.column == 3 and (self.current == '-' or self.current == '.'):
                 if self.prev == self.current and self.prev2 == self.current:
                     yield Document(self.buffer)
                     continue
 
-            if self.current == ' ' and self.prev == '-':
-                yield BlockEntry(self.buffer)
+            if self.current == ' ' or self.current == '\n':
+                if self.prev == ':':
+                    if self.buffer:
+                        yield Key(self.buffer)
+                    continue
+
+            if self.current == ' ':
+                if self.prev == '-':
+                    yield BlockEntry(self.buffer)
+                    continue
+
+                if self.current == '#':
+                    if self.buffer:
+                        yield Scalar(self.buffer)
+                    text = self.pop('\n')
+                    if comments:
+                        yield Comment(line=self.line, column=self.column, text=text)
+                    continue
+
+            if self.current == '\n':
+                if self.buffer:
+                    yield Scalar(self.buffer)
                 continue
 
             self.consume_current()
+
+        if self.buffer:
+            yield Scalar(self.buffer)
 
 
 class Parser:
@@ -271,6 +289,13 @@ def load(stream):
         if isinstance(token, Scalar):
             if keys.current:
                 target = keys.current.target
-                target[keys.current.value] = token.value
+                if isinstance(target, dict):
+                    target[keys.current.value] = token.value
+                else:
+                    target.append(token.value)
             continue
-    return tokens
+        if isinstance(token, BlockEntry):
+            if not keys.current:
+                continue
+            keys.current.target = []
+    return root

@@ -1,4 +1,4 @@
-from .conftest import data_paths, load_poyo, load_pyyaml, load_ruamel, load_zyaml
+from .conftest import data_paths, load_poyo, load_pyyaml, load_ruamel, load_zyaml, resource
 
 
 def run(path):
@@ -6,7 +6,7 @@ def run(path):
     d2 = load_ruamel(path)
     d3 = load_zyaml(path)
     assert d1 == d2
-    assert d3
+    assert d3 is not None
 
     try:
         d4 = load_poyo(path)
@@ -19,3 +19,7 @@ def run(path):
 def test_data():
     for path in data_paths():
         run(path)
+
+
+def test_structures():
+    run(resource('structures', 'mapping.yml'))

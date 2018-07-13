@@ -1,8 +1,7 @@
-import os
 import timeit
 from functools import partial
 
-from conftest import data_paths, load_poyo, load_pyyaml, load_ruamel, load_zyaml
+from conftest import data_paths, load_poyo, load_pyyaml, load_ruamel, load_zyaml, relative_path
 
 
 class BenchResults:
@@ -11,9 +10,14 @@ class BenchResults:
         self.seconds = {}
         self.outcome = {}
 
-    def add(self, name, seconds):
+    def add(self, name, seconds, message=None):
         if seconds is None:
-            self.outcome[name] = 'failed'
+            if not message:
+                message = 'failed'
+            else:
+                message = message.strip().partition('\n')[0]
+                message = 'failed: %s...' % message[:120]
+            self.outcome[name] = message
             return
         if self.fastest is None or self.fastest > seconds:
             self.fastest = seconds
@@ -50,13 +54,13 @@ def run_bench(results, path, iterations, func):
         t = timeit.Timer(stmt=partial(func, path))
         results.add(name, t.timeit(iterations))
 
-    except Exception:
-        results.add(name, None)
+    except Exception as e:
+        results.add(name, None, message="failed %s" % e)
 
 
 def run(iterations=100):
     for path in data_paths():
-        print("%s:" % os.path.basename(path))
+        print("%s:" % relative_path(path))
         results = BenchResults()
         run_bench(results, path, iterations, bench_zyaml)
         run_bench(results, path, iterations, bench_pyyaml)

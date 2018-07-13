@@ -26,16 +26,33 @@ poyo.parser.LIST = poyo.patterns.LIST
 poyo.parser.LIST_ITEM = poyo.patterns.LIST_ITEM
 
 
-def data_paths():
-    for fname in os.listdir(DATA_FOLDER):
+def resource(*relative_paths):
+    return os.path.join(DATA_FOLDER, *relative_paths)
+
+
+def relative_path(full_path):
+    if full_path and full_path.startswith(DATA_FOLDER):
+        return full_path[len(DATA_FOLDER) + 1:]
+    return full_path
+
+
+def data_paths(folder=DATA_FOLDER):
+    for fname in os.listdir(folder):
+        fpath = os.path.join(folder, fname)
+        if os.path.isdir(fpath):
+            for path in data_paths(fpath):
+                yield path
         if not fname.endswith('.yml'):
             continue
-        yield os.path.join(DATA_FOLDER, fname)
+        yield fpath
 
 
 def load_pyyaml(path):
     with open(path) as fh:
-        return yaml.load(fh)
+        docs = list(yaml.load_all(fh))
+        if len(docs) == 1:
+            return docs[0]
+        return docs
 
 
 def load_poyo(path):
@@ -46,7 +63,10 @@ def load_poyo(path):
 def load_ruamel(path):
     with open(path) as fh:
         yaml = YAML(typ='safe')
-        return yaml.load(fh)
+        docs = list(yaml.load_all(fh))
+        if len(docs) == 1:
+            return docs[0]
+        return docs
 
 
 def load_zyaml(path):
