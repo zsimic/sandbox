@@ -1,3 +1,4 @@
+import re
 import timeit
 from functools import partial
 
@@ -15,8 +16,9 @@ class BenchResults:
             if not message:
                 message = "failed"
             else:
-                message = message.strip().partition("\n")[0]
-                message = "failed: %s..." % message[:120]
+                message = message.strip().replace("\n", " ")
+                message = re.sub(r"\s+", " ", message)
+                message = "failed: %s..." % message[:180]
             self.outcome[name] = message
             return
         if self.fastest is None or self.fastest > seconds:
@@ -42,11 +44,7 @@ def bench_ruamel(path):
 
 
 def bench_zyaml(path):
-    try:
-        return load_zyaml(path)
-    except Exception as e:
-        print("Exception: %s" % e)
-        return None
+    return load_zyaml(path)
 
 
 def run_bench(results, path, iterations, func):

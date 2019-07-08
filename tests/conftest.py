@@ -1,5 +1,4 @@
 import os
-import re
 
 import poyo
 import poyo.parser
@@ -36,7 +35,7 @@ def data_paths(folder=DATA_FOLDER):
 
 def load_pyyaml(path):
     with open(path) as fh:
-        docs = list(yaml.load_all(fh))
+        docs = list(yaml.load_all(fh, Loader=yaml.FullLoader))
         if len(docs) == 1:
             return docs[0]
         return docs

@@ -280,7 +280,10 @@ def load(stream):
                 if token.column > keys.current.column:
                     target = keys.current.target
                     current = {}
-                    target[keys.current.value] = current
+                    if isinstance(target, dict):
+                        target[keys.current.value] = current
+                    else:
+                        target.append(token.value)
             else:
                 current = root
             keys.add(token)
