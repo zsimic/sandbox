@@ -1,13 +1,20 @@
-*.egg-info
+# Various
+*~
+\#*#
+.\#*
 *.lock
+.*version
+
+# Build artifacts
+__pycache__/
 *.py[cod]
-.cache/
-.DS_Store
-.eggs/
-.idea/
-.python-version
+*.egg*
 .tox/
 .venv/
-__pycache__/
 build/
 dist/
+
+# Caches
+.DS_Store
+.cache/
+.idea/

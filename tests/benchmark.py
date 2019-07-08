@@ -45,6 +45,7 @@ def bench_zyaml(path):
     try:
         return load_zyaml(path)
     except Exception as e:
+        print("Exception: %s" % e)
         return None
 
 
