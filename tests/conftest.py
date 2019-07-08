@@ -12,19 +12,6 @@ import zyaml
 
 DATA_FOLDER = os.path.join(os.path.dirname(__file__), "data")
 
-# Temp fix
-poyo.patterns._LIST_VALUE = (
-    poyo.patterns._BLANK + r"-" + poyo.patterns._BLANK +
-    r"('.*?'|\".*?\"|[^#\n]+?)" +
-    poyo.patterns._INLINE_COMMENT + poyo.patterns._OPT_NEWLINE
-)
-poyo.patterns._LIST_ITEM = poyo.patterns._BLANK_LINE + r"|" + poyo.patterns._COMMENT + r"|" + poyo.patterns._LIST_VALUE
-poyo.patterns._LIST = poyo.patterns._SECTION + r"(?P<items>(?:" + poyo.patterns._LIST_ITEM + r")*" + poyo.patterns._LIST_VALUE + r")"
-poyo.patterns.LIST_ITEM = re.compile(poyo.patterns._LIST_VALUE, re.MULTILINE)
-poyo.patterns.LIST = re.compile(poyo.patterns._LIST, re.MULTILINE)
-poyo.parser.LIST = poyo.patterns.LIST
-poyo.parser.LIST_ITEM = poyo.patterns.LIST_ITEM
-
 
 def resource(*relative_paths):
     return os.path.join(DATA_FOLDER, *relative_paths)
