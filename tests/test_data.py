@@ -22,4 +22,4 @@ def test_data():
 
 
 def test_structures():
-    run(resource('structures', 'mapping.yml'))
+    run(resource("structures", "mapping.yml"))

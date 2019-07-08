@@ -3,10 +3,10 @@ import re
 from io import StringIO
 
 
-NULL = 'null'
-FALSE = 'false'
-TRUE = 'true'
-RE_TYPED = re.compile(r'^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$', re.IGNORECASE)
+NULL = "null"
+FALSE = "false"
+TRUE = "true"
+RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$", re.IGNORECASE)
 
 
 class Token(object):
@@ -103,8 +103,8 @@ class Document(Token):
 
 class Buffer:
 
-    line = 0                # type: int # Line number where buffer starts
-    column = 0              # type: int # Column number where buffer starts
+    line = 0  # type: int # Line number where buffer starts
+    column = 0  # type: int # Column number where buffer starts
     stream = None
 
     def __bool__(self):
@@ -130,7 +130,7 @@ class Buffer:
         :param Scanner scanner: Associated scanner
         """
         if self.stream is None:
-            if scanner.current == ' ' or scanner.current == '\n':
+            if scanner.current == " " or scanner.current == "\n":
                 return
             self.line = scanner.line
             self.column = scanner.column
@@ -161,13 +161,13 @@ class KeyStack:
 
 class Scanner:
 
-    stream = None           # type: open # Stream being read
+    stream = None  # type: open # Stream being read
     buffer = None
-    current = None          # type: chr # Current char
-    prev = None             # type: chr # Previously read char
-    prev2 = None            # type: chr # We track the prev 2 characters
-    line = 0                # type: int # Current line number
-    column = 0              # type: int # Current column number
+    current = None  # type: chr # Current char
+    prev = None  # type: chr # Previously read char
+    prev2 = None  # type: chr # We track the prev 2 characters
+    line = 0  # type: int # Current line number
+    column = 0  # type: int # Current column number
     stack = None
 
     def __init__(self, stream):
@@ -193,7 +193,7 @@ class Scanner:
     def next_char(self):
         self.prev2 = self.prev
         self.prev = self.current
-        if self.prev == '\n':
+        if self.prev == "\n":
             self.line += 1
             self.column = 0
         self.column += 1
@@ -209,45 +209,45 @@ class Scanner:
                 break
 
             if self.column == 1:
-                if self.current == '%':
+                if self.current == "%":
                     if self.buffer:
                         yield Scalar(self.buffer)
-                    yield Directive(line=self.line, column=self.column, text=self.pop('#\n'))
+                    yield Directive(line=self.line, column=self.column, text=self.pop("#\n"))
                     continue
 
-                if self.current == '#':
+                if self.current == "#":
                     if self.buffer:
                         yield Scalar(self.buffer)
-                    text = self.pop('\n')
+                    text = self.pop("\n")
                     if comments:
                         yield Comment(line=self.line, column=self.column, text=text)
                     continue
 
-            if self.column == 3 and (self.current == '-' or self.current == '.'):
+            if self.column == 3 and (self.current == "-" or self.current == "."):
                 if self.prev == self.current and self.prev2 == self.current:
                     yield Document(self.buffer)
                     continue
 
-            if self.current == ' ' or self.current == '\n':
-                if self.prev == ':':
+            if self.current == " " or self.current == "\n":
+                if self.prev == ":":
                     if self.buffer:
                         yield Key(self.buffer)
                     continue
 
-            if self.current == ' ':
-                if self.prev == '-':
+            if self.current == " ":
+                if self.prev == "-":
                     yield BlockEntry(self.buffer)
                     continue
 
-                if self.current == '#':
+                if self.current == "#":
                     if self.buffer:
                         yield Scalar(self.buffer)
-                    text = self.pop('\n')
+                    text = self.pop("\n")
                     if comments:
                         yield Comment(line=self.line, column=self.column, text=text)
                     continue
 
-            if self.current == '\n':
+            if self.current == "\n":
                 if self.buffer:
                     yield Scalar(self.buffer)
                 continue

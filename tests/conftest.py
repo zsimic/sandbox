@@ -10,7 +10,7 @@ from ruamel.yaml import YAML
 import zyaml
 
 
-DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
+DATA_FOLDER = os.path.join(os.path.dirname(__file__), "data")
 
 # Temp fix
 poyo.patterns._LIST_VALUE = (
@@ -42,7 +42,7 @@ def data_paths(folder=DATA_FOLDER):
         if os.path.isdir(fpath):
             for path in data_paths(fpath):
                 yield path
-        if not fname.endswith('.yml'):
+        if not fname.endswith(".yml"):
             continue
         yield fpath
 
@@ -62,7 +62,7 @@ def load_poyo(path):
 
 def load_ruamel(path):
     with open(path) as fh:
-        yaml = YAML(typ='safe')
+        yaml = YAML(typ="safe")
         docs = list(yaml.load_all(fh))
         if len(docs) == 1:
             return docs[0]

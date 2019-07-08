@@ -13,10 +13,10 @@ class BenchResults:
     def add(self, name, seconds, message=None):
         if seconds is None:
             if not message:
-                message = 'failed'
+                message = "failed"
             else:
-                message = message.strip().partition('\n')[0]
-                message = 'failed: %s...' % message[:120]
+                message = message.strip().partition("\n")[0]
+                message = "failed: %s..." % message[:120]
             self.outcome[name] = message
             return
         if self.fastest is None or self.fastest > seconds:
