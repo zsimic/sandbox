@@ -1,48 +1,127 @@
+import datetime
+import json
 import os
 import re
+import sys
 import timeit
 from functools import partial
 
 import poyo
-import poyo.parser
-import poyo.patterns
+import pytest
 import yaml
 from ruamel.yaml import YAML
 
 import zyaml
 
 
-DATA_FOLDER = os.path.join(os.path.dirname(__file__), "data")
-BENCHMARKS = {}
+SAMPLE_FOLDER = os.path.join(os.path.dirname(__file__), "samples")
 
 
-def benchmarkable(func):
-    name = func.__name__.replace("load_", "")
-    BENCHMARKS[name] = func
-    return func
+def asis(value):
+    return value
 
 
-def data_paths(folder=DATA_FOLDER):
-    for fname in os.listdir(folder):
-        fpath = os.path.join(folder, fname)
-        if fname.endswith(".yml"):
-            yield fpath
+def json_sanitized(value, stringify=asis):
+    if value is None:
+        return None
+    if isinstance(value, (tuple, list)):
+        return [json_sanitized(v) for v in value]
+    if isinstance(value, dict):
+        return dict((str(k), json_sanitized(v)) for k, v in value.items())
+    if isinstance(value, datetime.date):
+        return str(value)
+    if not isinstance(value, (int, str, float)):
+        return stringify(value)
+    return stringify(value)
 
 
-def run_benchmarks():
-    for path in data_paths():
-        bench = Benchmark(path)
-        bench.run()
-        print(bench.report())
+class Sample(object):
+    def __init__(self, path):
+        self.basename = os.path.basename(path)
+        self.name = self.basename.replace(".yml", "")
+        self.folder = os.path.dirname(path)
+        self.expected_path = os.path.join(self.folder, "expected", "%s.json" % self.name)
+        self._expected = None
+        self.path = path
+
+    def __repr__(self):
+        return self.name
+
+    @property
+    def expected(self):
+        if self._expected is None:
+            with open(self.expected_path) as fh:
+                self._expected = json.load(fh)
+        return self._expected
+
+    def refresh(self):
+        value = load_ruamel(self.path)
+        value = json_sanitized(value)
+        with open(self.expected_path, "w") as fh:
+            json.dump(value, fh, sort_keys=True, indent=2)
 
 
-class Benchmark:
+class YmlImplementation(object):
+    """Implementation of loading a yml file"""
+    def __init__(self, func):
+        self.name = func.__name__.replace("load_", "")
+        self.func = func
+
+    def __repr__(self):
+        return self.name
+
+    def load(self, path):
+        return self.func(path)
+
+    def load_sanitized(self, path, stringify=asis):
+        try:
+            return json_sanitized(self.func(path, stringify=stringify))
+
+        except Exception:
+            return None
+
+
+class BenchmarkCollection(object):
+    def __init__(self):
+        self.available = []
+        self.samples = []
+        for fname in os.listdir(SAMPLE_FOLDER):
+            if fname.endswith(".yml"):
+                self.samples.append(Sample(os.path.join(SAMPLE_FOLDER, fname)))
+
+    def add(self, func):
+        """
+        :param callable func: Implementation to use to load a yml file for this benchmark
+        """
+        self.available.append(YmlImplementation(func))
+        return func
+
+    def run(self):
+        for sample in self.samples:
+            bench = SingleBenchmark(sample.path)
+            bench.run()
+            print(bench.report())
+
+
+BENCHMARKS = BenchmarkCollection()
+
+
+@pytest.fixture
+def samples():
+    return BENCHMARKS.samples
+
+
+@pytest.fixture
+def benchmarks():
+    return BENCHMARKS
+
+
+class SingleBenchmark:
     def __init__(self, path):
         self.path = path
         self.fastest = None
         self.seconds = {}
         self.outcome = {}
-        self.benchmarks = BENCHMARKS
         self.iterations = 100
 
     def add(self, name, seconds, message=None):
@@ -60,13 +139,13 @@ class Benchmark:
         self.seconds[name] = seconds
 
     def run(self):
-        for name, func in self.benchmarks.items():
+        for impl in BENCHMARKS.available:
             try:
-                t = timeit.Timer(stmt=partial(func, self.path))
-                self.add(name, t.timeit(self.iterations))
+                t = timeit.Timer(stmt=partial(impl.load, self.path))
+                self.add(impl.name, t.timeit(self.iterations))
 
             except Exception as e:
-                self.add(name, None, message="failed %s" % e)
+                self.add(impl.name, None, message="failed %s" % e)
 
         for name, seconds in self.seconds.items():
             info = "" if seconds == self.fastest else " [x %.1f]" % (seconds / self.fastest)
@@ -87,28 +166,28 @@ def load_pyaml(path, loader):
         return docs
 
 
-@benchmarkable
+@BENCHMARKS.add
 def load_pyyaml_base(path):
     return load_pyaml(path, yaml.BaseLoader)
 
 
-@benchmarkable
+@BENCHMARKS.add
 def load_pyyaml_full(path):
     return load_pyaml(path, yaml.FullLoader)
 
 
-@benchmarkable
+@BENCHMARKS.add
 def load_pyyaml_safe(path):
     return load_pyaml(path, yaml.SafeLoader)
 
 
-@benchmarkable
+@BENCHMARKS.add
 def load_poyo(path):
     with open(path) as fh:
         return poyo.parse_string(fh.read())
 
 
-@benchmarkable
+@BENCHMARKS.add
 def load_ruamel(path):
     with open(path) as fh:
         yaml = YAML(typ="safe")
@@ -118,7 +197,7 @@ def load_ruamel(path):
         return docs
 
 
-@benchmarkable
+@BENCHMARKS.add
 def load_zyaml(path):
     with open(path) as fh:
         d = zyaml.load(fh)
@@ -126,4 +205,8 @@ def load_zyaml(path):
 
 
 if __name__ == "__main__":
-    run_benchmarks()
+    if len(sys.argv) == 2 and sys.argv[1] == "refresh":
+        for s in BENCHMARKS.samples:
+            s.refresh()
+        sys.exit(0)
+    BENCHMARKS.run()
