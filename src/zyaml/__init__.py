@@ -1,6 +1,13 @@
 import codecs
 import re
-from io import StringIO
+
+try:
+    import StringIO
+
+    StringIO = StringIO.StringIO
+
+except ImportError:
+    from io import StringIO
 
 
 NULL = "null"

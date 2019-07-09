@@ -1,4 +1,4 @@
-from .conftest import data_paths, load_poyo, load_pyyaml, load_ruamel, load_zyaml, resource
+from .conftest import data_paths, load_poyo, load_pyyaml, load_ruamel, load_zyaml
 
 
 def run(path):
@@ -19,8 +19,3 @@ def run(path):
 def test_data():
     for path in data_paths():
         run(path)
-
-
-def test_structures():
-    run(resource("newt-python-cli.yml"))
-    run(resource("structures", "mapping.yml"))
