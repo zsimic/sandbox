@@ -1,3 +1,19 @@
-- Mark McGwire
-- Sammy Sosa
-- Ken Griffey
+# comment1
+- Mark McGwire   # foo
+# comment 2
+- foo:
+  - Sammy Sosa
+  - Ken Griffey
+
+- bar: {
+  "avg": 0.278,
+  "hr": 65,
+  "rbi": 147
+}
+
+---
+doc2
+...
+
+---
+- doc3

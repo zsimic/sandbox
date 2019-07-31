@@ -1,0 +1,227 @@
+app-type: python-cli
+auto-tty: true
+build-setup:
+- for x in 1 2 3; do sudo apt-get update && break; done
+- sudo apt-get install -y fuse libffi-dev libssl-dev
+- sudo chown `whoami` /etc/fuse.conf
+- echo "mount_max = 1000" > /etc/fuse.conf
+- echo "user_allow_other" >> /etc/fuse.conf
+command-configs:
+  build image:
+    build-steps:
+    - newt --app-type python-cli build staging
+    - newt --app-type python-cli build docker
+  build staging:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-common-builder/{{.Params.PLATFORM}}:latest
+    build-setup:
+    - sudo /apps/python{{.ToolVersions.python}}/bin/python -mpip --cache-dir=/storage/pip-root
+      install -U pip tox
+    build-steps:
+    - /apps/python{{.ToolVersions.python}}/bin/python -mtox --workdir .tox/_docker
+      -re package
+    dev-volumes:
+    - '{{.PackageRoot}}/apps/{{.Name}}:/apps/{{.Name}}'
+    enable-build-volumes: true
+    pre-commands:
+      build staging:
+      - mkdir -p {{.PackageRoot}}/apps/{{.Name}}
+      - newt --app-type python-cli python --version
+  build venv:
+    build-steps:
+    - rm -rf .venv && newt --app-type python-cli tox -e venv
+  clean venv:
+    build-steps:
+    - rm -rf .eggs .gradle .tox .venv build dist *.egg-info */*.egg-info
+    - find . -path '*/__pycache__*' -delete
+  diagnostics docker:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-common-builder/{{.Params.PLATFORM}}:latest
+    build-steps:
+    - |-
+      echo pwd: `pwd`
+      echo python: `which python` `python --version`
+      echo tox: `which tox`
+      env | sort
+  diagnostics local:
+    build-steps:
+    - |-
+      echo pwd: `pwd`
+      echo python: `which python` `python --version`
+      echo tox: `which tox`
+      env | sort
+  init:
+    init:
+      command-options:
+      - https://stash.corp.netflix.com/scm/nfpy/cookiecutter-newt-python-cli.git
+      image: dockerregistry.test.netflix.net:7002/engtools/newt-python-init:stable
+      image-volumes:
+      - ~/.config:/userconfig
+    install-tools: true
+    tool-versions:
+      python: "3.6"
+  package all:
+    build-steps:
+    - |-
+      set -ex
+      {{range $v := .Python.TestVersions -}}
+        {{if hasPrefix $v "2.7" -}}newt --app-type python-cli package py27 ; {{end -}}
+        {{if hasPrefix $v "3.4" -}}newt --app-type python-cli package py34 ; {{end -}}
+        {{if hasPrefix $v "3.5" -}}newt --app-type python-cli package py35 ; {{end -}}
+        {{if hasPrefix $v "3.6" -}}newt --app-type python-cli package py36 ; {{end -}}
+        {{if hasPrefix $v "3.7" -}}newt --app-type python-cli package py37 ; {{end -}}
+      {{end -}}
+      if [[ -n `grep testenv:package tox.ini` ]]; then
+        rm -rf {{.PackageRoot}} debian
+        newt --app-type python-cli build staging
+        mkdir -p {{.PackageRoot}} .tox/ci-artifacts
+        if [ -d root/ ]; then rsync -arH root/ {{.PackageRoot}}; fi
+        if [ -d .tox/_docker/package/root/ ]; then rsync -arH .tox/_docker/package/root/ {{.PackageRoot}}; fi
+        newt --app-type python-cli package debian
+        if ls build/*.deb &> /dev/null; then
+          cp -r build/*.deb build/*.changes .tox/ci-artifacts/
+        fi
+        if [ -d .tox/_docker/coverage/htmlcov ]; then
+          cp .tox/_docker/coverage/coverage.xml .tox/ci-artifacts/
+          cp -r .tox/_docker/coverage/htmlcov .tox/ci-artifacts/
+        fi
+      fi
+  package py27:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 2.7 --build
+  package py34:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 3.4 --build
+  package py35:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 3.5 --build
+  package py36:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 3.6 --build
+  package py37:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 3.7 --build
+  publish all:
+    build-steps:
+    - |-
+      set -ex
+      {{range $v := .Python.TestVersions -}}
+        {{if hasPrefix $v "2.7" -}}newt --app-type python-cli publish py27 ; {{end -}}
+        {{if hasPrefix $v "3.4" -}}newt --app-type python-cli publish py34 ; {{end -}}
+        {{if hasPrefix $v "3.5" -}}newt --app-type python-cli publish py35 ; {{end -}}
+        {{if hasPrefix $v "3.6" -}}newt --app-type python-cli publish py36 ; {{end -}}
+        {{if hasPrefix $v "3.7" -}}newt --app-type python-cli publish py37 ; {{end -}}
+      {{end -}}
+      if [[ -n `grep testenv:package tox.ini` ]]; then newt --app-type python-cli publish debian; fi
+  publish debian:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-debian-publish:latest
+    build-image-cache: false
+    params:
+      NEWT_PACKAGE_COMPONENT: '{{if .PackageComponents}}{{index .PackageComponents
+        0}}{{end}}'
+      NEWT_PACKAGE_DISTRIBUTION: '{{if .PackageDistributions}}{{index .PackageDistributions
+        0}}{{end}}'
+      NEWT_PACKAGE_FILE: '{{printf "build/%s*.deb" .PackageName | findLatestFile}}'
+      NEWT_PACKAGE_PUBLISH: true
+  publish dependencies:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - allmkwheel --build ; allmkwheel --publish
+  publish py27:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 2.7 --publish
+  publish py34:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 3.4 --publish
+  publish py35:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 3.5 --publish
+  publish py36:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 3.6 --publish
+  publish py37:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-pywheel-builder:latest
+    build-steps:
+    - mkwheel --py 3.7 --publish
+  pycharm open:
+    build-steps:
+    - '{{.NewtConfigsDir}}/.pickley/pycharm.py open'
+  pycharm rdebug disable:
+    build-steps:
+    - '{{.NewtConfigsDir}}/.pickley/pycharm.py rdebug disable'
+  pycharm rdebug enable:
+    build-steps:
+    - '{{.NewtConfigsDir}}/.pickley/pycharm.py rdebug enable'
+  pycharm rdebug show:
+    build-steps:
+    - '{{.NewtConfigsDir}}/.pickley/pycharm.py rdebug show'
+  pycharm show:
+    build-steps:
+    - '{{.NewtConfigsDir}}/.pickley/pycharm.py show'
+  rebuild image:
+    build-steps:
+    - newt --app-type python-cli clean image
+    - newt --app-type python-cli build image
+  rebuild venv:
+    build-steps:
+    - newt --app-type python-cli clean venv
+    - newt --app-type python-cli build venv
+  setup:
+    tool-versions:
+      python: "3.6"
+  test:
+    build-image: dockerregistry.test.netflix.net:7002/engtools/newt-common-builder/{{.Params.PLATFORM}}:latest
+    build-setup:
+    - sudo /apps/python{{.ToolVersions.python}}/bin/python -mpip --cache-dir=/storage/pip-root
+      install -U pip tox
+    build-steps:
+    - /apps/python{{.ToolVersions.python}}/bin/python -mtox --workdir .tox/_docker
+    enable-build-volumes: true
+  venv:
+    build-steps:
+    - rm -rf .venv && newt --app-type python-cli tox -e venv
+dev-volumes:
+- .:/src
+enable-metatron: true
+enable-privileged: true
+enable-ssh-agent: true
+fg: true
+image-name: mce/mezzfs-build
+jenkins-default-job: MCE-mezzfs-master
+jenkins-master: mce
+jenkins-templates:
+- name: '{{ trimPrefix .Org.Value "~" | toUpper }}-{{ .Name }}'
+  template: python-cli/jenkins/validate.xml
+  raw: false
+  disabled: ""
+- name: '{{ trimPrefix .Org.Value "~" | toUpper }}-{{ .Name }}-master'
+  template: python-cli/jenkins/publish.xml
+  raw: false
+  disabled: ""
+package-name: mezzfs-{{index (split "/" .GitBranch.String) 0}}
+package-postinstall-file: ./post-install.sh
+package-requires:
+  atlas-agent: ""
+  fuse: ""
+  nflx-python-{{.ToolVersions.python}}: ""
+  nflx-python-3.6: ""
+  propsfs: ""
+package-root: ./.tox/_staging
+params:
+  PLATFORM: xenial
+pattern: ""
+python:
+  requirements-file: requirements.txt
+  test-versions:
+  - "3.6"
+  virtualenv: .venv
+tool-versions:
+  python: "3.6"
+user: zsimic

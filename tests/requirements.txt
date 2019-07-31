@@ -3,3 +3,4 @@ PyYAML
 poyo
 toml
 ruamel.yaml
+strictyaml

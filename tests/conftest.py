@@ -8,6 +8,7 @@ from functools import partial
 
 import poyo
 import pytest
+import strictyaml
 import yaml
 from ruamel.yaml import YAML
 
@@ -75,9 +76,9 @@ class YmlImplementation(object):
 
     def load_sanitized(self, path, stringify=asis):
         try:
-            return json_sanitized(self.func(path, stringify=stringify))
+            return json_sanitized(self.func(path), stringify=stringify)
 
-        except Exception:
+        except Exception as e:
             return None
 
 
@@ -171,22 +172,22 @@ def load_pyyaml_base(path):
     return load_pyaml(path, yaml.BaseLoader)
 
 
-@BENCHMARKS.add
-def load_pyyaml_full(path):
-    return load_pyaml(path, yaml.FullLoader)
-
-
-@BENCHMARKS.add
-def load_pyyaml_safe(path):
-    return load_pyaml(path, yaml.SafeLoader)
-
-
-@BENCHMARKS.add
-def load_poyo(path):
-    with open(path) as fh:
-        return poyo.parse_string(fh.read())
-
-
+# @BENCHMARKS.add
+# def load_pyyaml_full(path):
+#     return load_pyaml(path, yaml.FullLoader)
+#
+#
+# @BENCHMARKS.add
+# def load_pyyaml_safe(path):
+#     return load_pyaml(path, yaml.SafeLoader)
+#
+#
+# @BENCHMARKS.add
+# def load_poyo(path):
+#     with open(path) as fh:
+#         return poyo.parse_string(fh.read())
+#
+#
 @BENCHMARKS.add
 def load_ruamel(path):
     with open(path) as fh:
@@ -198,10 +199,41 @@ def load_ruamel(path):
 
 
 @BENCHMARKS.add
-def load_zyaml(path):
+def load_strict(path):
     with open(path) as fh:
-        d = zyaml.load(fh)
-        return d
+        docs = strictyaml.load(fh.read())
+        if len(docs) == 1:
+            return docs[0]
+        return docs
+
+
+# @BENCHMARKS.add
+# def load_zyaml(path):
+#     with open(path) as fh:
+#         d = zyaml.load(fh)
+#         return d
+
+from zyaml import Scanner
+
+@BENCHMARKS.add
+def load_zyaml1(path):
+    with open(path) as fh:
+        scanner = Scanner(fh)
+        return scanner.scan1()
+
+
+@BENCHMARKS.add
+def load_zyaml2(path):
+    with open(path) as fh:
+        scanner = Scanner(fh)
+        return scanner.scan2()
+
+
+@BENCHMARKS.add
+def load_lexemes(path):
+    with open(path) as fh:
+        scanner = Scanner(fh)
+        return list(scanner.lexemes())
 
 
 if __name__ == "__main__":

@@ -17,22 +17,15 @@ RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?
 
 
 class Token(object):
+
     value = None
     line = 0
     column = 0
 
-    def __init__(self, buffer=None, line=None, column=None, text=None):
-        """
-        :param Buffer buffer:
-        """
-        if buffer:
-            self.line = buffer.line
-            self.column = buffer.column
-            self.set_value(buffer.pop())
-        else:
-            self.line = line
-            self.column = column
-            self.set_value(text)
+    def __init__(self, line, column, text=None):
+        self.line = line
+        self.column = column
+        self.set_value(text)
 
     def __repr__(self):
         if self.value is None:
@@ -48,11 +41,27 @@ class Token(object):
         self.value = value
 
 
-class BlockEntry(Token):
+class StreamStartToken(Token):
     pass
 
 
-class Scalar(Token):
+class StreamEndToken(Token):
+    pass
+
+
+class BlockSequenceStartToken(Token):
+    pass
+
+
+class BlockEndToken(Token):
+    pass
+
+
+class BlockEntryToken(Token):
+    pass
+
+
+class ScalarToken(Token):
     def set_value(self, value):
         """
         :param str value:
@@ -92,57 +101,20 @@ class Scalar(Token):
             self.value = float(self.value)
 
 
-class Directive(Token):
+class DirectiveToken(Token):
     pass
 
 
-class Comment(Token):
+class CommentToken(Token):
     pass
 
 
-class Key(Scalar):
+class KeyToken(ScalarToken):
     pass
 
 
-class Document(Token):
+class DocumentToken(Token):
     pass
-
-
-class Buffer:
-
-    line = 0  # type: int # Line number where buffer starts
-    column = 0  # type: int # Column number where buffer starts
-    stream = None
-
-    def __bool__(self):
-        return bool(self.stream)
-
-    def __repr__(self):
-        if self.stream is None:
-            return "%s,%s" % (self.line, self.column)
-        text = self.stream.getvalue()
-        if len(text) > 128:
-            text = len(text)
-        return "%s,%s %s" % (self.line, self.column, text)
-
-    def pop(self):
-        if self.stream is None:
-            return None
-        text = self.stream.getvalue()
-        self.stream = None
-        return text
-
-    def add(self, scanner):
-        """
-        :param Scanner scanner: Associated scanner
-        """
-        if self.stream is None:
-            if scanner.current == " " or scanner.current == "\n":
-                return
-            self.line = scanner.line
-            self.column = scanner.column
-            self.stream = StringIO()
-        self.stream.write(scanner.current)
 
 
 class KeyStack:
@@ -166,103 +138,172 @@ class KeyStack:
             self.current = None
 
 
+class LexToken:
+
+    __slots__ = ["column", "line", "start", "end", "value"]
+
+    def __init__(self, parent, value=None):
+        """
+        :param Scanner parent:
+        """
+        self.column = parent.column
+        self.end = None
+        self.line = parent.line
+        self.start = parent.pos
+        self.value = value
+
+
 class Scanner:
 
-    stream = None  # type: open # Stream being read
-    buffer = None
-    current = None  # type: chr # Current char
-    prev = None  # type: chr # Previously read char
-    prev2 = None  # type: chr # We track the prev 2 characters
-    line = 0  # type: int # Current line number
-    column = 0  # type: int # Current column number
-    stack = None
+    def scan1(self):
+        pos = 0
+        buffer = self.buffer
+        size = self.size
+        column = 1
+        line = 1
+        while pos < size:
+            current = buffer[pos]
+            if current == "\n":
+                line += 1
+                column = 1
+            else:
+                column += 1
+            pos += 1
 
-    def __init__(self, stream):
-        self.stream = stream
+    def scan2(self):
+        while self.pos < self.size:
+            self.advance()
 
-    def __repr__(self):
-        return "%s,%s %s" % (self.line, self.column, self.current)
+    def lexemes(self):
+        anchor = 0
+        self.skip_whitespace()
 
-    def pop(self, consume_until=None):
-        if consume_until:
-            while True:
-                self.next_char()
-                if not self.current:
-                    break
-                if self.current in consume_until:
-                    break
-                self.consume_current()
-        return self.buffer.pop()
+        while self.pos < self.size:
+            if self.current == "#":
+                token = LexToken(self)
+                self.find_eol()
+                token.end = self.pos
+                token.value = self.buffer[token.start:token.end].strip()
+                yield token
+                self.skip_whitespace()
 
-    def consume_current(self):
-        self.buffer.add(self)
+            elif self.column == 3 and (self.current == "-" or self.current == ".") and self.prev == self.prev2 == self.current:
+                # yield DocumentToken(line, column, buffer[start:pos])
+                token = LexToken(self)
+                anchor = self.pos
 
-    def next_char(self):
-        self.prev2 = self.prev
-        self.prev = self.current
-        if self.prev == "\n":
-            self.line += 1
-            self.column = 0
-        self.column += 1
-        self.current = self.stream.read(1)
+            elif self.current == " " or self.current == "\n":
+                if self.prev == ":":
+                    # yield KeyToken(line, column, buffer[start:pos])
+                    anchor = self.pos
+
+                elif self.prev == "-":
+                    # yield BlockEntryToken(line, column, buffer[start:pos])
+                    anchor = self.pos
+
+            elif self.current == "\n":
+                if anchor < self.pos:
+                    # yield ScalarToken(line, column, buffer[start:pos])
+                    anchor = self.pos
+
+            else:
+                self.advance()
+
+    def pop(self, consume_until, buffer, size, start):
+        pos = start
+        lines = 0
+        while pos < size:
+            current = buffer[pos]
+            pos += 1
+            if current == "\n":
+                lines += 1
+            if current in consume_until:
+                break
+        return buffer[start:pos], pos, lines
+
+    def next_lexeme(self, buffer, size, start):
+        pos = start
+        lines = 1
+        while pos < size:
+            current = buffer[pos]
+            pos += 1
+            if current == "\n":
+                lines += 1
+            if current == "#":
+                return self.pop("\n", buffer, size, pos)
+            if current == "'":
+                return self.pop("'\n", buffer, size, pos)
+            if current == '"':
+                return self.pop('"\n', buffer, size, pos)
 
     def tokens(self, comments=False):
-        self.buffer = Buffer()
-        self.line = 1
-        self.column = 0
-        while True:
-            self.next_char()
-            if not self.current:
-                break
+        if hasattr(self.source, "read"):
+            buffer = self.source.read()
 
-            if self.column == 1:
-                if self.current == "%":
-                    if self.buffer:
-                        yield Scalar(self.buffer)
-                    yield Directive(line=self.line, column=self.column, text=self.pop("#\n"))
-                    continue
+        else:
+            buffer = self.source
 
-                if self.current == "#":
-                    if self.buffer:
-                        yield Scalar(self.buffer)
-                    text = self.pop("\n")
-                    if comments:
-                        yield Comment(line=self.line, column=self.column, text=text)
-                    continue
+        yield StreamStartToken(1, 1)
+        size = len(buffer)
+        text, pos, lines = self.next_lexeme(buffer, size, 0)
+        while text is not None:
+            text, pos, lines = self.next_lexeme(buffer, size, pos)
 
-            if self.column == 3 and (self.current == "-" or self.current == "."):
-                if self.prev == self.current and self.prev2 == self.current:
-                    yield Document(self.buffer)
-                    continue
+        start = 0
+        pos = -1
+        line = 1
+        column = 0
+        prev2 = prev = None
+        skip_to = None
 
-            if self.current == " " or self.current == "\n":
-                if self.prev == ":":
-                    if self.buffer:
-                        yield Key(self.buffer)
-                    continue
+        for current in buffer:
+            pos += 1
+            if prev == "\n":
+                line += 1
+                column = 1
 
-            if self.current == " ":
-                if self.prev == "-":
-                    yield BlockEntry(self.buffer)
-                    continue
+            else:
+                column += 1
 
-                if self.current == "#":
-                    if self.buffer:
-                        yield Scalar(self.buffer)
-                    text = self.pop("\n")
-                    if comments:
-                        yield Comment(line=self.line, column=self.column, text=text)
-                    continue
-
-            if self.current == "\n":
-                if self.buffer:
-                    yield Scalar(self.buffer)
+            if skip_to is not None and current != skip_to:
                 continue
 
-            self.consume_current()
+            if column == 1:
+                if current == "#":
+                    if start < pos:
+                        yield ScalarToken(line, column, buffer[start:pos])
+                        start = pos
+                    skip_to = "\n"
+                    text, pos = self.pop("\n", buffer, pos)
+                    # if comments:
+                    #     yield CommentToken(line, column, text)
 
-        if self.buffer:
-            yield Scalar(self.buffer)
+            elif column == 3 and (current == "-" or current == ".") and prev == prev2 == current:
+                yield DocumentToken(line, column, buffer[start:pos])
+                start = pos
+
+            elif current == " " or current == "\n":
+                if prev == ":":
+                    yield KeyToken(line, column, buffer[start:pos])
+                    start = pos
+
+            elif current == " ":
+                if prev == "-":
+                    yield BlockEntryToken(line, column, buffer[start:pos])
+                    start = pos
+
+            elif self.current == "\n":
+                if start < pos:
+                    yield ScalarToken(line, column, buffer[start:pos])
+                    start = pos
+
+            prev2 = prev
+            prev = current
+
+        yield StreamEndToken(line, column)
+
+        if start < pos:
+            yield ScalarToken(line, column, buffer[start:pos])
 
 
 class Parser:
@@ -280,7 +321,7 @@ def load(stream):
     keys = KeyStack()
     for token in scanner.tokens():
         tokens.append(token)
-        if isinstance(token, Key):
+        if isinstance(token, KeyToken):
             while keys.current and token.column <= keys.current.column:
                 keys.pop()
             if keys.current:
@@ -296,7 +337,8 @@ def load(stream):
             keys.add(token)
             keys.current.target = current
             continue
-        if isinstance(token, Scalar):
+
+        if isinstance(token, ScalarToken):
             if keys.current:
                 target = keys.current.target
                 if isinstance(target, dict):
@@ -304,8 +346,10 @@ def load(stream):
                 else:
                     target.append(token.value)
             continue
-        if isinstance(token, BlockEntry):
+
+        if isinstance(token, BlockEntryToken):
             if not keys.current:
                 continue
             keys.current.target = []
+
     return root
