@@ -1,3 +1,13 @@
+
+# c1
+- ::vector
+- ": - ()"
+- Up, up, and away!
+- -123
+- http://example.com/foo#bar
+
+---
+- yo: b
 # comment1
 - Mark McGwire   # foo
 # comment 2
@@ -5,8 +15,10 @@
   - Sammy Sosa
   - Ken Griffey
 
+- baz: { hello: world}
+
 - bar: {
-  "avg": 0.278,
+   "avg": 0.278,
   "hr": 65,
   "rbi": 147
 }
