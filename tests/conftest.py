@@ -271,9 +271,14 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if command == "show":
-        docs = zyaml.load_path(get_sample(args))
+        path = get_sample(args)
+        docs = zyaml.load_path(path)
         docs = json_sanitized(docs)
-        print(json.dumps(docs, sort_keys=True, indent=2))
+        print("-- zyaml:\n%s" % (json.dumps(docs, sort_keys=True, indent=2)))
+
+        docs = load_ruamel(path)
+        docs = json_sanitized(docs)
+        print("\n-- ruamel:\n%s" % (json.dumps(docs, sort_keys=True, indent=2)))
         sys.exit(0)
 
     if command == "tokens":
