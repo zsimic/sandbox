@@ -248,8 +248,22 @@ def yaml_tokens(buffer, comments=True):
         print("--> scanner error: %s" % e)
 
 
-def get_sample(args):
-    return args[0] if args else os.path.join(os.path.dirname(__file__), "samples/misc.yml")
+def get_sample(*args):
+    if not args:
+        yield os.path.join(SAMPLE_FOLDER, "misc.yml")
+        return
+
+    for path in args:
+        if not os.path.exists(path) and not os.path.isabs(path):
+            path = os.path.join(SAMPLE_FOLDER, path)
+        if os.path.isdir(path):
+            for fname in os.listdir(path):
+                if fname.endswith(".yml"):
+                    yield os.path.join(path, fname)
+            return
+        if not os.path.exists(path) and os.path.exists("%s.yml" % path):
+            path += ".yml"
+        yield path
 
 
 if __name__ == "__main__":
@@ -271,30 +285,32 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if command == "show":
-        path = get_sample(args)
-        docs = zyaml.load_path(path)
-        docs = json_sanitized(docs)
-        print("-- zyaml:\n%s" % (json.dumps(docs, sort_keys=True, indent=2)))
+        for path in get_sample(*args):
+            print("-- %s" % path)
+            docs = zyaml.load_path(path)
+            docs = json_sanitized(docs)
+            print("-- zyaml:\n%s" % (json.dumps(docs, sort_keys=True, indent=2)))
 
-        docs = load_ruamel(path)
-        docs = json_sanitized(docs)
-        print("\n-- ruamel:\n%s" % (json.dumps(docs, sort_keys=True, indent=2)))
+            docs = load_ruamel(path)
+            docs = json_sanitized(docs)
+            print("\n-- ruamel:\n%s" % (json.dumps(docs, sort_keys=True, indent=2)))
         sys.exit(0)
 
     if command == "tokens":
-        path = get_sample(args)
-        with open(path) as fh:
-            ztokens = list(zyaml.scan_tokens(fh.read()))
+        for path in get_sample(*args):
+            print("-- %s" % path)
+            with open(path) as fh:
+                ztokens = list(zyaml.scan_tokens(fh.read()))
 
-        with open(path) as fh:
-            ytokens = list(yaml_tokens(fh.read()))
+            with open(path) as fh:
+                ytokens = list(yaml_tokens(fh.read()))
 
-        print("-- %s:" % path)
-        print("\n-- zyaml tokens")
-        print("\n".join(str(s) for s in ztokens))
-        print("\n\n-- yaml tokens")
-        print("\n".join(str(s) for s in ytokens))
-        print("\n")
+            print("-- %s:" % path)
+            print("\n-- zyaml tokens")
+            print("\n".join(str(s) for s in ztokens))
+            print("\n\n-- yaml tokens")
+            print("\n".join(str(s) for s in ytokens))
+            print("\n")
         sys.exit(0)
 
     sys.exit("Unknown command %s" % command)

@@ -1,5 +1,6 @@
 import codecs
 import re
+from collections import deque
 
 
 NULL = "null"
@@ -53,6 +54,11 @@ class Token(object):
     def name(self):
         return self.__class__.__name__
 
+    def process(self, stack):
+        """
+        :param ParserStack stack:
+        """
+
 
 class DocumentStartToken(Token):
     pass
@@ -63,7 +69,10 @@ class DocumentEndToken(Token):
 
 
 class BlockEntryToken(Token):
-    pass
+    def process(self, stack):
+        if not stack.top:
+            return
+        stack.top.target = []
 
 
 class CommentToken(Token):
@@ -78,6 +87,59 @@ class ScalarToken(Token):
 
     def name(self):
         return "KeyToken" if self.is_key else self.__class__.__name__
+
+    def process(self, stack):
+        if self.is_key:
+            stack.unwind(self.column)
+            if stack.top:
+                if self.column > stack.top.column:
+                    target = stack.top.target
+                    stack.current = {}
+                    if isinstance(target, dict):
+                        target[stack.top.value] = stack.current
+                    else:
+                        target.append(self.value)
+            else:
+                stack.current = stack.root
+            stack.push(self)
+            stack.top.target = stack.current
+            return
+
+        if stack.top:
+            target = stack.top.target
+            if isinstance(target, dict):
+                target[stack.top.value] = self.value
+            else:
+                target.append(self.value)
+
+
+class ParserStack:
+    def __init__(self):
+        self.root = {}
+        self.current = None
+        self.top = None
+        self.items = deque()
+
+    def push(self, token):
+        """
+        :param Token token:
+        """
+        self.top = token
+        self.items.append(token)
+
+    def pop(self):
+        self.top = self.items.pop() if self.items else None
+        return self.top
+
+    def unwind(self, column):
+        while self.top and column <= self.top.column:
+            self.pop()
+
+    def process(self, token):
+        """
+        :param Token token: Token to process
+        """
+        return token.process(self)
 
 
 class Processor:
