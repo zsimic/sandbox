@@ -49,10 +49,13 @@ class Token(object):
             if self.line:
                 return "%s[%s,%s]" % (self.name(), self.line, self.column)
             return self.name()
-        return "%s[%s,%s] %s" % (self.name(), self.line, self.column, self.value)
+        return "%s[%s,%s] %s" % (self.name(), self.line, self.column, self.represented_value())
 
     def name(self):
         return self.__class__.__name__
+
+    def represented_value(self):
+        return str(self.value)
 
     def process(self, stack):
         """
@@ -60,11 +63,31 @@ class Token(object):
         """
 
 
+class StreamStartToken(Token):
+    pass
+
+
+class StreamEndToken(Token):
+    pass
+
+
 class DocumentStartToken(Token):
     pass
 
 
 class DocumentEndToken(Token):
+    pass
+
+
+class FlowMappingStartToken(Token):
+    pass
+
+
+class FlowMappingEndToken(Token):
+    pass
+
+
+class FlowEntryToken(Token):
     pass
 
 
@@ -81,12 +104,20 @@ class CommentToken(Token):
 
 class ScalarToken(Token):
 
-    def __init__(self, line, column, text=None):
+    def __init__(self, line, column, text=None, style=None):
         super(ScalarToken, self).__init__(line, column, text)
+        self.style = style
         self.is_key = False
 
     def name(self):
         return "KeyToken" if self.is_key else self.__class__.__name__
+
+    def represented_value(self):
+        if self.style is None:
+            return str(self.value)
+        if self.style == '"':
+            return '"%s"' % self.value
+        return "'%s'" % self.value
 
     def process(self, stack):
         if self.is_key:
@@ -171,7 +202,7 @@ class CommentProcessor(Processor):
 class FlowProcessor(Processor):
     def __init__(self, buffer, line, column, pos, current):
         super(FlowProcessor, self).__init__(buffer, line, column, pos, current)
-        self.tokens = []
+        self.tokens = [FlowMappingStartToken(line, column)]  # type: list[Token]
         self.subprocessor = None
         self.simple_key = None
         self.ender = "}" if self.current == "{" else "]"
@@ -190,6 +221,7 @@ class FlowProcessor(Processor):
 
         elif current == self.ender:
             self.consume_simple_key(pos)
+            self.tokens.append(FlowMappingEndToken(line, column))
             return self.tokens
 
         elif self.simple_key is None:
@@ -205,6 +237,7 @@ class FlowProcessor(Processor):
 
         elif current == ",":
             self.consume_simple_key(pos)
+            self.tokens.append(FlowEntryToken(line, column))
 
 
 class DoubleQuoteProcessor(Processor):
@@ -212,14 +245,14 @@ class DoubleQuoteProcessor(Processor):
         if current == '"' and prev != "\\":
             text = self.buffer[self.pos + 1:pos]
             text = codecs.decode(text, "unicode_escape")
-            return ScalarToken(line, column, text)
+            return ScalarToken(line, column, text, style='"')
 
 
 class SingleQuoteProcessor(Processor):
     def __call__(self, line, column, pos, prev, current, next):
         if current == "'" and prev != "'" and next != "'":
             text = self.buffer[self.pos + 1:pos].replace("''", "'")
-            return ScalarToken(line, column, text)
+            return ScalarToken(line, column, text, style="'")
 
 
 class ParseError(Exception):
@@ -249,7 +282,7 @@ def get_processor(buffer, line, column, pos, prev, current, next):
 def massaged_key(buffer, key, pos, is_key=False):
     key.value = buffer[key.value:pos].strip()
     key.is_key = is_key
-    if not is_key:
+    if not is_key and key.style is None:
         key.value = parsed_value(key.value)
     return key
 
@@ -260,6 +293,7 @@ def scan_tokens(buffer):
     pos = -1
     prev = processor = simple_key = None
     current = " "
+    yield StreamStartToken(line, column)
 
     for next in buffer:
         if processor is not None:
@@ -327,3 +361,5 @@ def scan_tokens(buffer):
 
     elif simple_key is not None:
         yield massaged_key(buffer, simple_key, pos)
+
+    yield StreamEndToken(line, column)

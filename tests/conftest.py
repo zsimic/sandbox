@@ -286,7 +286,7 @@ if __name__ == "__main__":
 
     if command == "show":
         for path in get_sample(*args):
-            print("-- %s" % path)
+            print("-- %s:" % path)
             docs = zyaml.load_path(path)
             docs = json_sanitized(docs)
             print("-- zyaml:\n%s" % (json.dumps(docs, sort_keys=True, indent=2)))
@@ -298,14 +298,13 @@ if __name__ == "__main__":
 
     if command == "tokens":
         for path in get_sample(*args):
-            print("-- %s" % path)
+            print("-- %s:" % path)
             with open(path) as fh:
                 ztokens = list(zyaml.scan_tokens(fh.read()))
 
             with open(path) as fh:
                 ytokens = list(yaml_tokens(fh.read()))
 
-            print("-- %s:" % path)
             print("\n-- zyaml tokens")
             print("\n".join(str(s) for s in ztokens))
             print("\n\n-- yaml tokens")
