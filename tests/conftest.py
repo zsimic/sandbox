@@ -257,22 +257,25 @@ def auto_completed_filename(folder, path):
 
 def auto_complete(path):
     if not os.path.exists(path) and not os.path.isabs(path):
+        if path == os.path.basename(SAMPLE_FOLDER):
+            return SAMPLE_FOLDER
         alt_path = auto_completed_filename(SAMPLE_FOLDER, path)
         if os.path.exists(alt_path):
             return alt_path
         for fname in os.listdir(SAMPLE_FOLDER):
             folder = os.path.join(SAMPLE_FOLDER, fname)
             if os.path.isdir(folder):
+                if fname == path:
+                    return folder
                 alt_path = auto_completed_filename(folder, path)
                 if os.path.exists(alt_path):
                     return alt_path
     return path
 
 
-def get_sample(*args):
+def get_sample(args, default="misc.yml"):
     if not args:
-        yield os.path.join(SAMPLE_FOLDER, "misc.yml")
-        return
+        args = [auto_complete(default)]
 
     for path in args:
         path = auto_complete(path)
@@ -298,6 +301,7 @@ def show_jsonified(func, path):
         docs = func(path)
         docs = json_sanitized(docs)
         print("-- %s:\n%s" % (name, json.dumps(docs, sort_keys=True, indent=2)))
+        return docs
 
     except Exception as e:
         print("-- %s:\n%s" % (name, e))
@@ -321,15 +325,40 @@ if __name__ == "__main__":
             s.refresh()
         sys.exit(0)
 
+    if command == "match":
+        for path in get_sample(args, default="samples"):
+            try:
+                zdoc = zyaml.load_path(path)
+            except Exception:
+                zdoc = None
+
+            try:
+                rdoc = load_ruamel(path)
+            except Exception:
+                rdoc = None
+
+            if zdoc is None or rdoc is None:
+                if zdoc is None and rdoc is None:
+                    match = "invalid"
+                else:
+                    match = "%s %s  " % (" " if zdoc else "zF", " " if rdoc else "rF")
+            elif zdoc == rdoc:
+                match = "match "
+            else:
+                match = "diff  "
+            print("%s %s" % (match, os.path.basename(path)))
+        sys.exit(0)
+
     if command == "show":
-        for path in get_sample(*args):
+        for path in get_sample(args):
             print("-- %s:" % path)
-            show_jsonified(zyaml.load_path, path)
-            show_jsonified(load_ruamel, path)
+            zdoc = show_jsonified(zyaml.load_path, path)
+            rdoc = show_jsonified(load_ruamel, path)
+            print("\nmatch: %s" % (zdoc == rdoc))
         sys.exit(0)
 
     if command == "tokens":
-        for path in get_sample(*args):
+        for path in get_sample(args):
             print("-- %s:" % path)
             with open(path) as fh:
                 ztokens = list(zyaml.scan_tokens(fh.read()))

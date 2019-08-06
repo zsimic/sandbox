@@ -1,4 +1,5 @@
-{a: b, c: [
+- {a: b, c: [
 x,  # foo
-d: a, e: f
+{d: e}, g: h
 ]}
+- foo

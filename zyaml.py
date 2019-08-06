@@ -62,9 +62,9 @@ class Token(object):
     def represented_value(self):
         return str(self.value)
 
-    def _visit(self, stack):
+    def _process(self, root):
         """
-        :param ParserStack stack: Process this token on given 'stack' (using visitor pattern)
+        :param RootNode root: Process this token on given 'root' node
         """
 
 
@@ -73,33 +73,33 @@ class StreamStartToken(Token):
 
 
 class StreamEndToken(Token):
-    def _visit(self, stack):
-        stack.pop_doc()
+    def _process(self, root):
+        root.pop_doc()
 
 
 class DocumentStartToken(Token):
-    def _visit(self, stack):
-        stack.pop_doc()
+    def _process(self, root):
+        root.pop_doc()
 
 
 class DocumentEndToken(Token):
-    def _visit(self, stack):
-        stack.pop_doc()
+    def _process(self, root):
+        root.pop_doc()
 
 
 class FlowMappingStartToken(Token):
-    def _visit(self, stack):
-        stack.push_target(None, {})
+    def _process(self, root):
+        root.push(MapNode(None))
 
 
 class FlowSequenceStartToken(Token):
-    def _visit(self, stack):
-        stack.push_target(None, [])
+    def _process(self, root):
+        root.push(ListNode(None))
 
 
 class FlowEndToken(Token):
-    def _visit(self, stack):
-        stack.pop()
+    def _process(self, root):
+        root.pop()
 
 
 class FlowEntryToken(Token):
@@ -107,9 +107,8 @@ class FlowEntryToken(Token):
 
 
 class BlockEntryToken(Token):
-    def _visit(self, stack):
-        if stack.top is None or not isinstance(stack.top.target, list):
-            stack.push_target(self.column, [])
+    def _process(self, root):
+        root.ensure_node(self.column + 1, ListNode)
 
 
 class CommentToken(Token):
@@ -133,121 +132,160 @@ class ScalarToken(Token):
             return '"%s"' % self.value
         return "'%s'" % self.value
 
-    def _visit(self, stack):
-        stack.push_scalar(self.column, self.value, self.is_key)
+    def _process(self, root):
+        if self.is_key:
+            root.push_key(self.column, self.value)
+        else:
+            root.push_value(self.column, self.value)
 
 
-class ValueContainer:
-    def __init__(self, indent, target):
+class ParseNode:
+    def __init__(self, indent):
         self.indent = indent
-        self.target = target
-        self.last_key = None
+        self.prev = None
+        self.is_map = False
+        self.is_temp = False
+        self.target = self._get_target()
 
     def __repr__(self):
-        if self.target is None:
-            result = "undetermined"
-        elif isinstance(self.target, list):
-            result = "list"
-        elif isinstance(self.target, dict):
-            result = "map"
-        else:
-            result = "str"
-        return "%s, indent: %s" % (result, "flow" if self.indent is None else self.indent)
+        result = "%s%s%s" % (self.__class__.__name__[0], "" if self.indent is None else self.indent, "*" if self.is_temp else "")
+        if self.prev:
+            result = "%s / %s" % (result, self.prev)
+        return result
 
-    @property
-    def is_list(self):
-        return isinstance(self.target, list)
-
-    @property
-    def is_map(self):
-        return isinstance(self.target, dict)
+    def _get_target(self):
+        pass
 
     def set_key(self, key):
-        if not isinstance(self.target, dict):
-            raise ParseError("Key not allowed here")
+        raise ParseError("Key not allowed here")
+
+    def set_value(self, value):
+        pass
+
+
+class ListNode(ParseNode):
+    def _get_target(self):
+        return []
+
+    def set_value(self, value):
+        self.target.append(value)
+
+
+class MapNode(ParseNode):
+    def __init__(self, indent):
+        super(MapNode, self).__init__(indent)
+        self.is_map = True
+        self.last_key = None
+
+    def _get_target(self):
+        return {}
+
+    def set_key(self, key):
         if self.last_key is not None:
-            raise ParseError("Previous key '%s' was not used" % self.last_key)
+            self.target[self.last_key] = None
         self.last_key = key
 
     def set_value(self, value):
-        if isinstance(self.target, dict):
-            if self.last_key is None:
-                raise ParseError("No key for specified value")
-            self.target[self.last_key] = value
-            self.last_key = None
+        if self.last_key is None:
+            raise ParseError("No key for specified value")
+        self.target[self.last_key] = value
+        self.last_key = None
 
-        elif isinstance(self.target, list):
-            self.target.append(value)
 
-        else:
+class ScalarNode(ParseNode):
+    def _get_target(self):
+        return ""
+
+    def set_value(self, value):
+        if self.target:
             self.target = "%s %s" % (self.target, value)
-
-
-class ParserStack:
-    def __init__(self):
-        self.docs = []
-        self.top = None  # type: ValueContainer
-        self.stack = deque()
-
-    def push_target(self, indent,  target):
-        self.push(ValueContainer(indent, target))
-
-    def push_scalar(self, indent, value, is_key):
-        if is_key:
-            if self.top is None or not self.top.is_map:
-                self.push(ValueContainer(indent, {}))
-        if self.top is None:
-            self.push(ValueContainer(indent, ""))
-        if is_key:
-            self.top.set_key(value)
         else:
-            self.top.set_value(value)
+            self.target = value
 
-    def push(self, container):
+
+class RootNode(ListNode):
+    def __init__(self):
+        super(RootNode, self).__init__(0)
+        self.head = None  # type: ParseNode | None
+
+    def __repr__(self):
+        return str(self.head or "/")
+
+    def needs_new_node(self, indent, type):
+        if self.head is None:
+            return True
+        if self.head.__class__ is not type:
+            return True
+        if indent is None:
+            return self.head.indent is not None
+        if self.head.indent is None:
+            return False
+        return indent > self.head.indent
+
+    def needs_pop(self, indent, type):
+        if indent is None or self.head is None or self.head.indent is None:
+            return False
+        # if self.head.indent == indent:
+        #     return self.head.__class__ is not type
+        return self.head.indent > indent
+
+    def ensure_node(self, indent, type):
+        while self.needs_pop(indent, type):
+            self.pop()
+        if self.needs_new_node(indent, type):
+            self.push(type(indent))
+
+    def push_key(self, indent, key):
+        self.ensure_node(indent, MapNode)
+        self.head.set_key(key)
+
+    def push_value(self, indent, value):
+        if self.head is None:
+            self.push(ScalarNode(indent))
+        self.head.set_value(value)
+        if self.head.is_temp:
+            self.pop()
+
+    def push(self, node):
         """
-        :param ValueContainer container:
+        :param ParseNode node:
         """
-        if self.top and self.top.indent:
-            while container.indent < self.top.indent:
-                self.pop(next=container)
-        self.top = container
-        self.stack.append(container)
+        if self.head:
+            if self.head.indent is None:
+                node.is_temp = node.indent is not None
+            elif node.indent is not None:
+                while node.indent < self.head.indent:
+                    self.pop()
+        node.prev = self.head
+        self.head = node
 
-    def pop_until(self, indent):
-        pass
-
-    def pop(self, next=None):
-        popped = self.stack.pop()
-        if popped.last_key is not None:
-            if next is None:
-                popped.set_value(next)
-            else:
-                raise ParseError("Key '%s' was not used" % popped.last_key)
-        self.top = self.stack[-1] if self.stack else None
-        if popped and self.top:
-            self.top.set_value(popped.target)
+    def pop(self):
+        popped = self.head
+        self.head = popped.prev
+        if popped and self.head:
+            self.head.set_value(popped.target)
         return popped
 
     def pop_doc(self):
         prev = None
-        while self.top:
-            prev = self.top
+        while self.head:
+            prev = self.head
             self.pop()
-        self.docs.append(prev.target if prev else None)
+        self.target.append(prev.target if prev else None)
 
     def deserialized(self, tokens):
         token = None
         try:
             for token in tokens:
-                token._visit(self)
-            return simplified(self.docs)
+                token._process(self)
+            return simplified(self.target)
 
         except ParseError as error:
             error.near = token
             raise
 
 
-class Processor:
+class Tokenizer:
     def __init__(self, settings, line, column, pos, current):
         self.settings = settings  # type: ScanSettings
         self.line = line  # type: int
@@ -266,7 +304,7 @@ class Processor:
         return None
 
 
-class CommentProcessor(Processor):
+class CommentTokenizer(Tokenizer):
 
     @classmethod
     def is_applicable(cls, line, column, pos, prev, current, next):
@@ -276,19 +314,19 @@ class CommentProcessor(Processor):
         if current == "\n":
             if not self.settings.yield_comments:
                 return []
-            return CommentToken(self.line, self.column, self.contents(self.pos, pos).strip())
+            return [CommentToken(self.line, self.column, self.contents(self.pos, pos).strip())]
 
 
-class FlowProcessor(Processor):
+class FlowTokenizer(Tokenizer):
     def __init__(self, settings, line, column, pos, current):
-        super(FlowProcessor, self).__init__(settings, line, column, pos, current)
+        super(FlowTokenizer, self).__init__(settings, line, column, pos, current)
         if current == "{":
             self.end_char = "}"
             self.tokens = [FlowMappingStartToken(line, column)]
         else:
             self.end_char = "]"
             self.tokens = [FlowSequenceStartToken(line, column)]
-        self.subprocessor = None
+        self.subtokenizer = None
         self.simple_key = None
 
     def consume_simple_key(self, pos, is_key=False):
@@ -297,14 +335,11 @@ class FlowProcessor(Processor):
             self.simple_key = None
 
     def __call__(self, line, column, pos, prev, current, next):
-        if self.subprocessor is not None:
-            result = self.subprocessor(line, column, pos, prev, current, next)
+        if self.subtokenizer is not None:
+            result = self.subtokenizer(line, column, pos, prev, current, next)
             if result is not None:
-                self.subprocessor = None
-                if isinstance(result, list):
-                    self.tokens.extend(result)
-                else:
-                    self.tokens.append(result)
+                self.subtokenizer = None
+                self.tokens.extend(result)
 
         elif current == self.end_char:
             self.consume_simple_key(pos)
@@ -312,8 +347,11 @@ class FlowProcessor(Processor):
             return self.tokens
 
         elif self.simple_key is None:
-            if current in PROCESSORS:
-                self.subprocessor = get_processor(self.settings, line, column, pos, prev, current, next)
+            if current in TOKENIZERS:
+                self.subtokenizer = get_tokenizer(self.settings, line, column, pos, prev, current, next)
+
+            elif current == ",":
+                self.tokens.append(FlowEntryToken(line, column))
 
             elif current != ":" or next not in " \n":
                 self.simple_key = ScalarToken(line, column, pos)
@@ -327,19 +365,19 @@ class FlowProcessor(Processor):
             self.tokens.append(FlowEntryToken(line, column))
 
 
-class DoubleQuoteProcessor(Processor):
+class DoubleQuoteTokenizer(Tokenizer):
     def __call__(self, line, column, pos, prev, current, next):
         if current == '"' and prev != "\\":
             text = self.contents(self.pos + 1, pos)
             text = codecs.decode(text, "unicode_escape")
-            return ScalarToken(line, column, text, style='"')
+            return [ScalarToken(line, column, text, style='"')]
 
 
-class SingleQuoteProcessor(Processor):
+class SingleQuoteTokenizer(Tokenizer):
     def __call__(self, line, column, pos, prev, current, next):
         if current == "'" and prev != "'" and next != "'":
             text = self.contents(self.pos + 1, pos).replace("''", "'")
-            return ScalarToken(line, column, text, style="'")
+            return [ScalarToken(line, column, text, style="'")]
 
 
 class ParseError(Exception):
@@ -353,21 +391,21 @@ class ParseError(Exception):
         return "%s, line %s column %s" % (self.message, self.near.line, self.near.column)
 
 
-PROCESSORS = {
+TOKENIZERS = {
     " ": None,
     "\n": None,
-    "#": CommentProcessor,
-    "{": FlowProcessor,
-    "[": FlowProcessor,
-    '"': DoubleQuoteProcessor,
-    "'": SingleQuoteProcessor,
+    "#": CommentTokenizer,
+    "{": FlowTokenizer,
+    "[": FlowTokenizer,
+    '"': DoubleQuoteTokenizer,
+    "'": SingleQuoteTokenizer,
 }
 
 
-def get_processor(settings, line, column, pos, prev, current, next):
-    processor = PROCESSORS.get(current)
-    if processor is not None and processor.is_applicable(line, column, pos, prev, current, next):
-        return processor(settings, line, column, pos, current)
+def get_tokenizer(settings, line, column, pos, prev, current, next):
+    tokenizer = TOKENIZERS.get(current)
+    if tokenizer is not None and tokenizer.is_applicable(line, column, pos, prev, current, next):
+        return tokenizer(settings, line, column, pos, current)
 
 
 def massaged_key(settings, key, pos, is_key=False):
@@ -391,7 +429,7 @@ def scan_tokens(buffer, settings=None):
     line = 1
     column = 0
     pos = -1
-    prev = processor = simple_key = None
+    prev = tokenizer = simple_key = None
     current = " "
 
     if settings is None:
@@ -402,19 +440,16 @@ def scan_tokens(buffer, settings=None):
     yield StreamStartToken(line, column)
 
     for next in buffer:
-        if processor is not None:
-            result = processor(line, column, pos, prev, current, next)
+        if tokenizer is not None:
+            result = tokenizer(line, column, pos, prev, current, next)
             if result is not None:
-                processor = None
-                if isinstance(result, list):
-                    for token in result:
-                        yield token
-                else:
-                    yield result
+                for token in result:
+                    yield token
+                tokenizer = None
 
         elif simple_key is None:
-            if current in PROCESSORS:
-                processor = get_processor(settings, line, column, pos, prev, current, next)
+            if current in TOKENIZERS:
+                tokenizer = get_tokenizer(settings, line, column, pos, prev, current, next)
 
             elif current == "-" and next in " \n":
                 yield BlockEntryToken(line, column)
@@ -426,7 +461,7 @@ def scan_tokens(buffer, settings=None):
             if prev in " \n":
                 yield massaged_key(settings, simple_key, pos)
                 simple_key = None
-                processor = CommentProcessor(settings, line, column, pos, current)
+                tokenizer = CommentTokenizer(settings, line, column, pos, current)
 
         elif current == ":":
             if next in " \n":
@@ -456,14 +491,11 @@ def scan_tokens(buffer, settings=None):
         prev = current
         current = next
 
-    if processor is not None:
-        result = processor(line, column, pos, prev, current, None)
+    if tokenizer is not None:
+        result = tokenizer(line, column, pos, prev, current, None)
         if result is not None:
-            if isinstance(result, list):
-                for token in result:
-                    yield token
-            else:
-                yield result
+            for token in result:
+                yield token
 
     elif simple_key is not None:
         yield massaged_key(settings, simple_key, pos)
@@ -485,7 +517,7 @@ def load_string(contents, first_doc_only=False):
     :param str contents: Yaml to deserialize
     """
     settings = ScanSettings()
-    return ParserStack().deserialized(scan_tokens(contents))
+    return RootNode().deserialized(scan_tokens(contents))
 
 
 def load_path(path):
