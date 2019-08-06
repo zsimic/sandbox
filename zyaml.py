@@ -410,6 +410,11 @@ def get_tokenizer(settings, line, column, pos, prev, current, next):
 
 def massaged_key(settings, key, pos, is_key=False):
     key.value = settings.contents(key.value, pos).strip()
+    if key.column == 1:
+        if key.value == "---":
+            return DocumentStartToken(key.line, key.column)
+        if key.value == "...":
+            return DocumentEndToken(key.line, key.column)
     key.is_key = is_key
     if not is_key and key.style is None:
         key.value = parsed_value(key.value)
@@ -470,17 +475,8 @@ def scan_tokens(buffer, settings=None):
 
         if current == "\n":
             if simple_key is not None:
-                simple_key = massaged_key(settings, simple_key, pos)
-                if simple_key.column == 1:
-                    if simple_key.value == "---":
-                        yield DocumentStartToken(line, column)
-                        simple_key = None
-                    elif simple_key.value == "...":
-                        yield DocumentEndToken(line, column)
-                        simple_key = None
-                if simple_key is not None:
-                    yield simple_key
-                    simple_key = None
+                yield massaged_key(settings, simple_key, pos)
+                simple_key = None
             line += 1
             column = 1
 
