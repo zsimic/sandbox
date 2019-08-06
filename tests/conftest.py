@@ -285,8 +285,12 @@ def get_sample(*args):
 
 
 def show_jsonified(func, path):
+    """
+    :param callable func: Function to use to deserialize contents of 'path'
+    :param str path: Path to yaml file to deserialize
+    """
+    name = func.__name__
     try:
-        name = func.__name__
         if name == "load_path":
             name = "zyaml"
         else:

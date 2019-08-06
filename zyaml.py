@@ -152,7 +152,7 @@ class ValueContainer:
             result = "map"
         else:
             result = "str"
-        return "%s [%s]" % (result, "flow" if self.indent is None else self.indent)
+        return "%s, indent: %s" % (result, "flow" if self.indent is None else self.indent)
 
     @property
     def is_list(self):
@@ -207,19 +207,30 @@ class ParserStack:
         """
         :param ValueContainer container:
         """
+        if self.top and self.top.indent:
+            while container.indent < self.top.indent:
+                self.pop(next=container)
         self.top = container
         self.stack.append(container)
 
-    def pop(self):
+    def pop_until(self, indent):
+        pass
+
+    def pop(self, next=None):
         popped = self.stack.pop()
+        if popped.last_key is not None:
+            if next is None:
+                popped.set_value(next)
+            else:
+                raise ParseError("Key '%s' was not used" % popped.last_key)
         self.top = self.stack[-1] if self.stack else None
+        if popped and self.top:
+            self.top.set_value(popped.target)
         return popped
 
     def pop_doc(self):
         prev = None
         while self.top:
-            if prev:
-                self.top.set_value(prev.target)
             prev = self.top
             self.pop()
         self.docs.append(prev.target if prev else None)
@@ -335,6 +346,11 @@ class ParseError(Exception):
     def __init__(self, message):
         self.message = message
         self.near = None
+
+    def __str__(self):
+        if self.near is None:
+            return self.message
+        return "%s, line %s column %s" % (self.message, self.near.line, self.near.column)
 
 
 PROCESSORS = {
