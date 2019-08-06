@@ -17,6 +17,7 @@ import zyaml
 
 
 SAMPLE_FOLDER = os.path.join(os.path.dirname(__file__), "samples")
+SPEC_FOLDER = os.path.join(SAMPLE_FOLDER, "spec")
 
 
 def asis(value):
@@ -42,7 +43,7 @@ class Sample(object):
         self.basename = os.path.basename(path)
         self.name = self.basename.replace(".yml", "")
         self.folder = os.path.dirname(path)
-        self.expected_path = os.path.join(self.folder, "expected", "%s.json" % self.name)
+        self.expected_path = os.path.join(self.folder, "json", "%s.json" % self.name)
         self._expected = None
         self.path = path
 
@@ -87,9 +88,9 @@ class BenchmarkCollection(object):
     def __init__(self):
         self.available = []
         self.samples = []
-        for fname in os.listdir(SAMPLE_FOLDER):
+        for fname in os.listdir(SPEC_FOLDER):
             if fname.endswith(".yml"):
-                self.samples.append(Sample(os.path.join(SAMPLE_FOLDER, fname)))
+                self.samples.append(Sample(os.path.join(SPEC_FOLDER, fname)))
 
     def add(self, func):
         """
@@ -205,13 +206,13 @@ def load_strict(path):
         docs = strictyaml.load(fh.read())
         if len(docs) == 1:
             return docs[0]
-        return docs
+        return docs[0] if len(docs) == 1 else docs
 
 
 @BENCHMARKS.add
 def load_zyaml(path):
-    d = zyaml.load_path(path)
-    return d
+    docs = zyaml.load_path(path)
+    return docs
 
 
 def comments_between_tokens(token1, token2):
@@ -248,22 +249,54 @@ def yaml_tokens(buffer, comments=True):
         print("--> scanner error: %s" % e)
 
 
+def auto_completed_filename(folder, path):
+    if not path.endswith(".yml"):
+        path = path + ".yml"
+    return os.path.join(folder, path)
+
+
+def auto_complete(path):
+    if not os.path.exists(path) and not os.path.isabs(path):
+        alt_path = auto_completed_filename(SAMPLE_FOLDER, path)
+        if os.path.exists(alt_path):
+            return alt_path
+        for fname in os.listdir(SAMPLE_FOLDER):
+            folder = os.path.join(SAMPLE_FOLDER, fname)
+            if os.path.isdir(folder):
+                alt_path = auto_completed_filename(folder, path)
+                if os.path.exists(alt_path):
+                    return alt_path
+    return path
+
+
 def get_sample(*args):
     if not args:
         yield os.path.join(SAMPLE_FOLDER, "misc.yml")
         return
 
     for path in args:
-        if not os.path.exists(path) and not os.path.isabs(path):
-            path = os.path.join(SAMPLE_FOLDER, path)
+        path = auto_complete(path)
         if os.path.isdir(path):
             for fname in os.listdir(path):
                 if fname.endswith(".yml"):
                     yield os.path.join(path, fname)
             return
-        if not os.path.exists(path) and os.path.exists("%s.yml" % path):
-            path += ".yml"
         yield path
+
+
+def show_jsonified(func, path):
+    try:
+        name = func.__name__
+        if name == "load_path":
+            name = "zyaml"
+        else:
+            name = name.replace("load_", "")
+        docs = func(path)
+        docs = json_sanitized(docs)
+        print("-- %s:\n%s" % (name, json.dumps(docs, sort_keys=True, indent=2)))
+
+    except Exception as e:
+        print("-- %s:\n%s" % (name, e))
 
 
 if __name__ == "__main__":
@@ -287,13 +320,8 @@ if __name__ == "__main__":
     if command == "show":
         for path in get_sample(*args):
             print("-- %s:" % path)
-            docs = zyaml.load_path(path)
-            docs = json_sanitized(docs)
-            print("-- zyaml:\n%s" % (json.dumps(docs, sort_keys=True, indent=2)))
-
-            docs = load_ruamel(path)
-            docs = json_sanitized(docs)
-            print("\n-- ruamel:\n%s" % (json.dumps(docs, sort_keys=True, indent=2)))
+            show_jsonified(zyaml.load_path, path)
+            show_jsonified(load_ruamel, path)
         sys.exit(0)
 
     if command == "tokens":

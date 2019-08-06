@@ -1,31 +1,4 @@
-- yo: b
-# comment1
-- Mark McGwire   # foo
-# comment 2
-- foo:
-  - Sammy Sosa
-  - Ken Griffey
-
-- baz: { hello: world}
-
-- bar: {
-   "avg\"\\\n\t2": 0.278,
-  "hr": 65,
-  "rbi": 147
-}
-
----
-# c1
-- ::vector
-- ": - ()"
-- 'f''g'
-- Up, up, and away!
-- -123
-- http://example.com/foo#bar
-
----
-doc2
-...
-
----
-- doc3
+{a: b, c: [
+x,  # foo
+d: a, e: f
+]}

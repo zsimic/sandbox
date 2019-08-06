@@ -1,11 +1,7 @@
-def verify_sample(sample, benchmarks):
-    for impl in benchmarks.available:
-        value = impl.load_sanitized(sample.path, stringify=str)
-        assert sample.name != "zyaml" or value is not None
-        if value:
-            assert value == sample.expected
+import zyaml
 
 
-def test_samples(samples, benchmarks):
+def test_samples(samples):
     for sample in samples:
-        verify_sample(sample, benchmarks)
+        value = zyaml.load_path(sample.path)
+        assert value == sample.expected
