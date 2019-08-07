@@ -431,20 +431,32 @@ class ScanSettings:
 
 
 def scan_tokens(buffer, settings=None):
+    yield StreamStartToken(1, 1)
+    if not buffer:
+        yield StreamEndToken(1, 1)
+        return
+
+    if len(buffer) <= 2:
+        yield massaged_key(settings, ScalarToken(1, 1, 0), len(buffer))
+        yield StreamEndToken(1, len(buffer))
+        return
+
     line = 1
-    column = 0
-    pos = -1
+    column = 1
+    pos = 0
     prev = tokenizer = simple_key = None
-    current = " "
+    current = None
 
     if settings is None:
         settings = ScanSettings()
 
     settings._buffer = buffer
 
-    yield StreamStartToken(line, column)
-
     for next in buffer:
+        if current is None:
+            current = next
+            continue
+
         if tokenizer is not None:
             result = tokenizer(line, column, pos, prev, current, next)
             if result is not None:
@@ -487,6 +499,10 @@ def scan_tokens(buffer, settings=None):
         prev = current
         current = next
 
+    pos += 1
+    prev = current
+    current = next
+
     if tokenizer is not None:
         result = tokenizer(line, column, pos, prev, current, None)
         if result is not None:
@@ -508,11 +524,10 @@ def load(stream):
     return load_string(stream)
 
 
-def load_string(contents, first_doc_only=False):
+def load_string(contents):
     """
     :param str contents: Yaml to deserialize
     """
-    settings = ScanSettings()
     return RootNode().deserialized(scan_tokens(contents))
 
 

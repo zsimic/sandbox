@@ -349,6 +349,18 @@ if __name__ == "__main__":
             print("%s %s" % (match, os.path.basename(path)))
         sys.exit(0)
 
+    if command == "print":
+        for arg in args:
+            arg = arg.replace("\\n", "\n") + "\n"
+            zdoc = json_sanitized(zyaml.load_string(arg))
+            print("-- zdoc:\n%s" % zdoc)
+            yaml = YAML(typ="safe")
+            rdoc = list(yaml.load_all(arg))
+            if rdoc and len(rdoc) == 1:
+                rdoc = rdoc[0]
+            print("-- ruamel:\n%s" % rdoc)
+        sys.exit(0)
+
     if command == "show":
         for path in get_sample(args):
             print("-- %s:" % path)
