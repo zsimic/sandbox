@@ -1,6 +1,5 @@
 import codecs
 import re
-from collections import deque
 
 
 NULL = "null"
@@ -62,7 +61,7 @@ class Token(object):
     def represented_value(self):
         return str(self.value)
 
-    def _process(self, root):
+    def consume_token(self, root):
         """
         :param RootNode root: Process this token on given 'root' node
         """
@@ -73,42 +72,42 @@ class StreamStartToken(Token):
 
 
 class StreamEndToken(Token):
-    def _process(self, root):
+    def consume_token(self, root):
         root.pop_doc()
 
 
 class DocumentStartToken(Token):
-    def _process(self, root):
+    def consume_token(self, root):
         root.pop_doc()
 
 
 class DocumentEndToken(Token):
-    def _process(self, root):
+    def consume_token(self, root):
         root.pop_doc()
 
 
 class FlowMappingStartToken(Token):
-    def _process(self, root):
+    def consume_token(self, root):
         root.push(MapNode(None))
 
 
 class FlowSequenceStartToken(Token):
-    def _process(self, root):
+    def consume_token(self, root):
         root.push(ListNode(None))
 
 
 class FlowEndToken(Token):
-    def _process(self, root):
+    def consume_token(self, root):
         root.pop()
 
 
 class FlowEntryToken(Token):
-    def _process(self, root):
+    def consume_token(self, root):
         root.auto_apply()
 
 
 class BlockEntryToken(Token):
-    def _process(self, root):
+    def consume_token(self, root):
         root.ensure_node(self.column + 1, ListNode)
 
 
@@ -135,7 +134,7 @@ class ScalarToken(Token):
             return "'%s'" % self.value
         return "%s %s" % (self.style, self.value)
 
-    def _process(self, root):
+    def consume_token(self, root):
         if self.is_key:
             root.push_key(self.column, self.value)
         else:
@@ -228,8 +227,8 @@ class RootNode:
         if self.head:
             self.head.auto_apply()
 
-    def needs_new_node(self, indent, type):
-        if self.head is None or self.head.__class__ is not type:
+    def needs_new_node(self, indent, node_type):
+        if self.head is None or self.head.__class__ is not node_type:
             return True
         if indent is None:
             return self.head.indent is not None
@@ -242,11 +241,11 @@ class RootNode:
             return False
         return self.head.indent > indent
 
-    def ensure_node(self, indent, type):
+    def ensure_node(self, indent, node_type):
         while self.needs_pop(indent):
             self.pop()
-        if self.needs_new_node(indent, type):
-            self.push(type(indent))
+        if self.needs_new_node(indent, node_type):
+            self.push(node_type(indent))
         self.auto_apply()
 
     def push_key(self, indent, key):
@@ -294,7 +293,7 @@ class RootNode:
         token = None
         try:
             for token in tokens:
-                token._process(self)
+                token.consume_token(self)
             return simplified(self.docs)
 
         except ParseError as error:
@@ -305,32 +304,32 @@ class RootNode:
 
 
 class Tokenizer:
-    def __init__(self, settings, line, column, pos, current, next):
+    def __init__(self, settings, line, column, pos, current, upcoming):
         self.settings = settings  # type: ScanSettings
         self.line = line  # type: int
         self.column = column  # type: int
         self.pos = pos  # type: int
         self.current = current  # type: str
-        self.next = next  # type: str
+        self.upcoming = upcoming  # type: str
 
     @classmethod
-    def is_applicable(cls, line, column, pos, prev, current, next):
+    def is_applicable(cls, line, column, pos, prev, current, upcoming):
         return True
 
     def contents(self, start, end):
         return self.settings.contents(start, end)
 
-    def __call__(self, line, column, pos, prev, current, next):
+    def __call__(self, line, column, pos, prev, current, upcoming):
         return None
 
 
 class CommentTokenizer(Tokenizer):
 
     @classmethod
-    def is_applicable(cls, line, column, pos, prev, current, next):
+    def is_applicable(cls, line, column, pos, prev, current, upcoming):
         return current == "#" and (prev == " " or prev == "\n")
 
-    def __call__(self, line, column, pos, prev, current, next):
+    def __call__(self, line, column, pos, prev, current, upcoming):
         if current == "\n":
             if not self.settings.yield_comments:
                 return []
@@ -338,15 +337,15 @@ class CommentTokenizer(Tokenizer):
 
 
 class FlowTokenizer(Tokenizer):
-    def __init__(self, settings, line, column, pos, current, next):
-        super(FlowTokenizer, self).__init__(settings, line, column, pos, current, next)
+    def __init__(self, settings, line, column, pos, current, upcoming):
+        super(FlowTokenizer, self).__init__(settings, line, column, pos, current, upcoming)
         if current == "{":
             self.end_char = "}"
-            self.tokens = [FlowMappingStartToken(line, column)]
+            self.tokens = [FlowMappingStartToken(line, column)]  # type: list[Token]
         else:
             self.end_char = "]"
-            self.tokens = [FlowSequenceStartToken(line, column)]
-        self.subtokenizer = None
+            self.tokens = [FlowSequenceStartToken(line, column)]  # type: list[Token]
+        self.sub_tokenizer = None
         self.simple_key = None
 
     def consume_simple_key(self, pos, is_key=False):
@@ -354,12 +353,12 @@ class FlowTokenizer(Tokenizer):
             self.tokens.append(massaged_key(self.settings, self.simple_key, pos, is_key=is_key))
             self.simple_key = None
 
-    def __call__(self, line, column, pos, prev, current, next):
-        if self.subtokenizer is not None:
-            result = self.subtokenizer(line, column, pos, prev, current, next)
+    def __call__(self, line, column, pos, prev, current, upcoming):
+        if self.sub_tokenizer is not None:
+            result = self.sub_tokenizer(line, column, pos, prev, current, upcoming)
             if result is not None:
-                self.subtokenizer = None
                 self.tokens.extend(result)
+                self.sub_tokenizer = None
 
         elif current == self.end_char:
             self.consume_simple_key(pos)
@@ -367,17 +366,17 @@ class FlowTokenizer(Tokenizer):
             return self.tokens
 
         elif self.simple_key is None:
-            if current in TOKENIZERS:
-                self.subtokenizer = get_tokenizer(self.settings, line, column, pos, prev, current, next)
+            if current in TOKENIZER_MAP:
+                self.sub_tokenizer = get_tokenizer(self.settings, line, column, pos, prev, current, upcoming)
 
             elif current == ",":
                 self.tokens.append(FlowEntryToken(line, column))
 
-            elif current != ":" or next not in " \n":
+            elif current != ":" or upcoming not in " \n":
                 self.simple_key = ScalarToken(line, column, pos)
 
         elif current == ":":
-            if next in " \n":
+            if upcoming in " \n":
                 self.consume_simple_key(pos, is_key=True)
 
         elif current == ",":
@@ -389,7 +388,7 @@ class FlowTokenizer(Tokenizer):
 
 
 class DoubleQuoteTokenizer(Tokenizer):
-    def __call__(self, line, column, pos, prev, current, next):
+    def __call__(self, line, column, pos, prev, current, upcoming):
         if current == '"' and prev != "\\":
             text = self.contents(self.pos + 1, pos)
             text = codecs.decode(text, "unicode_escape")
@@ -397,30 +396,30 @@ class DoubleQuoteTokenizer(Tokenizer):
 
 
 class SingleQuoteTokenizer(Tokenizer):
-    def __call__(self, line, column, pos, prev, current, next):
-        if current == "'" and prev != "'" and next != "'":
+    def __call__(self, line, column, pos, prev, current, upcoming):
+        if current == "'" and prev != "'" and upcoming != "'":
             text = self.contents(self.pos + 1, pos).replace("''", "'")
             return [ScalarToken(line, column, text, style="'")]
 
 
 class LiteralTokenizer(Tokenizer):
-    def __init__(self, settings, line, column, pos, current, next):
-        super(LiteralTokenizer, self).__init__(settings, line, column, pos, current, next)
-        if not settings._last_key:
+    def __init__(self, settings, line, column, pos, current, upcoming):
+        super(LiteralTokenizer, self).__init__(settings, line, column, pos, current, upcoming)
+        if not settings.last_key:
             raise ParseError("Invalid literal", line, column)
-        self.min_indent = settings._last_key.column
+        self.min_indent = settings.last_key.column
         self.indent = None
         self.in_comment = False
-        if next == "-":
+        if upcoming == "-":
             self.style = "|-"
-        elif next == "+":
+        elif upcoming == "+":
             self.style = "|+"
-        elif next == "\n" or next == " ":
+        elif upcoming == "\n" or upcoming == " ":
             self.style = "|"
         else:
             raise ParseError("Invalid literal", line, column)
 
-    def __call__(self, line, column, pos, prev, current, next):
+    def __call__(self, line, column, pos, prev, current, upcoming):
         if line == self.line:  # Allow only blanks and comments on first line
             if current == "\n":  # We're done with the first line
                 self.pos = pos + 1
@@ -432,10 +431,10 @@ class LiteralTokenizer(Tokenizer):
                     if pos != self.pos + 1 or current not in "-+ ":
                         raise ParseError("Invalid char in literal", line, column)
 
-        elif current == "\n" or next is None:
+        elif current == "\n" or upcoming is None:
             self.in_comment = False
-            if next is None or next not in "# \n":
-                return self.extracted_tokens(line, column, pos, prev, current, next)
+            if upcoming is None or upcoming not in "# \n":
+                return self.extracted_tokens(line, column, pos)
 
         elif not self.in_comment:
             if self.indent is None:
@@ -447,10 +446,10 @@ class LiteralTokenizer(Tokenizer):
             elif current == "#" and prev in " \n":
                 self.in_comment = True
 
-            elif next != " " and column <= self.min_indent:
-                return self.extracted_tokens(line, column, pos, prev, current, next)
+            elif upcoming != " " and column <= self.min_indent:
+                return self.extracted_tokens(line, column, pos)
 
-    def extracted_tokens(self, line, column, pos, prev, current, next):
+    def extracted_tokens(self, line, column, pos):
         if self.indent is None:
             raise ParseError("No indent in literal", line, column)
         text = self.contents(self.pos, pos + 1)
@@ -460,8 +459,8 @@ class LiteralTokenizer(Tokenizer):
             if not result or first_non_blank(line) != "#":
                 result.append(line[indent:])
         text = "\n".join(result)
-        if text and self.next != "+":
-            if self.next == "-":
+        if text and self.upcoming != "+":
+            if self.upcoming == "-":
                 text = text.strip()
             elif text[-1] == "\n":
                 text = "%s\n" % text.strip()
@@ -486,7 +485,7 @@ class ParseError(Exception):
         return "%s, line %s column %s" % (self.message, self.line, self.column)
 
 
-TOKENIZERS = {
+TOKENIZER_MAP = {
     " ": None,
     "\n": None,
     "|": LiteralTokenizer,
@@ -498,15 +497,16 @@ TOKENIZERS = {
 }
 
 
-def get_tokenizer(settings, line, column, pos, prev, current, next):
-    tokenizer = TOKENIZERS.get(current)
-    if tokenizer is not None and tokenizer.is_applicable(line, column, pos, prev, current, next):
-        return tokenizer(settings, line, column, pos, current, next)
+def get_tokenizer(settings, line, column, pos, prev, current, upcoming):
+    """:rtype: Tokenizer"""
+    tokenizer = TOKENIZER_MAP.get(current)  # type: Tokenizer
+    if tokenizer is not None and tokenizer.is_applicable(line, column, pos, prev, current, upcoming):
+        return tokenizer(settings, line, column, pos, current, upcoming)
 
 
 def massaged_key(settings, key, pos, is_key=False):
     key.value = settings.contents(key.value, pos).strip()
-    settings._last_key = key
+    settings.last_key = key
     if key.column == 1:
         if key.value == "---":
             return DocumentStartToken(key.line, key.column)
@@ -521,11 +521,11 @@ def massaged_key(settings, key, pos, is_key=False):
 class ScanSettings:
     def __init__(self, yield_comments=False):
         self.yield_comments = yield_comments
-        self._buffer = None
-        self._last_key = None
+        self.buffer = None
+        self.last_key = None
 
     def contents(self, start, end):
-        return self._buffer[start:end]
+        return self.buffer[start:end]
 
 
 def scan_tokens(buffer, settings=None):
@@ -541,31 +541,31 @@ def scan_tokens(buffer, settings=None):
 
     line = column = 1
     pos = 0
-    prev = next = tokenizer = simple_key = None
+    prev = upcoming = tokenizer = simple_key = None
     current = None
 
     if settings is None:
         settings = ScanSettings()
 
-    settings._buffer = buffer
+    settings.buffer = buffer
 
-    for next in buffer:
+    for upcoming in buffer:
         if current is None:
-            current = next
+            current = upcoming
             continue
 
         if tokenizer is not None:
-            result = tokenizer(line, column, pos, prev, current, next)
+            result = tokenizer(line, column, pos, prev, current, upcoming)
             if result is not None:
                 for token in result:
                     yield token
                 tokenizer = None
 
         elif simple_key is None:
-            if current in TOKENIZERS:
-                tokenizer = get_tokenizer(settings, line, column, pos, prev, current, next)
+            if current in TOKENIZER_MAP:
+                tokenizer = get_tokenizer(settings, line, column, pos, prev, current, upcoming)
 
-            elif current == "-" and next in " \n":
+            elif current == "-" and upcoming in " \n":
                 yield BlockEntryToken(line, column)
 
             else:
@@ -575,10 +575,10 @@ def scan_tokens(buffer, settings=None):
             if prev in " \n":
                 yield massaged_key(settings, simple_key, pos)
                 simple_key = None
-                tokenizer = CommentTokenizer(settings, line, column, pos, current, next)
+                tokenizer = CommentTokenizer(settings, line, column, pos, current, upcoming)
 
         elif current == ":":
-            if next in " \n":
+            if upcoming in " \n":
                 yield massaged_key(settings, simple_key, pos, is_key=True)
                 simple_key = None
 
@@ -594,12 +594,12 @@ def scan_tokens(buffer, settings=None):
 
         pos += 1
         prev = current
-        current = next
+        current = upcoming
 
-    if next is not None:
+    if upcoming is not None:
         pos += 1
         prev = current
-        current = next
+        current = upcoming
 
         if tokenizer is not None:
             result = tokenizer(line, column, pos, prev, current, None)

@@ -194,7 +194,7 @@ def load_poyo(path):
 def load_ruamel(path):
     with open(path) as fh:
         yaml = YAML(typ="safe")
-        yaml.constructor.yaml_constructors[u'tag:yaml.org,2002:timestamp'] = yaml.constructor.yaml_constructors[u'tag:yaml.org,2002:str']
+        yaml.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = yaml.constructor.yaml_constructors["tag:yaml.org,2002:str"]
         docs = list(yaml.load_all(fh))
         if len(docs) == 1:
             return docs[0]
