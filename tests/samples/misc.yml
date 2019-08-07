@@ -1,13 +1,18 @@
+---
+- list value on
+    3
+   lines
+---
 - {a: b, c: [
-x,  # foo
-{d: e}, g: h
+x,  # some comment inside a flow
+{d: some "text"
+on 'multiple lines' within flow}, g: h
 ]}
 - foo
-- ...
-...
+- ...  # This is not a doc end
+...  # This is a doc end
 ---
 a
---- # f
+--- # Comment on docstart
 b
 ...
----

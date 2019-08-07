@@ -184,7 +184,7 @@ def load_pyyaml_safe(path):
     return load_pyaml(path, yaml.SafeLoader)
 
 
-# @BENCHMARKS.add
+@BENCHMARKS.add
 def load_poyo(path):
     with open(path) as fh:
         return poyo.parse_string(fh.read())
@@ -194,13 +194,14 @@ def load_poyo(path):
 def load_ruamel(path):
     with open(path) as fh:
         yaml = YAML(typ="safe")
+        yaml.constructor.yaml_constructors[u'tag:yaml.org,2002:timestamp'] = yaml.constructor.yaml_constructors[u'tag:yaml.org,2002:str']
         docs = list(yaml.load_all(fh))
         if len(docs) == 1:
             return docs[0]
         return docs
 
 
-# @BENCHMARKS.add
+@BENCHMARKS.add
 def load_strict(path):
     with open(path) as fh:
         docs = strictyaml.load(fh.read())
@@ -354,8 +355,8 @@ if __name__ == "__main__":
             arg = arg.replace("\\n", "\n") + "\n"
             zdoc = json_sanitized(zyaml.load_string(arg))
             print("-- zdoc:\n%s" % zdoc)
-            yaml = YAML(typ="safe")
-            rdoc = list(yaml.load_all(arg))
+            ryaml = YAML(typ="safe")
+            rdoc = list(ryaml.load_all(arg))
             if rdoc and len(rdoc) == 1:
                 rdoc = rdoc[0]
             print("-- ruamel:\n%s" % rdoc)

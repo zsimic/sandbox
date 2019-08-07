@@ -1,6 +1,12 @@
-strip: |-
-  text
-clip: |
-  text
-keep: |+
-  text
+test:
+  strip: |-
+   text
+  clip: |
+    text
+      foo
+  keep: |+  # some comment
+    text
+      some over-indented  line
+
+# some comment
+      # some indented comment
