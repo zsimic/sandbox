@@ -1,0 +1,7 @@
+{
+  "test": {
+    "clip": "text\n  foo\n",
+    "keep": "text\n  some over-indented  line\n\n",
+    "strip": "text"
+  }
+}
