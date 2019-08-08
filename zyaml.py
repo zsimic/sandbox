@@ -141,7 +141,7 @@ class ScalarToken(Token):
             root.push_value(self.column, self.value)
 
 
-class ParseNode:
+class ParseNode(object):
     def __init__(self, indent):
         self.indent = indent
         self.prev = None
@@ -303,7 +303,7 @@ class RootNode:
             raise
 
 
-class Tokenizer:
+class Tokenizer(object):
     def __init__(self, settings, line, column, pos, current, upcoming):
         self.settings = settings  # type: ScanSettings
         self.line = line  # type: int
@@ -320,7 +320,7 @@ class Tokenizer:
         return self.settings.contents(start, end)
 
     def __call__(self, line, column, pos, prev, current, upcoming):
-        return None
+        """Implemented by descendants, consuming one char at a time"""
 
 
 class CommentTokenizer(Tokenizer):
@@ -514,15 +514,16 @@ def massaged_key(settings, key, pos, is_key=False):
             return DocumentEndToken(key.line, key.column)
     key.is_key = is_key
     if not is_key and key.style is None:
-        key.value = parsed_value(key.value)
+        key.value = settings.scalar_marshaller(key.value)
     return key
 
 
 class ScanSettings:
-    def __init__(self, yield_comments=False):
+    def __init__(self, yield_comments=False, scalar_marshaller=parsed_value):
         self.yield_comments = yield_comments
         self.buffer = None
         self.last_key = None
+        self.scalar_marshaller = scalar_marshaller
 
     def contents(self, start, end):
         return self.buffer[start:end]
@@ -534,6 +535,10 @@ def scan_tokens(buffer, settings=None):
         yield StreamEndToken(1, 1)
         return
 
+    if settings is None:
+        settings = ScanSettings()
+    settings.buffer = buffer
+
     if len(buffer) <= 2:
         yield massaged_key(settings, ScalarToken(1, 1, 0), len(buffer))
         yield StreamEndToken(1, len(buffer))
@@ -543,11 +548,6 @@ def scan_tokens(buffer, settings=None):
     pos = 0
     prev = upcoming = tokenizer = simple_key = None
     current = None
-
-    if settings is None:
-        settings = ScanSettings()
-
-    settings.buffer = buffer
 
     for upcoming in buffer:
         if current is None:

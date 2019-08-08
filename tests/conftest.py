@@ -11,7 +11,10 @@ import pytest
 
 import zyaml
 
-from loaders import json_sanitized, load_ruamel, loaded_ruamel, yaml_tokens, YmlImplementation
+try:
+    from .loaders import json_sanitized, load_ruamel, loaded_ruamel, yaml_tokens, YmlImplementation
+except ImportError:
+    from loaders import json_sanitized, load_ruamel, loaded_ruamel, yaml_tokens, YmlImplementation
 
 
 SAMPLE_FOLDER = os.path.join(os.path.dirname(__file__), "samples")
