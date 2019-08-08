@@ -1,4 +1,5 @@
 import datetime
+import os
 
 import poyo
 import strictyaml
@@ -7,6 +8,38 @@ from ruamel.yaml import YAML as RYAML
 from yaml.scanner import ScannerError
 
 import zyaml
+
+
+TESTS_FOLDER = os.path.abspath(os.path.dirname(__file__))
+SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
+SPEC_FOLDER = os.path.join(SAMPLE_FOLDER, "spec")
+
+
+def find_samples(result, path, count, default):
+    if count is not None and len(result) >= count:
+        return
+    if not path:
+        path = default
+    if not path:
+        return
+    if os.path.exists(path) and path.endswith(".yml"):
+        result.append(path)
+        return
+    if os.path.isdir(path):
+        for fname in os.listdir(path):
+            if fname.endswith(".yml"):
+                result.append(os.path.join(path, fname))
+
+
+def get_samples(path, count=None, default="misc.yml", result=None):
+    if result is None:
+        result = []
+    if isinstance(path, list):
+        for p in path:
+            get_samples(p, count=count, default=default, result=result)
+    else:
+        find_samples(result, path, count, default)
+    return result
 
 
 def as_is(value):

@@ -12,9 +12,9 @@ import pytest
 import zyaml
 
 try:
-    from .loaders import json_sanitized, load_ruamel, loaded_ruamel, yaml_tokens, YmlImplementation
+    from .loaders import get_samples, json_sanitized, load_ruamel, loaded_ruamel, yaml_tokens, YmlImplementation
 except ImportError:
-    from loaders import json_sanitized, load_ruamel, loaded_ruamel, yaml_tokens, YmlImplementation
+    from loaders import get_samples, json_sanitized, load_ruamel, loaded_ruamel, yaml_tokens, YmlImplementation
 
 
 SAMPLE_FOLDER = os.path.join(os.path.dirname(__file__), "samples")
@@ -26,7 +26,7 @@ class Sample(object):
         self.basename = os.path.basename(path)
         self.name = self.basename.replace(".yml", "")
         self.folder = os.path.dirname(path)
-        self.expected_path = os.path.join(self.folder, "json", "%s.json" % self.name)
+        self.expected_path = os.path.join(self.folder, "expected", "%s.json" % self.name)
         self._expected = None
         self.path = path
 
@@ -65,6 +65,11 @@ class BenchmarkCollection(object):
 
 
 BENCHMARKS = BenchmarkCollection()
+
+
+@pytest.fixture
+def spec_samples():
+    return get_samples("spec")
 
 
 @pytest.fixture

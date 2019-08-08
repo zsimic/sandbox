@@ -1,6 +1,7 @@
+click
+poyo
 pytest-cov
 PyYAML
-poyo
-toml
 ruamel.yaml
 strictyaml
+toml
