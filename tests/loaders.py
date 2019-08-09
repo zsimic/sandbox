@@ -31,6 +31,8 @@ def find_samples(match, path=None):
                     for sample in find_samples(match, path=os.path.join(root, fname)):
                         yield sample
         return
+    if match == "all":
+        yield path
     relative = relative_sample_path(path)
     if match in relative:
         yield path
@@ -45,25 +47,23 @@ def relative_sample_path(path):
 def get_samples(path=None, default="misc.yml"):
     if not path:
         path = default
-    if not path:
-        return
-    if isinstance(path, list):
-        for p in path:
-            for sample in get_samples(p):
-                yield sample
-        return
-    if os.path.isfile(path):
-        yield path
-        return
-    if os.path.isdir(path):
-        for fname in os.listdir(path):
-            if fname.endswith(".yml"):
-                yield os.path.join(path, fname)
-        return
-    if os.path.isabs(path):
-        return
-    for sample in find_samples(path):
-        yield sample
+    result = []
+    if path:
+        if isinstance(path, list):
+            for p in path:
+                for sample in get_samples(p):
+                    result.append(sample)
+        elif os.path.isdir(path):
+            path = os.path.abspath(path)
+            for fname in os.listdir(path):
+                if fname.endswith(".yml"):
+                    result.append(os.path.join(path, fname))
+        elif os.path.isfile(path) or os.path.isabs(path):
+            result.append(path)
+        else:
+            for sample in find_samples(path):
+                result.append(sample)
+    return sorted(result, key=lambda x: "zz" + x if "/" in relative_sample_path(x) else relative_sample_path(x))
 
 
 def as_is(value):

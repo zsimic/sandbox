@@ -163,7 +163,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if command == "match":
-        for path in get_samples(args, default="samples"):
+        for path in get_samples(args, default=["spec", SAMPLE_FOLDER]):
             try:
                 zdoc = zyaml.load_path(path)
             except Exception:
@@ -183,13 +183,11 @@ if __name__ == "__main__":
                 match = "match "
             else:
                 match = "diff  "
-            print("%s %s" % (match, os.path.basename(path)))
+            print("%s %s" % (match, relative_sample_path(path)))
         sys.exit(0)
 
     if command == "samples":
-        print(list(get_samples()))
-        print([relative_sample_path(s) for s in get_samples("spec")])
-        print([relative_sample_path(s) for s in get_samples("2.2")])
+        print("\n".join(relative_sample_path(s) for s in get_samples(args)))
         sys.exit(0)
 
     if command == "print":
@@ -203,7 +201,7 @@ if __name__ == "__main__":
 
     if command == "show":
         for path in get_samples(args):
-            print("-- %s:" % path)
+            print("==== %s:" % relative_sample_path(path))
             zdoc = show_jsonified(zyaml.load_path, path)
             rdoc = show_jsonified(load_ruamel, path)
             print("\nmatch: %s" % (zdoc == rdoc))
@@ -211,7 +209,7 @@ if __name__ == "__main__":
 
     if command == "tokens":
         for path in get_samples(args):
-            print("-- %s:" % path)
+            print("==== %s:" % relative_sample_path(path))
             with open(path) as fh:
                 ztokens = list(zyaml.scan_tokens(fh.read()))
 
