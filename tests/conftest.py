@@ -12,9 +12,9 @@ import pytest
 import zyaml
 
 try:
-    from .loaders import get_samples, json_sanitized, load_ruamel, loaded_ruamel, yaml_tokens, YmlImplementation
+    from .loaders import get_samples, json_sanitized, load_ruamel, loaded_ruamel, relative_sample_path, yaml_tokens, YmlImplementation
 except ImportError:
-    from loaders import get_samples, json_sanitized, load_ruamel, loaded_ruamel, yaml_tokens, YmlImplementation
+    from loaders import get_samples, json_sanitized, load_ruamel, loaded_ruamel, relative_sample_path, yaml_tokens, YmlImplementation
 
 
 SAMPLE_FOLDER = os.path.join(os.path.dirname(__file__), "samples")
@@ -124,44 +124,6 @@ class SingleBenchmark:
         return "\n".join(result)
 
 
-def auto_completed_filename(folder, path):
-    if not path.endswith(".yml"):
-        path = path + ".yml"
-    return os.path.join(folder, path)
-
-
-def auto_complete(path):
-    if not os.path.exists(path) and not os.path.isabs(path):
-        if path == os.path.basename(SAMPLE_FOLDER):
-            return SAMPLE_FOLDER
-        alt_path = auto_completed_filename(SAMPLE_FOLDER, path)
-        if os.path.exists(alt_path):
-            return alt_path
-        for fname in os.listdir(SAMPLE_FOLDER):
-            folder = os.path.join(SAMPLE_FOLDER, fname)
-            if os.path.isdir(folder):
-                if fname == path:
-                    return folder
-                alt_path = auto_completed_filename(folder, path)
-                if os.path.exists(alt_path):
-                    return alt_path
-    return path
-
-
-def get_sample(args, default="misc.yml"):
-    if not args:
-        args = [auto_complete(default)]
-
-    for path in args:
-        path = auto_complete(path)
-        if os.path.isdir(path):
-            for fname in os.listdir(path):
-                if fname.endswith(".yml"):
-                    yield os.path.join(path, fname)
-            return
-        yield path
-
-
 def show_jsonified(func, path):
     """
     :param callable func: Function to use to deserialize contents of 'path'
@@ -201,7 +163,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if command == "match":
-        for path in get_sample(args, default="samples"):
+        for path in get_samples(args, default="samples"):
             try:
                 zdoc = zyaml.load_path(path)
             except Exception:
@@ -224,6 +186,12 @@ if __name__ == "__main__":
             print("%s %s" % (match, os.path.basename(path)))
         sys.exit(0)
 
+    if command == "samples":
+        print(list(get_samples()))
+        print([relative_sample_path(s) for s in get_samples("spec")])
+        print([relative_sample_path(s) for s in get_samples("2.2")])
+        sys.exit(0)
+
     if command == "print":
         for arg in args:
             arg = arg.replace("\\n", "\n") + "\n"
@@ -234,7 +202,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if command == "show":
-        for path in get_sample(args):
+        for path in get_samples(args):
             print("-- %s:" % path)
             zdoc = show_jsonified(zyaml.load_path, path)
             rdoc = show_jsonified(load_ruamel, path)
@@ -242,7 +210,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if command == "tokens":
-        for path in get_sample(args):
+        for path in get_samples(args):
             print("-- %s:" % path)
             with open(path) as fh:
                 ztokens = list(zyaml.scan_tokens(fh.read()))

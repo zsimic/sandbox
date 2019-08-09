@@ -15,31 +15,55 @@ SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
 SPEC_FOLDER = os.path.join(SAMPLE_FOLDER, "spec")
 
 
-def find_samples(result, path, count, default):
-    if count is not None and len(result) >= count:
+def ignored_dirs(names):
+    for name in names:
+        if name.startswith("."):
+            yield name
+
+
+def find_samples(match, path=None):
+    if path is None:
+        for root, dirs, files in os.walk(SAMPLE_FOLDER):
+            for name in list(ignored_dirs(dirs)):
+                dirs.remove(name)
+            for fname in files:
+                if fname.endswith(".yml"):
+                    for sample in find_samples(match, path=os.path.join(root, fname)):
+                        yield sample
         return
+    relative = relative_sample_path(path)
+    if match in relative:
+        yield path
+
+
+def relative_sample_path(path):
+    if path and path.startswith(SAMPLE_FOLDER):
+        path = path[len(SAMPLE_FOLDER) + 1:]
+    return path
+
+
+def get_samples(path=None, default="misc.yml"):
     if not path:
         path = default
     if not path:
         return
-    if os.path.exists(path) and path.endswith(".yml"):
-        result.append(path)
+    if isinstance(path, list):
+        for p in path:
+            for sample in get_samples(p):
+                yield sample
+        return
+    if os.path.isfile(path):
+        yield path
         return
     if os.path.isdir(path):
         for fname in os.listdir(path):
             if fname.endswith(".yml"):
-                result.append(os.path.join(path, fname))
-
-
-def get_samples(path, count=None, default="misc.yml", result=None):
-    if result is None:
-        result = []
-    if isinstance(path, list):
-        for p in path:
-            get_samples(p, count=count, default=default, result=result)
-    else:
-        find_samples(result, path, count, default)
-    return result
+                yield os.path.join(path, fname)
+        return
+    if os.path.isabs(path):
+        return
+    for sample in find_samples(path):
+        yield sample
 
 
 def as_is(value):
