@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 
 import poyo
@@ -15,55 +16,83 @@ SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
 SPEC_FOLDER = os.path.join(SAMPLE_FOLDER, "spec")
 
 
-def ignored_dirs(names):
-    for name in names:
-        if name.startswith("."):
-            yield name
-
-
-def find_samples(match, path=None):
-    if path is None:
-        for root, dirs, files in os.walk(SAMPLE_FOLDER):
-            for name in list(ignored_dirs(dirs)):
-                dirs.remove(name)
-            for fname in files:
-                if fname.endswith(".yml"):
-                    for sample in find_samples(match, path=os.path.join(root, fname)):
-                        yield sample
-        return
-    if match == "all":
-        yield path
-    relative = relative_sample_path(path)
-    if match in relative:
-        yield path
-
-
-def relative_sample_path(path):
-    if path and path.startswith(SAMPLE_FOLDER):
-        path = path[len(SAMPLE_FOLDER) + 1:]
-    return path
-
-
-def get_samples(path=None, default="misc.yml"):
-    if not path:
-        path = default
-    result = []
-    if path:
-        if isinstance(path, list):
-            for p in path:
-                for sample in get_samples(p):
-                    result.append(sample)
-        elif os.path.isdir(path):
-            path = os.path.abspath(path)
-            for fname in os.listdir(path):
-                if fname.endswith(".yml"):
-                    result.append(os.path.join(path, fname))
-        elif os.path.isfile(path) or os.path.isabs(path):
-            result.append(path)
+class Sample(object):
+    def __init__(self, path):
+        self.path = os.path.abspath(path)
+        self.basename = os.path.basename(self.path)
+        self.folder = os.path.dirname(self.path)
+        if self.path.startswith(SAMPLE_FOLDER):
+            self.relative_path = self.path[len(SAMPLE_FOLDER) + 1:]
         else:
-            for sample in find_samples(path):
-                result.append(sample)
-    return sorted(result, key=lambda x: "zz" + x if "/" in relative_sample_path(x) else relative_sample_path(x))
+            self.relative_path = self.path
+        self._expected = None
+
+    def __repr__(self):
+        return self.relative_path
+
+    @property
+    def expected_path(self):
+        return os.path.join(self.folder, "expected", self.basename.replace(".yml", ".json"))
+
+    @property
+    def expected(self):
+        if self._expected is None:
+            try:
+                with open(self.expected_path) as fh:
+                    self._expected = json.load(fh)
+            except (OSError, IOError):
+                return None
+        return self._expected
+
+    def refresh(self):
+        value = load_ruamel(self.path)
+        value = json_sanitized(value)
+        with open(self.expected_path, "w") as fh:
+            json.dump(value, fh, sort_keys=True, indent=2)
+
+    @staticmethod
+    def ignored_dirs(names):
+        for name in names:
+            if name.startswith("."):
+                yield Sample(name)
+
+    @staticmethod
+    def find_samples(match, path=None):
+        if path is None:
+            for root, dirs, files in os.walk(SAMPLE_FOLDER):
+                for name in list(Sample.ignored_dirs(dirs)):
+                    dirs.remove(name)
+                for fname in files:
+                    if fname.endswith(".yml"):
+                        for sample in Sample.find_samples(match, path=os.path.join(root, fname)):
+                            yield sample
+            return
+        sample = Sample(path)
+        if match == "all" or match in sample.relative_path:
+            yield sample
+
+    @staticmethod
+    def get_samples(path=None, default="misc.yml"):
+        if not path:
+            path = default
+        result = []
+        if path:
+            if isinstance(path, list):
+                for p in path:
+                    for sample in Sample.get_samples(p):
+                        result.append(sample)
+            elif os.path.isdir(path):
+                path = os.path.abspath(path)
+                for fname in os.listdir(path):
+                    if fname.endswith(".yml"):
+                        sample = Sample(os.path.join(path, fname))
+                        result.append(sample)
+            elif os.path.isfile(path) or os.path.isabs(path):
+                result.append(Sample(path))
+            else:
+                for sample in Sample.find_samples(path):
+                    result.append(sample)
+        return sorted(result, key=lambda x: "zz" + x.relative_path if "/" in x.relative_path else x.relative_path)
 
 
 def as_is(value):

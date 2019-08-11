@@ -12,50 +12,18 @@ import pytest
 import zyaml
 
 try:
-    from .loaders import get_samples, json_sanitized, load_ruamel, loaded_ruamel, relative_sample_path, yaml_tokens, YmlImplementation
+    from .loaders import json_sanitized, load_ruamel, loaded_ruamel, Sample, yaml_tokens, YmlImplementation
 except ImportError:
-    from loaders import get_samples, json_sanitized, load_ruamel, loaded_ruamel, relative_sample_path, yaml_tokens, YmlImplementation
+    from loaders import json_sanitized, load_ruamel, loaded_ruamel, Sample, yaml_tokens, YmlImplementation
 
 
 SAMPLE_FOLDER = os.path.join(os.path.dirname(__file__), "samples")
 SPEC_FOLDER = os.path.join(SAMPLE_FOLDER, "spec")
 
 
-class Sample(object):
-    def __init__(self, path):
-        self.basename = os.path.basename(path)
-        self.name = self.basename.replace(".yml", "")
-        self.folder = os.path.dirname(path)
-        self.expected_path = os.path.join(self.folder, "expected", "%s.json" % self.name)
-        self._expected = None
-        self.path = path
-
-    def __repr__(self):
-        return self.name
-
-    @property
-    def expected(self):
-        if self._expected is None:
-            try:
-                with open(self.expected_path) as fh:
-                    self._expected = json.load(fh)
-            except OSError:
-                return None
-        return self._expected
-
-    def refresh(self):
-        value = load_ruamel(self.path)
-        value = json_sanitized(value)
-        with open(self.expected_path, "w") as fh:
-            json.dump(value, fh, sort_keys=True, indent=2)
-
-
 class BenchmarkCollection(object):
-    def __init__(self):
-        self.samples = []
-        for fname in os.listdir(SPEC_FOLDER):
-            if fname.endswith(".yml"):
-                self.samples.append(Sample(os.path.join(SPEC_FOLDER, fname)))
+    def __init__(self, samples):
+        self.samples = samples
 
     def run(self, *names):
         for sample in self.samples:
@@ -64,22 +32,14 @@ class BenchmarkCollection(object):
             print(bench.report())
 
 
-BENCHMARKS = BenchmarkCollection()
-
-
 @pytest.fixture
 def spec_samples():
-    return get_samples("spec")
+    return Sample.get_samples("spec")
 
 
 @pytest.fixture
 def samples():
-    return BENCHMARKS.samples
-
-
-@pytest.fixture
-def benchmarks():
-    return BENCHMARKS
+    return Sample.get_samples("spec")
 
 
 class SingleBenchmark:
@@ -154,23 +114,23 @@ if __name__ == "__main__":
         args = []
 
     if command == "benchmark":
-        BENCHMARKS.run(*args)
+        BenchmarkCollection(Sample.get_samples("spec")).run(*args)
         sys.exit(0)
 
     if command == "refresh":
-        for s in BENCHMARKS.samples:
-            s.refresh()
+        for sample in Sample.get_samples("spec"):
+            sample.refresh()
         sys.exit(0)
 
     if command == "match":
-        for path in get_samples(args, default=["spec", SAMPLE_FOLDER]):
+        for sample in Sample.get_samples(args, default=["spec", SAMPLE_FOLDER]):
             try:
-                zdoc = zyaml.load_path(path)
+                zdoc = zyaml.load_path(sample.path)
             except Exception:
                 zdoc = None
 
             try:
-                rdoc = load_ruamel(path)
+                rdoc = load_ruamel(sample.path)
             except Exception:
                 rdoc = None
 
@@ -183,11 +143,11 @@ if __name__ == "__main__":
                 match = "match "
             else:
                 match = "diff  "
-            print("%s %s" % (match, relative_sample_path(path)))
+            print("%s %s" % (match, sample))
         sys.exit(0)
 
     if command == "samples":
-        print("\n".join(relative_sample_path(s) for s in get_samples(args)))
+        print("\n".join(str(s) for s in Sample.get_samples(args)))
         sys.exit(0)
 
     if command == "print":
@@ -200,20 +160,20 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if command == "show":
-        for path in get_samples(args):
-            print("==== %s:" % relative_sample_path(path))
-            zdoc = show_jsonified(zyaml.load_path, path)
-            rdoc = show_jsonified(load_ruamel, path)
+        for sample in Sample.get_samples(args):
+            print("==== %s:" % sample)
+            zdoc = show_jsonified(zyaml.load_path, sample.path)
+            rdoc = show_jsonified(load_ruamel, sample.path)
             print("\nmatch: %s" % (zdoc == rdoc))
         sys.exit(0)
 
     if command == "tokens":
-        for path in get_samples(args):
-            print("==== %s:" % relative_sample_path(path))
-            with open(path) as fh:
+        for sample in Sample.get_samples(args):
+            print("==== %s:" % sample)
+            with open(sample.path) as fh:
                 ztokens = list(zyaml.scan_tokens(fh.read()))
 
-            with open(path) as fh:
+            with open(sample.path) as fh:
                 ytokens = list(yaml_tokens(fh.read()))
 
             print("\n-- zyaml tokens")
