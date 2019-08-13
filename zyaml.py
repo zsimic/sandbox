@@ -6,6 +6,7 @@ NULL = "null"
 FALSE = "false"
 TRUE = "true"
 RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$", re.IGNORECASE)
+LEADING_SPACES = re.compile(r"\n\s*", re.MULTILINE)
 
 
 def parsed_value(text):
@@ -391,7 +392,7 @@ class DoubleQuoteTokenizer(Tokenizer):
     def __call__(self, line, column, pos, prev, current, upcoming):
         if current == '"' and prev != "\\":
             text = self.contents(self.pos + 1, pos)
-            text = codecs.decode(text, "unicode_escape")
+            text = LEADING_SPACES.sub(" ", codecs.decode(text, "unicode_escape"))
             return [ScalarToken(line, column, text, style='"')]
 
 
@@ -399,6 +400,7 @@ class SingleQuoteTokenizer(Tokenizer):
     def __call__(self, line, column, pos, prev, current, upcoming):
         if current == "'" and prev != "'" and upcoming != "'":
             text = self.contents(self.pos + 1, pos).replace("''", "'")
+            text = LEADING_SPACES.sub(" ", text)
             return [ScalarToken(line, column, text, style="'")]
 
 

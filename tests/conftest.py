@@ -130,6 +130,11 @@ class SingleBenchmark:
 
 
 def implementations_option(option=True, **kwargs):
+    """
+    :param bool option: If True, make this an option
+    :param kwargs: Passed-through to click
+    :return list[YmlImplementation]: List of implementations to use
+    """
     def _callback(_ctx, _param, value):
         names = [s.strip() for s in value.split(",")]
         names = [s for s in names if s]
@@ -152,7 +157,10 @@ def implementations_option(option=True, **kwargs):
 
 def samples_arg(option=False, **kwargs):
     def _callback(_ctx, _param, value):
-        return get_samples(value)
+        s = get_samples(value)
+        if not s:
+            raise click.BadParameter("No samples match %s" % value)
+        return s
 
     kwargs.setdefault("default", "spec")
 
@@ -183,17 +191,41 @@ def benchmark(implementations, samples):
 
 
 @main.command()
+@click.option("--stacktrace", help="Show stacktrace on failure")
 @implementations_option()
 @samples_arg()
-def diff(implementations, samples):
+def diff(stacktrace, implementations, samples):
     """Compare deserialization of 2 implementations"""
     if len(implementations) != 2:
         sys.exit("Need exactly 2 implementations to compare")
 
-    for sample in samples:
-        r1 = implementations[0].load(sample)
-        r2 = implementations[1].load(sample)
-        print("%s %s" % (r1.diff(r2), sample))
+    with runez.TempFolder():
+        generated_files = []
+        for sample in samples:
+            generated_files.append([sample])
+            for impl in implementations:
+                assert isinstance(impl, YmlImplementation)
+                result = impl.load(sample, stacktrace=stacktrace)
+                fname = "%s-%s.json" % (impl.name, sample.basename)
+                generated_files[-1].extend([fname, result])
+                with open(fname, "w") as fh:
+                    if result.error:
+                        fh.write("%s\n" % result.error)
+                    else:
+                        fh.write(result.json_representation())
+
+        for sample, n1, r1, n2, r2 in generated_files:
+            if r1.data == r2.data:
+                print("-- %s: OK" % sample)
+            elif r1.error and r2.error:
+                print("-- %s: both failed" % sample)
+
+        for sample, n1, r1, n2, r2 in generated_files:
+            if r1.data != r2.data:
+                diff = runez.run("diff", "-br", "-U1", n1, n2, fatal=None, include_error=True)
+                print("\n==== diff for %s:\n====" % sample)
+                print(diff)
+                print()
 
 
 @main.command()
@@ -213,14 +245,17 @@ def show(stacktrace, implementations, samples):
         report = []
         values = set()
         for impl in implementations:
+            assert isinstance(impl, YmlImplementation)
             result = impl.load(sample, stacktrace=stacktrace)
-            result.wrap = json_representation
-            rep = str(result)
-            values.add(rep)
+            if result.error:
+                rep = result.error
+                values.add("error")
+            else:
+                rep = result.json_representation()
+                values.add(rep)
             report.append("-- %s:\n%s" % (impl, rep))
         print("==== %s (match: %s):" % (sample, len(values) == 1))
         print("\n".join(report))
-        print()
 
 
 @main.command()
@@ -249,6 +284,7 @@ class Sample(object):
     def __init__(self, path):
         self.path = os.path.abspath(path)
         self.basename = os.path.basename(self.path)
+        self.basename, _, self.extension = self.basename.rpartition(os.path.extsep)
         self.folder = os.path.dirname(self.path)
         if self.path.startswith(SAMPLE_FOLDER):
             self.name = self.path[len(SAMPLE_FOLDER) + 1:]
@@ -262,7 +298,7 @@ class Sample(object):
 
     @property
     def expected_path(self):
-        return os.path.join(self.folder, "expected", self.basename.replace(".yml", ".json"))
+        return os.path.join(self.folder, "expected", "%s.json" % self.basename)
 
     @property
     def expected(self):
@@ -308,6 +344,10 @@ class ParseResult(object):
             return "match  "
         return "diff   "
 
+    def json_representation(self, stringify=as_is):
+        data = {"_error": self.error} if self.error else self.data
+        return json_representation(data, stringify=stringify)
+
 
 class YmlImplementation(object):
     """Implementation of loading a yml file"""
@@ -344,6 +384,11 @@ class YmlImplementation(object):
             return self.load_stream(fh)
 
     def load(self, sample, stacktrace=None):
+        """
+        :param Sample sample: Sample to load
+        :param bool stacktrace: If True, show stacktrace on failure
+        :return ParseResult: Parsed sample
+        """
         if stacktrace is None:
             # By default, show stacktrace when running in pycharm
             stacktrace = "PYCHARM_HOSTED" in os.environ
