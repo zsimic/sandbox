@@ -30,7 +30,7 @@ class Setup(object):
 
     TESTS_FOLDER = os.path.abspath(os.path.dirname(__file__))
     SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
-    LOADERS = []
+    IMPLEMENTATIONS = []
 
     @staticmethod
     def implementations_option(option=True, **kwargs):
@@ -69,7 +69,7 @@ class Setup(object):
     @staticmethod
     def get_implementations(name):
         result = []
-        for impl in Setup.LOADERS:
+        for impl in Setup.IMPLEMENTATIONS:
             if name in impl.name or name.replace("_", " ") in impl.name:
                 result.append(impl)
         return result
@@ -158,20 +158,20 @@ class Sample(object):
                 return None
         return self._expected
 
-    def refresh(self, loader=None):
+    def refresh(self, impl=None):
         """
-        :param BaseLoader loader: Loader to use
+        :param YmlImplementation impl: Implementation to use
         """
-        if loader is None:
-            loader = ZyamlLoader()
-        rep = loader.json_representation(self, stringify=as_is)
+        if impl is None:
+            impl = ZyamlImplementation()
+        rep = impl.json_representation(self, stringify=as_is)
         with open(self.expected_path, "w") as fh:
             fh.write(rep)
 
 
 class ParseResult(object):
-    def __init__(self, loader, sample, data=None):
-        self.loader = loader  # type: BaseLoader
+    def __init__(self, impl, sample, data=None):
+        self.impl = impl  # type: YmlImplementation
         self.wrap = str
         self.sample = sample
         self.data = data
@@ -193,7 +193,7 @@ class ParseResult(object):
         return "diff   "
 
 
-class BaseLoader(object):
+class YmlImplementation(object):
     """Implementation of loading a yml file"""
 
     def __repr__(self):
@@ -201,7 +201,7 @@ class BaseLoader(object):
 
     @property
     def name(self):
-        return " ".join(s.lower() for s in re.findall("[A-Z][^A-Z]*", self.__class__.__name__.replace("Loader", "")))
+        return " ".join(s.lower() for s in re.findall("[A-Z][^A-Z]*", self.__class__.__name__.replace("Implementation", "")))
 
     def _load(self, stream):
         return []
@@ -253,7 +253,7 @@ def json_representation(data, stringify=as_is):
     return json.dumps(data, sort_keys=True, indent=2)
 
 
-class ZyamlLoader(BaseLoader):
+class ZyamlImplementation(YmlImplementation):
     def _load(self, stream):
         return zyaml.load_string(stream.read())
 
@@ -262,14 +262,14 @@ class ZyamlLoader(BaseLoader):
         return zyaml.scan_tokens(stream, settings=settings)
 
 
-class RuamelLoader(BaseLoader):
+class RuamelImplementation(YmlImplementation):
     def _load(self, stream):
         y = RYAML(typ="safe")
         y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
         return y.load_all(stream)
 
 
-class PyyamlBaseLoader(BaseLoader):
+class PyyamlBaseImplementation(YmlImplementation):
     def _load(self, stream):
         return pyyaml.load_all(stream, Loader=pyyaml.BaseLoader)
 
@@ -284,7 +284,8 @@ class PyyamlBaseLoader(BaseLoader):
                     yield comment
             curr = nxt
 
-    def _comments_between_tokens(self, token1, token2):
+    @staticmethod
+    def _comments_between_tokens(token1, token2):
         """Find all comments between two tokens"""
         if token2 is None:
             buf = token1.end_mark.buffer[token1.end_mark.pointer:]
@@ -300,15 +301,15 @@ class PyyamlBaseLoader(BaseLoader):
                 yield zyaml.CommentToken(token1.end_mark.line, token1.end_mark.column, line[pos:])
 
 
-class PoyoLoader(BaseLoader):
+class PoyoImplementation(YmlImplementation):
     def _load(self, stream):
         return [poyo.parse_string(stream.read())]
 
 
-class StrictLoader(BaseLoader):
+class StrictImplementation(YmlImplementation):
     def _load(self, stream):
         return strictyaml.load(stream.read())
 
 
-for impl in BaseLoader.__subclasses__():
-    Setup.LOADERS.append(impl())
+for i in YmlImplementation.__subclasses__():
+    Setup.IMPLEMENTATIONS.append(i())
