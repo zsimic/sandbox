@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 try:
-    from . import benchmark, loaders
+    from . import benchmark, commands, loaders
 except ImportError:
-    import benchmark, loaders
+    import benchmark, commands, loaders
 
 
 if __name__ == "__main__":

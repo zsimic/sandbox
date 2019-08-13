@@ -2,12 +2,9 @@
 See https://github.com/zsimic/yaml for more info
 """
 
-import os
 import re
 import timeit
 from functools import partial
-
-import click
 
 try:
     from . import loaders
@@ -16,22 +13,20 @@ except ImportError:
 
 
 @loaders.main.command()
-@click.option("-b", "--benchmarks", default="zyaml,ruamel")
-@loaders.samples()
-def benchmark(benchmarks, samples):
+@loaders.Setup.implementations_option()
+@loaders.Setup.samples_arg()
+def benchmark(implementations, samples):
     """Run parsing benchmarks"""
-    impls = loaders.Setup.implementations(benchmarks)
-    samples = loaders.Setup.get_samples(samples)
     for sample in samples:
-        bench = SingleBenchmark(sample.path, impls)
+        bench = SingleBenchmark(sample, implementations)
         bench.run()
         print(bench.report())
 
 
 class SingleBenchmark:
-    def __init__(self, path, implementations):
+    def __init__(self, sample, implementations):
         self.implementations = implementations
-        self.path = path
+        self.sample = sample
         self.fastest = None
         self.seconds = {}
         self.outcome = {}
@@ -54,7 +49,7 @@ class SingleBenchmark:
     def run(self):
         for impl in self.implementations:
             try:
-                t = timeit.Timer(stmt=partial(impl.load, self.path))
+                t = timeit.Timer(stmt=partial(impl.load, self.sample))
                 self.add(impl.name, t.timeit(self.iterations))
 
             except Exception as e:
@@ -65,7 +60,7 @@ class SingleBenchmark:
             self.outcome[name] = "%.3fs%s" % (seconds, info)
 
     def report(self):
-        result = ["%s:" % os.path.basename(self.path)]
+        result = ["%s:" % self.sample]
         for name, outcome in sorted(self.outcome.items()):
             result.append("  %s: %s" % (name, outcome))
         return "\n".join(result)

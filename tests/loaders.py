@@ -6,14 +6,14 @@ import datetime
 import inspect
 import json
 import os
+import re
 
+import click
 import poyo
 import runez
 import strictyaml
 import yaml as pyyaml
 from ruamel.yaml import YAML as RYAML
-from yaml.scanner import ScannerError
-
 
 import zyaml
 
@@ -26,23 +26,53 @@ def main(debug, log):
     runez.log.setup(debug=debug, file_location=log, locations=None)
 
 
-def samples(**kwargs):
-    """Samples to use"""
-    kwargs.setdefault("default", "spec")
-    return runez.click.option(samples, **kwargs)
-
-
 class Setup(object):
 
     TESTS_FOLDER = os.path.abspath(os.path.dirname(__file__))
     SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
-    SPEC_FOLDER = os.path.join(SAMPLE_FOLDER, "spec")
-    YML_IMPLEMENTATIONS = []
+    LOADERS = []
 
     @staticmethod
-    def implementations(names):
-        names = set(names.split(","))
-        return [i for i in Setup.YML_IMPLEMENTATIONS if i.name in names]
+    def implementations_option(option=True, **kwargs):
+        def _callback(_ctx, _param, value):
+            names = [s.strip() for s in value.split(",")]
+            names = [s for s in names if s]
+            result = []
+            for name in names:
+                impl = Setup.get_implementations(name)
+                if not impl:
+                    raise click.BadParameter("Unknown implementation %s" % name)
+                result.extend(impl)
+            return result
+
+        kwargs.setdefault("default", "zyaml,ruamel")
+
+        if option:
+            kwargs.setdefault("help", "Implementation(s) to use")
+            return click.option("--implementations", "-i", callback=_callback, **kwargs)
+
+        return click.argument("implementations", callback=_callback, **kwargs)
+
+    @staticmethod
+    def samples_arg(option=False, **kwargs):
+        def _callback(_ctx, _param, value):
+            return Setup.get_samples(value)
+
+        kwargs.setdefault("default", "spec")
+
+        if option:
+            kwargs.setdefault("help", "Sample(s) to use")
+            return click.option("--samples", "-s", callback=_callback, **kwargs)
+
+        return click.argument("samples", callback=_callback, **kwargs)
+
+    @staticmethod
+    def get_implementations(name):
+        result = []
+        for impl in Setup.LOADERS:
+            if name in impl.name or name.replace("_", " ") in impl.name:
+                result.append(impl)
+        return result
 
     @staticmethod
     def ignored_dirs(names):
@@ -66,27 +96,38 @@ class Setup(object):
             yield sample
 
     @staticmethod
-    def get_samples(path=None, default="misc.yml"):
-        if not path:
-            path = default
+    def get_samples(path):
         result = []
-        if path:
-            if isinstance(path, list):
-                for p in path:
-                    for sample in Setup.get_samples(p):
-                        result.append(sample)
-            elif os.path.isdir(path):
-                path = os.path.abspath(path)
-                for fname in os.listdir(path):
-                    if fname.endswith(".yml"):
-                        sample = Sample(os.path.join(path, fname))
-                        result.append(sample)
-            elif os.path.isfile(path) or os.path.isabs(path):
-                result.append(Sample(path))
-            else:
-                for sample in Setup.find_samples(path):
+        if os.path.isdir(path):
+            path = os.path.abspath(path)
+            for fname in os.listdir(path):
+                if fname.endswith(".yml"):
+                    sample = Sample(os.path.join(path, fname))
                     result.append(sample)
+        elif os.path.isfile(path) or os.path.isabs(path):
+            result.append(Sample(path))
+        else:
+            for sample in Setup.find_samples(path):
+                result.append(sample)
         return sorted(result, key=lambda x: "zz" + x.relative_path if "/" in x.relative_path else x.relative_path)
+
+
+def as_is(value):
+    return value
+
+
+def json_sanitized(value, stringify=as_is):
+    if value is None:
+        return None
+    if isinstance(value, (tuple, list)):
+        return [json_sanitized(v) for v in value]
+    if isinstance(value, dict):
+        return dict((str(k), json_sanitized(v)) for k, v in value.items())
+    if isinstance(value, datetime.date):
+        return str(value)
+    if not isinstance(value, (int, str, float)):
+        return stringify(value)
+    return stringify(value)
 
 
 class Sample(object):
@@ -117,152 +158,157 @@ class Sample(object):
                 return None
         return self._expected
 
-    def refresh(self):
-        value = load_ruamel(self.path)
-        value = json_sanitized(value)
+    def refresh(self, loader=None):
+        """
+        :param BaseLoader loader: Loader to use
+        """
+        if loader is None:
+            loader = ZyamlLoader()
+        rep = loader.json_representation(self, stringify=as_is)
         with open(self.expected_path, "w") as fh:
-            json.dump(value, fh, sort_keys=True, indent=2)
-
-
-def as_is(value):
-    return value
-
-
-def json_sanitized(value, stringify=as_is):
-    if value is None:
-        return None
-    if isinstance(value, (tuple, list)):
-        return [json_sanitized(v) for v in value]
-    if isinstance(value, dict):
-        return dict((str(k), json_sanitized(v)) for k, v in value.items())
-    if isinstance(value, datetime.date):
-        return str(value)
-    if not isinstance(value, (int, str, float)):
-        return stringify(value)
-    return stringify(value)
+            fh.write(rep)
 
 
 class ParseResult(object):
-    def __init__(self, data=None):
+    def __init__(self, loader, sample, data=None):
+        self.loader = loader  # type: BaseLoader
+        self.wrap = str
+        self.sample = sample
         self.data = data
         self.exception = None
         self.error = None
 
+    def __repr__(self):
+        if self.error:
+            return "error: %s" % self.error
+        return self.wrap(self.data)
 
-class YmlImplementation(object):
+    def diff(self, other):
+        if self.error or other.error:
+            if self.error and other.error:
+                return "invalid"
+            return "%s %s  " % ("F " if self.error else "  ", "F " if other.error else "  ")
+        if self.data == other.data:
+            return "match  "
+        return "diff   "
+
+
+class BaseLoader(object):
     """Implementation of loading a yml file"""
-    def __init__(self, func):
-        self.name = func.__name__.replace("load_", "")
-        self.func = func
 
     def __repr__(self):
         return self.name
 
-    def load_stream(self, contents, wrap=None, stringify=None):
-        is_full, data = self.func(contents)
+    @property
+    def name(self):
+        return " ".join(s.lower() for s in re.findall("[A-Z][^A-Z]*", self.__class__.__name__.replace("Loader", "")))
+
+    def _load(self, stream):
+        return []
+
+    def tokens(self, sample, comments=True):
+        try:
+            with open(sample.path) as fh:
+                for t in self._tokens(fh.read(), comments):
+                    yield t
+        except Exception as e:
+            yield "--> can't get tokens: %s" % e
+
+    def _tokens(self, contents, comments):
+        raise Exception("not implemented")
+
+    def load_stream(self, contents):
+        data = self._load(contents)
         if data is not None and inspect.isgenerator(data):
             data = list(data)
-        if is_full:
-            data = zyaml.simplified(data)
-        if wrap is not None:
-            if stringify is None:
-                stringify = as_is
-            data = wrap(data, stringify)
-        return data
+        return zyaml.simplified(data)
 
-    def load_path(self, path, wrap=None, stringify=None):
+    def load_path(self, path):
         with open(path) as fh:
-            return self.load_stream(fh, wrap=wrap, stringify=stringify)
+            return self.load_stream(fh)
 
-    def load(self, path, wrap=None, stringify=None, catch=None):
-        if catch is None:
-            # By default, do not catch exceptions when running in pycharm (debugger then conveniently stops on them)
-            catch = "PYCHARM_HOSTED" not in os.environ
+    def load(self, sample, stacktrace=None):
+        if stacktrace is None:
+            # By default, show stacktrace when running in pycharm
+            stacktrace = "PYCHARM_HOSTED" in os.environ
 
-        if not catch:
-            return ParseResult(self.load_path(path, wrap=wrap, stringify=stringify))
+        if stacktrace:
+            return ParseResult(self, sample, self.load_path(sample.path))
 
-        result = ParseResult()
+        result = ParseResult(self, sample)
         try:
-            result.data = self.load_path(path, wrap=wrap, stringify=stringify)
+            result.data = self.load_path(sample.path)
         except Exception as e:
             result.exception = e
             result.error = str(e)
         return result
 
-
-def yaml_implementation(func):
-    """Decorator to provide yaml implementation loaders easily"""
-    Setup.YML_IMPLEMENTATIONS.append(YmlImplementation(func))
-    return func
+    def json_representation(self, sample, stringify=as_is):
+        result = self.load(sample)
+        return json_representation(result.data, stringify=stringify)
 
 
-@yaml_implementation
-def load_pyyaml_base(stream):
-    return True, pyyaml.load_all(stream, Loader=pyyaml.BaseLoader)
+def json_representation(data, stringify=as_is):
+    data = json_sanitized(data, stringify=stringify)
+    return json.dumps(data, sort_keys=True, indent=2)
 
 
-@yaml_implementation
-def load_pyyaml_full(stream):
-    return True, pyyaml.load_all(stream, Loader=pyyaml.FullLoader)
+class ZyamlLoader(BaseLoader):
+    def _load(self, stream):
+        return zyaml.load_string(stream.read())
+
+    def _tokens(self, stream, comments):
+        settings = zyaml.ScanSettings(yield_comments=comments)
+        return zyaml.scan_tokens(stream, settings=settings)
 
 
-@yaml_implementation
-def load_pyyaml_safe(stream):
-    return True, pyyaml.load_all(stream, Loader=pyyaml.SafeLoader)
+class RuamelLoader(BaseLoader):
+    def _load(self, stream):
+        y = RYAML(typ="safe")
+        y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
+        return y.load_all(stream)
 
 
-@yaml_implementation
-def load_poyo(stream):
-    return False, poyo.parse_string(stream.read())
+class PyyamlBaseLoader(BaseLoader):
+    def _load(self, stream):
+        return pyyaml.load_all(stream, Loader=pyyaml.BaseLoader)
 
-
-@yaml_implementation
-def load_ruamel(stream):
-    y = RYAML(typ="safe")
-    y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
-    return True, y.load_all(stream)
-
-
-@yaml_implementation
-def load_strict(stream):
-    return True, strictyaml.load(stream.read())
-
-
-@yaml_implementation
-def load_zyaml(stream):
-    return True, zyaml.load_string(stream.read())
-
-
-def comments_between_tokens(token1, token2):
-    """Find all comments between two tokens"""
-    if token2 is None:
-        buf = token1.end_mark.buffer[token1.end_mark.pointer:]
-
-    elif (token1.end_mark.line == token2.start_mark.line and
-          not isinstance(token1, pyyaml.StreamStartToken) and
-          not isinstance(token2, pyyaml.StreamEndToken)):
-        return
-
-    else:
-        buf = token1.end_mark.buffer[token1.end_mark.pointer:token2.start_mark.pointer]
-
-    for line in buf.split('\n'):
-        pos = line.find('#')
-        if pos != -1:
-            yield line[pos:]
-
-
-def yaml_tokens(buffer, comments=True):
-    yaml_loader = pyyaml.BaseLoader(buffer)
-    try:
+    def _tokens(self, stream, comments):
+        yaml_loader = pyyaml.BaseLoader(stream)
         curr = yaml_loader.get_token()
         while curr is not None:
             yield curr
-            next = yaml_loader.get_token()
+            nxt = yaml_loader.get_token()
             if comments:
-                for comment in comments_between_tokens(curr, next):
+                for comment in self._comments_between_tokens(curr, nxt):
                     yield comment
-            curr = next
-    except ScannerError as e:
-        print("--> scanner error: %s" % e)
+            curr = nxt
+
+    def _comments_between_tokens(self, token1, token2):
+        """Find all comments between two tokens"""
+        if token2 is None:
+            buf = token1.end_mark.buffer[token1.end_mark.pointer:]
+        elif (token1.end_mark.line == token2.start_mark.line and
+              not isinstance(token1, pyyaml.StreamStartToken) and
+              not isinstance(token2, pyyaml.StreamEndToken)):
+            return
+        else:
+            buf = token1.end_mark.buffer[token1.end_mark.pointer:token2.start_mark.pointer]
+        for line in buf.split('\n'):
+            pos = line.find('#')
+            if pos != -1:
+                yield zyaml.CommentToken(token1.end_mark.line, token1.end_mark.column, line[pos:])
+
+
+class PoyoLoader(BaseLoader):
+    def _load(self, stream):
+        return [poyo.parse_string(stream.read())]
+
+
+class StrictLoader(BaseLoader):
+    def _load(self, stream):
+        return strictyaml.load(stream.read())
+
+
+for impl in BaseLoader.__subclasses__():
+    Setup.LOADERS.append(impl())
