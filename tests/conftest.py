@@ -129,6 +129,14 @@ class SingleBenchmark:
         return "\n".join(result)
 
 
+def quiet_option():
+    return click.option(
+        "--quiet/--no-quiet", "-q",
+        default=None, is_flag=True,
+        help="Turn exceptions into error messages (default: raise in pycharm)"
+    )
+
+
 def implementations_option(option=True, **kwargs):
     """
     :param bool option: If True, make this an option
@@ -191,10 +199,11 @@ def benchmark(implementations, samples):
 
 
 @main.command()
-@click.option("--stacktrace", help="Show stacktrace on failure")
+@quiet_option()
+@click.option("--compact", "-1", is_flag=True, help="Do not show diff text")
 @implementations_option()
 @samples_arg()
-def diff(stacktrace, implementations, samples):
+def diff(quiet, compact, implementations, samples):
     """Compare deserialization of 2 implementations"""
     if len(implementations) != 2:
         sys.exit("Need exactly 2 implementations to compare")
@@ -205,50 +214,55 @@ def diff(stacktrace, implementations, samples):
             generated_files.append([sample])
             for impl in implementations:
                 assert isinstance(impl, YmlImplementation)
-                result = impl.load(sample, stacktrace=stacktrace)
+                result = impl.load(sample, quiet=quiet)
                 fname = "%s-%s.json" % (impl.name, sample.basename)
                 generated_files[-1].extend([fname, result])
-                with open(fname, "w") as fh:
-                    if result.error:
-                        fh.write("%s\n" % result.error)
-                    else:
-                        fh.write(result.json_representation())
+                if not compact:
+                    with open(fname, "w") as fh:
+                        if result.error:
+                            fh.write("%s\n" % result.error)
+                        else:
+                            fh.write(result.json_representation())
 
         for sample, n1, r1, n2, r2 in generated_files:
-            if r1.data == r2.data:
-                print("-- %s: OK" % sample)
-            elif r1.error and r2.error:
+            if r1.error and r2.error:
                 print("-- %s: both failed" % sample)
+            elif r1.data == r2.data:
+                print("-- %s: OK" % sample)
+            elif compact:
+                print("-- %s: differ" % sample)
 
-        for sample, n1, r1, n2, r2 in generated_files:
-            if r1.data != r2.data:
-                diff = runez.run("diff", "-br", "-U1", n1, n2, fatal=None, include_error=True)
-                print("\n==== diff for %s:\n====" % sample)
-                print(diff)
-                print()
+        if not compact:
+            for sample, n1, r1, n2, r2 in generated_files:
+                if r1.data != r2.data:
+                    diff = runez.run("diff", "-br", "-U1", n1, n2, fatal=None, include_error=True)
+                    print("\n==== diff for %s:\n====" % sample)
+                    print(diff)
+                    print()
 
 
 @main.command()
 @samples_arg()
 def find_samples(samples):
     """Show which samples match given filter"""
-    print("\n".join(str(s) for s in samples))
+    for s in samples:
+        print(s)
 
 
 @main.command()
-@click.option("--stacktrace", help="Show stacktrace on failure")
+@quiet_option()
 @implementations_option()
 @samples_arg(default="misc.yml")
-def show(stacktrace, implementations, samples):
+def show(quiet, implementations, samples):
     """Show deserialized yaml objects as json"""
     for sample in samples:
         report = []
         values = set()
         for impl in implementations:
             assert isinstance(impl, YmlImplementation)
-            result = impl.load(sample, stacktrace=stacktrace)
+            result = impl.load(sample, quiet=quiet)
             if result.error:
-                rep = result.error
+                rep = "Error: %s\n" % result.error
                 values.add("error")
             else:
                 rep = result.json_representation()
@@ -383,17 +397,17 @@ class YmlImplementation(object):
         with open(path) as fh:
             return self.load_stream(fh)
 
-    def load(self, sample, stacktrace=None):
+    def load(self, sample, quiet=None):
         """
         :param Sample sample: Sample to load
-        :param bool stacktrace: If True, show stacktrace on failure
+        :param bool quiet: If False, show quiet on failure
         :return ParseResult: Parsed sample
         """
-        if stacktrace is None:
-            # By default, show stacktrace when running in pycharm
-            stacktrace = "PYCHARM_HOSTED" in os.environ
+        if quiet is None:
+            # By default, show quiet when running in pycharm
+            quiet = "PYCHARM_HOSTED" not in os.environ
 
-        if stacktrace:
+        if quiet is False:
             return ParseResult(self, sample, self.load_path(sample.path))
 
         result = ParseResult(self, sample)

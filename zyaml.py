@@ -246,6 +246,9 @@ class RootNode:
         while self.needs_pop(indent):
             self.pop()
         if self.needs_new_node(indent, node_type):
+            if node_type is ListNode and self.head is not None and self.head.indent is not None and indent is not None:
+                if indent <= self.head.indent:
+                    raise ParseError("Line should be indented at least %s chars" % (self.head.indent - 1))
             self.push(node_type(indent))
         self.auto_apply()
 
