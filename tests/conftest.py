@@ -1,6 +1,3 @@
-"""
-See https://github.com/zsimic/yaml for more info
-"""
 
 import datetime
 import inspect
@@ -30,7 +27,7 @@ IMPLEMENTATIONS = []
 def get_implementations(name):
     result = []
     for impl in IMPLEMENTATIONS:
-        if name in impl.name or name.replace("_", " ") in impl.name:
+        if name in impl.name:
             result.append(impl)
     return result
 
@@ -41,7 +38,7 @@ def ignored_dirs(names):
             yield Sample(name)
 
 
-def find_samples(sample_name):
+def scan_samples(sample_name):
     if os.path.isfile(sample_name) or os.path.isabs(sample_name):
         yield Sample(sample_name)
         return
@@ -63,7 +60,7 @@ def find_samples(sample_name):
 
 
 def get_samples(sample_name):
-    return sorted(find_samples(sample_name), key=lambda x: x.key)
+    return sorted(scan_samples(sample_name), key=lambda x: x.key)
 
 
 @pytest.fixture
@@ -170,7 +167,7 @@ def samples_arg(option=False, **kwargs):
 @runez.click.debug()
 @runez.click.log()
 def main(debug, log):
-    """Useful troubleshooting commands, useful for iterating on this lib"""
+    """Troubleshooting commands, useful for iterating on this library"""
     runez.log.setup(debug=debug, file_location=log, locations=None)
 
 
@@ -188,7 +185,7 @@ def benchmark(implementations, samples):
 @main.command()
 @implementations_option()
 @samples_arg()
-def match(implementations, samples):
+def diff(implementations, samples):
     """Compare deserialization of 2 implementations"""
     if len(implementations) != 2:
         sys.exit("Need exactly 2 implementations to compare")
@@ -201,7 +198,7 @@ def match(implementations, samples):
 
 @main.command()
 @samples_arg()
-def find(samples):
+def find_samples(samples):
     """Show which samples match given filter"""
     print("\n".join(str(s) for s in samples))
 
@@ -282,7 +279,7 @@ class Sample(object):
         :param YmlImplementation impl: Implementation to use
         """
         if impl is None:
-            impl = ZyamlImplementation()
+            impl = RuamelImplementation()
         rep = impl.json_representation(self, stringify=as_is)
         with open(self.expected_path, "w") as fh:
             fh.write(rep)
@@ -320,7 +317,7 @@ class YmlImplementation(object):
 
     @property
     def name(self):
-        return " ".join(s.lower() for s in re.findall("[A-Z][^A-Z]*", self.__class__.__name__.replace("Implementation", "")))
+        return "_".join(s.lower() for s in re.findall("[A-Z][^A-Z]*", self.__class__.__name__.replace("Implementation", "")))
 
     def _load(self, stream):
         return []
@@ -369,7 +366,7 @@ class YmlImplementation(object):
 
 def json_representation(data, stringify=as_is):
     data = json_sanitized(data, stringify=stringify)
-    return json.dumps(data, sort_keys=True, indent=2)
+    return "%s\n" % json.dumps(data, sort_keys=True, indent=2)
 
 
 class ZyamlImplementation(YmlImplementation):
