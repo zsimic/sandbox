@@ -551,7 +551,8 @@ def scan_tokens(buffer, settings=None):
 
     line = column = 1
     pos = 0
-    prev = upcoming = tokenizer = simple_key = None
+    prev = " "
+    upcoming = tokenizer = simple_key = None
     current = None
 
     for upcoming in buffer:
