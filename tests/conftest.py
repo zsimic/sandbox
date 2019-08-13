@@ -4,7 +4,6 @@ import inspect
 import json
 import os
 import re
-import sys
 import timeit
 from functools import partial
 
@@ -129,11 +128,11 @@ class SingleBenchmark:
         return "\n".join(result)
 
 
-def quiet_option():
+def stacktrace_option():
     return click.option(
-        "--quiet/--no-quiet", "-q",
+        "--stacktrace", "-x",
         default=None, is_flag=True,
-        help="Turn exceptions into error messages (default: raise in pycharm)"
+        help="Leave exceptions uncaught (to conveniently stop in debugger)"
     )
 
 
@@ -143,6 +142,9 @@ def implementations_option(option=True, **kwargs):
     :param kwargs: Passed-through to click
     :return list[YmlImplementation]: List of implementations to use
     """
+    kwargs.setdefault("default", "zyaml,ruamel")
+    count = kwargs.pop("count", None)
+
     def _callback(_ctx, _param, value):
         names = [s.strip() for s in value.split(",")]
         names = [s for s in names if s]
@@ -152,12 +154,21 @@ def implementations_option(option=True, **kwargs):
             if not impl:
                 raise click.BadParameter("Unknown implementation %s" % name)
             result.extend(impl)
+        if count and len(result) != count:
+            if count == 1:
+                raise click.BadParameter("Need exactly 1 implementation")
+            raise click.BadParameter("Need exactly %s implementations" % count)
         return result
 
-    kwargs.setdefault("default", "zyaml,ruamel")
-
     if option:
-        kwargs.setdefault("help", "Implementation(s) to use")
+        if count == 1:
+            hlp = "Implementation to use"
+        elif count:
+            hlp = "%s implementations to use" % count
+        else:
+            hlp = "Implementations to use"
+        kwargs.setdefault("help", hlp)
+        kwargs.setdefault("show_default", True)
         return click.option("--implementations", "-i", callback=_callback, **kwargs)
 
     return click.argument("implementations", callback=_callback, **kwargs)
@@ -174,6 +185,7 @@ def samples_arg(option=False, **kwargs):
 
     if option:
         kwargs.setdefault("help", "Sample(s) to use")
+        kwargs.setdefault("show_default", True)
         return click.option("--samples", "-s", callback=_callback, **kwargs)
 
     return click.argument("samples", callback=_callback, **kwargs)
@@ -199,22 +211,19 @@ def benchmark(implementations, samples):
 
 
 @main.command()
-@quiet_option()
+@stacktrace_option()
 @click.option("--compact", "-1", is_flag=True, help="Do not show diff text")
-@implementations_option()
+@implementations_option(count=2)
 @samples_arg()
-def diff(quiet, compact, implementations, samples):
+def diff(stacktrace, compact, implementations, samples):
     """Compare deserialization of 2 implementations"""
-    if len(implementations) != 2:
-        sys.exit("Need exactly 2 implementations to compare")
-
     with runez.TempFolder():
         generated_files = []
         for sample in samples:
             generated_files.append([sample])
             for impl in implementations:
                 assert isinstance(impl, YmlImplementation)
-                result = impl.load(sample, quiet=quiet)
+                result = impl.load(sample, stacktrace=stacktrace)
                 fname = "%s-%s.json" % (impl.name, sample.basename)
                 generated_files[-1].extend([fname, result])
                 if not compact:
@@ -235,9 +244,9 @@ def diff(quiet, compact, implementations, samples):
         if not compact:
             for sample, n1, r1, n2, r2 in generated_files:
                 if r1.data != r2.data:
-                    diff = runez.run("diff", "-br", "-U1", n1, n2, fatal=None, include_error=True)
+                    output = runez.run("diff", "-br", "-U1", n1, n2, fatal=None, include_error=True)
                     print("\n==== diff for %s:\n====" % sample)
-                    print(diff)
+                    print(output)
                     print()
 
 
@@ -250,17 +259,17 @@ def find_samples(samples):
 
 
 @main.command()
-@quiet_option()
+@stacktrace_option()
 @implementations_option()
 @samples_arg(default="misc.yml")
-def show(quiet, implementations, samples):
+def show(stacktrace, implementations, samples):
     """Show deserialized yaml objects as json"""
     for sample in samples:
         report = []
         values = set()
         for impl in implementations:
             assert isinstance(impl, YmlImplementation)
-            result = impl.load(sample, quiet=quiet)
+            result = impl.load(sample, stacktrace=stacktrace)
             if result.error:
                 rep = "Error: %s\n" % result.error
                 values.add("error")
@@ -273,11 +282,13 @@ def show(quiet, implementations, samples):
 
 
 @main.command()
+@stacktrace_option()
+@implementations_option(count=1, default="zyaml")
 @samples_arg()
-def refresh(samples):
+def refresh(stacktrace, implementations, samples):
     """Refresh expected json for each sample"""
     for sample in samples:
-        sample.refresh()
+        sample.refresh(impl=implementations[0], stacktrace=stacktrace)
 
 
 @main.command()
@@ -324,13 +335,14 @@ class Sample(object):
                 return None
         return self._expected
 
-    def refresh(self, impl=None):
+    def refresh(self, impl=None, stacktrace=None):
         """
         :param YmlImplementation impl: Implementation to use
+        :param bool stacktrace: If True, don't catch parsing exceptions
         """
-        if impl is None:
-            impl = RuamelImplementation()
-        rep = impl.json_representation(self, stringify=as_is)
+        assert impl is not None
+        result = impl.load(self, stacktrace=stacktrace)
+        rep = result.json_representation()
         with open(self.expected_path, "w") as fh:
             fh.write(rep)
 
@@ -348,6 +360,10 @@ class ParseResult(object):
         if self.error:
             return "error: %s" % self.error
         return self.wrap(self.data)
+
+    def set_exception(self, exc):
+        self.exception = exc
+        self.error = str(exc).replace(self.sample.path, self.sample.name)
 
     def diff(self, other):
         if self.error or other.error:
@@ -397,25 +413,20 @@ class YmlImplementation(object):
         with open(path) as fh:
             return self.load_stream(fh)
 
-    def load(self, sample, quiet=None):
+    def load(self, sample, stacktrace=None):
         """
         :param Sample sample: Sample to load
-        :param bool quiet: If False, show quiet on failure
+        :param bool stacktrace: If True, don't catch parsing exceptions
         :return ParseResult: Parsed sample
         """
-        if quiet is None:
-            # By default, show quiet when running in pycharm
-            quiet = "PYCHARM_HOSTED" not in os.environ
-
-        if quiet is False:
+        if stacktrace:
             return ParseResult(self, sample, self.load_path(sample.path))
 
         result = ParseResult(self, sample)
         try:
             result.data = self.load_path(sample.path)
         except Exception as e:
-            result.exception = e
-            result.error = str(e)
+            result.set_exception(e)
         return result
 
     def json_representation(self, sample, stringify=as_is):
