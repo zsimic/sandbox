@@ -22,6 +22,7 @@ import zyaml
 @runez.click.debug()
 @runez.click.log()
 def main(debug, log):
+    """Useful troubleshooting commands, useful for iterating on this lib"""
     runez.log.setup(debug=debug, file_location=log, locations=None)
 
 
@@ -175,6 +176,7 @@ class YmlImplementation(object):
 
     def load(self, path, wrap=None, stringify=None, catch=None):
         if catch is None:
+            # By default, do not catch exceptions when running in pycharm (debugger then conveniently stops on them)
             catch = "PYCHARM_HOSTED" not in os.environ
 
         if not catch:
@@ -190,6 +192,7 @@ class YmlImplementation(object):
 
 
 def yaml_implementation(func):
+    """Decorator to provide yaml implementation loaders easily"""
     Setup.YML_IMPLEMENTATIONS.append(YmlImplementation(func))
     return func
 
@@ -199,12 +202,12 @@ def load_pyyaml_base(stream):
     return True, pyyaml.load_all(stream, Loader=pyyaml.BaseLoader)
 
 
-# @yaml_implementation
+@yaml_implementation
 def load_pyyaml_full(stream):
     return True, pyyaml.load_all(stream, Loader=pyyaml.FullLoader)
 
 
-# @yaml_implementation
+@yaml_implementation
 def load_pyyaml_safe(stream):
     return True, pyyaml.load_all(stream, Loader=pyyaml.SafeLoader)
 
@@ -228,7 +231,7 @@ def load_strict(stream):
 
 @yaml_implementation
 def load_zyaml(stream):
-    return True, zyaml.load(stream)
+    return True, zyaml.load_string(stream.read())
 
 
 def comments_between_tokens(token1, token2):
