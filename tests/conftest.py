@@ -298,7 +298,7 @@ class Sample(object):
 
     @property
     def expected_path(self):
-        return os.path.join(self.folder, "expected", "%s.json" % self.basename)
+        return os.path.join(self.folder, "_expected", "%s.json" % self.basename)
 
     @property
     def expected(self):
