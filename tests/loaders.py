@@ -1,19 +1,91 @@
+"""
+See https://github.com/zsimic/yaml for more info
+"""
+
 import datetime
+import inspect
 import json
 import os
 
 import poyo
+import runez
 import strictyaml
 import yaml as pyyaml
 from ruamel.yaml import YAML as RYAML
 from yaml.scanner import ScannerError
 
+
 import zyaml
 
 
-TESTS_FOLDER = os.path.abspath(os.path.dirname(__file__))
-SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
-SPEC_FOLDER = os.path.join(SAMPLE_FOLDER, "spec")
+@runez.click.group()
+@runez.click.debug()
+@runez.click.log()
+def main(debug, log):
+    runez.log.setup(debug=debug, file_location=log, locations=None)
+
+
+def samples(**kwargs):
+    """Samples to use"""
+    kwargs.setdefault("default", "spec")
+    return runez.click.option(samples, **kwargs)
+
+
+class Setup(object):
+
+    TESTS_FOLDER = os.path.abspath(os.path.dirname(__file__))
+    SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
+    SPEC_FOLDER = os.path.join(SAMPLE_FOLDER, "spec")
+    YML_IMPLEMENTATIONS = []
+
+    @staticmethod
+    def implementations(names):
+        names = set(names.split(","))
+        return [i for i in Setup.YML_IMPLEMENTATIONS if i.name in names]
+
+    @staticmethod
+    def ignored_dirs(names):
+        for name in names:
+            if name.startswith("."):
+                yield Sample(name)
+
+    @staticmethod
+    def find_samples(match, path=None):
+        if path is None:
+            for root, dirs, files in os.walk(Setup.SAMPLE_FOLDER):
+                for name in list(Setup.ignored_dirs(dirs)):
+                    dirs.remove(name)
+                for fname in files:
+                    if fname.endswith(".yml"):
+                        for sample in Setup.find_samples(match, path=os.path.join(root, fname)):
+                            yield sample
+            return
+        sample = Sample(path)
+        if match == "all" or match in sample.relative_path:
+            yield sample
+
+    @staticmethod
+    def get_samples(path=None, default="misc.yml"):
+        if not path:
+            path = default
+        result = []
+        if path:
+            if isinstance(path, list):
+                for p in path:
+                    for sample in Setup.get_samples(p):
+                        result.append(sample)
+            elif os.path.isdir(path):
+                path = os.path.abspath(path)
+                for fname in os.listdir(path):
+                    if fname.endswith(".yml"):
+                        sample = Sample(os.path.join(path, fname))
+                        result.append(sample)
+            elif os.path.isfile(path) or os.path.isabs(path):
+                result.append(Sample(path))
+            else:
+                for sample in Setup.find_samples(path):
+                    result.append(sample)
+        return sorted(result, key=lambda x: "zz" + x.relative_path if "/" in x.relative_path else x.relative_path)
 
 
 class Sample(object):
@@ -21,8 +93,8 @@ class Sample(object):
         self.path = os.path.abspath(path)
         self.basename = os.path.basename(self.path)
         self.folder = os.path.dirname(self.path)
-        if self.path.startswith(SAMPLE_FOLDER):
-            self.relative_path = self.path[len(SAMPLE_FOLDER) + 1:]
+        if self.path.startswith(Setup.SAMPLE_FOLDER):
+            self.relative_path = self.path[len(Setup.SAMPLE_FOLDER) + 1:]
         else:
             self.relative_path = self.path
         self._expected = None
@@ -50,50 +122,6 @@ class Sample(object):
         with open(self.expected_path, "w") as fh:
             json.dump(value, fh, sort_keys=True, indent=2)
 
-    @staticmethod
-    def ignored_dirs(names):
-        for name in names:
-            if name.startswith("."):
-                yield Sample(name)
-
-    @staticmethod
-    def find_samples(match, path=None):
-        if path is None:
-            for root, dirs, files in os.walk(SAMPLE_FOLDER):
-                for name in list(Sample.ignored_dirs(dirs)):
-                    dirs.remove(name)
-                for fname in files:
-                    if fname.endswith(".yml"):
-                        for sample in Sample.find_samples(match, path=os.path.join(root, fname)):
-                            yield sample
-            return
-        sample = Sample(path)
-        if match == "all" or match in sample.relative_path:
-            yield sample
-
-    @staticmethod
-    def get_samples(path=None, default="misc.yml"):
-        if not path:
-            path = default
-        result = []
-        if path:
-            if isinstance(path, list):
-                for p in path:
-                    for sample in Sample.get_samples(p):
-                        result.append(sample)
-            elif os.path.isdir(path):
-                path = os.path.abspath(path)
-                for fname in os.listdir(path):
-                    if fname.endswith(".yml"):
-                        sample = Sample(os.path.join(path, fname))
-                        result.append(sample)
-            elif os.path.isfile(path) or os.path.isabs(path):
-                result.append(Sample(path))
-            else:
-                for sample in Sample.find_samples(path):
-                    result.append(sample)
-        return sorted(result, key=lambda x: "zz" + x.relative_path if "/" in x.relative_path else x.relative_path)
-
 
 def as_is(value):
     return value
@@ -113,10 +141,15 @@ def json_sanitized(value, stringify=as_is):
     return stringify(value)
 
 
+class ParseResult(object):
+    def __init__(self, data=None):
+        self.data = data
+        self.exception = None
+        self.error = None
+
+
 class YmlImplementation(object):
     """Implementation of loading a yml file"""
-    available = []
-
     def __init__(self, func):
         self.name = func.__name__.replace("load_", "")
         self.func = func
@@ -124,79 +157,78 @@ class YmlImplementation(object):
     def __repr__(self):
         return self.name
 
-    @staticmethod
-    def add(func):
-        """
-        :param callable func: Implementation to use to load a yml file for this benchmark
-        """
-        YmlImplementation.available.append(YmlImplementation(func))
-        return func
+    def load_stream(self, contents, wrap=None, stringify=None):
+        is_full, data = self.func(contents)
+        if data is not None and inspect.isgenerator(data):
+            data = list(data)
+        if is_full:
+            data = zyaml.simplified(data)
+        if wrap is not None:
+            if stringify is None:
+                stringify = as_is
+            data = wrap(data, stringify)
+        return data
 
-    def load(self, path):
-        return self.func(path)
+    def load_path(self, path, wrap=None, stringify=None):
+        with open(path) as fh:
+            return self.load_stream(fh, wrap=wrap, stringify=stringify)
 
-    def load_sanitized(self, path, stringify=as_is):
+    def load(self, path, wrap=None, stringify=None, catch=None):
+        if catch is None:
+            catch = "PYCHARM_HOSTED" not in os.environ
+
+        if not catch:
+            return ParseResult(self.load_path(path, wrap=wrap, stringify=stringify))
+
+        result = ParseResult()
         try:
-            return json_sanitized(self.func(path), stringify=stringify)
-
-        except Exception:
-            return None
-
-
-def loaded_pyaml(stream, loader):
-    docs = list(pyyaml.load_all(stream, Loader=loader))
-    return zyaml.simplified(docs)
+            result.data = self.load_path(path, wrap=wrap, stringify=stringify)
+        except Exception as e:
+            result.exception = e
+            result.error = str(e)
+        return result
 
 
-@YmlImplementation.add
-def load_pyyaml_base(path):
-    with open(path) as fh:
-        return loaded_pyaml(fh, pyyaml.BaseLoader)
+def yaml_implementation(func):
+    Setup.YML_IMPLEMENTATIONS.append(YmlImplementation(func))
+    return func
 
 
-# @YmlImplementation.add
-def load_pyyaml_full(path):
-    with open(path) as fh:
-        return loaded_pyaml(fh, pyyaml.FullLoader)
+@yaml_implementation
+def load_pyyaml_base(stream):
+    return True, pyyaml.load_all(stream, Loader=pyyaml.BaseLoader)
 
 
-# @YmlImplementation.add
-def load_pyyaml_safe(path):
-    with open(path) as fh:
-        return loaded_pyaml(fh, pyyaml.SafeLoader)
+# @yaml_implementation
+def load_pyyaml_full(stream):
+    return True, pyyaml.load_all(stream, Loader=pyyaml.FullLoader)
 
 
-@YmlImplementation.add
-def load_poyo(path):
-    with open(path) as fh:
-        return poyo.parse_string(fh.read())
+# @yaml_implementation
+def load_pyyaml_safe(stream):
+    return True, pyyaml.load_all(stream, Loader=pyyaml.SafeLoader)
 
 
-def loaded_ruamel(stream):
+@yaml_implementation
+def load_poyo(stream):
+    return False, poyo.parse_string(stream.read())
+
+
+@yaml_implementation
+def load_ruamel(stream):
     y = RYAML(typ="safe")
     y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
-    return zyaml.simplified(list(y.load_all(stream)))
+    return True, y.load_all(stream)
 
 
-@YmlImplementation.add
-def load_ruamel(path):
-    with open(path) as fh:
-        return loaded_ruamel(fh)
+@yaml_implementation
+def load_strict(stream):
+    return True, strictyaml.load(stream.read())
 
 
-@YmlImplementation.add
-def load_strict(path):
-    with open(path) as fh:
-        docs = strictyaml.load(fh.read())
-        if len(docs) == 1:
-            return docs[0]
-        return docs[0] if len(docs) == 1 else docs
-
-
-@YmlImplementation.add
-def load_zyaml(path):
-    docs = zyaml.load_path(path)
-    return docs
+@yaml_implementation
+def load_zyaml(stream):
+    return True, zyaml.load(stream)
 
 
 def comments_between_tokens(token1, token2):

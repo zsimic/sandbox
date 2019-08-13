@@ -3,5 +3,6 @@ poyo
 pytest-cov
 PyYAML
 ruamel.yaml
+runez
 strictyaml
 toml

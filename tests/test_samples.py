@@ -1,9 +1,9 @@
 import zyaml
 
 
-def test_samples(samples):
+def test_samples(spec_samples):
     skipped = 0
-    for sample in samples:
+    for sample in spec_samples:
         value = zyaml.load_path(sample.path)
         expected = sample.expected
         if expected is None:
