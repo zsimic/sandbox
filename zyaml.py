@@ -150,28 +150,9 @@ class AliasToken(Token):
 
 
 class TagToken(Token):
-    def __init__(self, line, column, text):
-        if len(text) > 1:
-            second = text[1]
-            if second == " ":
-                self.style = text[0]
-                text = text[2:]
-            elif not second.isalnum():
-                self.style = text[0:2]
-                text = text[2:]
-            else:
-                self.style = text[0]
-                text = text[1:]
-        else:
-            self.style = text[0]
-            text = text[1:]
-        super(TagToken, self).__init__(line, column, text)
-
-    def represented_value(self):
-        return "%s %s" % (self.style, self.value)
-
     def consume_token(self, root):
-        pass
+        if self.value is not None:
+            root.head.tag_token = self
 
 
 class ScalarToken(Token):
@@ -204,12 +185,12 @@ class ParseNode(object):
     def __init__(self, indent):
         self.indent = indent
         self.prev = None
-        self.is_map = False
         self.is_temp = False
         self.needs_apply = False
         self.last_value = None
         self.target = None
         self.anchor_token = None
+        self.tag_token = None
 
     def __repr__(self):
         result = "%s%s%s" % (self.__class__.__name__[0], "" if self.indent is None else self.indent, "*" if self.is_temp else "")
@@ -231,6 +212,10 @@ class ParseNode(object):
         """
         :param RootNode root: Associated root
         """
+        if self.tag_token and self.last_value is not None:
+            transformer = self.tag_token.value.transformer
+            if transformer is not None:
+                self.last_value = transformer(self.last_value)
         if self.anchor_token:
             root.anchors[self.anchor_token.value] = self.last_value
             self.anchor_token = None
@@ -254,7 +239,6 @@ class ListNode(ParseNode):
 class MapNode(ParseNode):
     def __init__(self, indent):
         super(MapNode, self).__init__(indent)
-        self.is_map = True
         self.last_key = None
 
     def set_key(self, key):
@@ -267,8 +251,9 @@ class MapNode(ParseNode):
         if self.target is None:
             self.target = {}
         if self.last_key is None:
-            raise ParseError("No key")
-        self.target[self.last_key] = self.last_value
+            self.target[self.last_value] = None
+        else:
+            self.target[self.last_key] = self.last_value
         self.last_key = None
         self.last_value = None
         self.needs_apply = False
@@ -476,15 +461,28 @@ class SingleQuoteTokenizer(Tokenizer):
             return [ScalarToken(line, column, text, style="'")]
 
 
+class TagHandler(object):
+    def __init__(self, prefix, name, transformer):
+        self.prefix = prefix
+        self.name = name
+        self.transformer = transformer
+
+    def transformed(self, value):
+        if self.transformer is not None:
+            return self.transformer(value)
+        return value
+
+
 class TagTokenizer(Tokenizer):
     def __call__(self, line, column, pos, prev, current, upcoming):
         if current == " " or current == "\n":
             text = self.settings.contents(self.pos, pos)
-            if self.current == "!":
-                return [TagToken(self.line, self.column, text)]
-            if self.current == "&":
+            if text.startswith("!"):
+                handler = self.settings.get_tag_handler(text[1:])
+                return [TagToken(self.line, self.column, handler)]
+            if text.startswith("&"):
                 return [AnchorToken(self.line, self.column, text[1:])]
-            if self.current == "*":
+            if text.startswith("*"):
                 return [AliasToken(self.line, self.column, text[1:])]
             raise ParseError("Internal error, unknown tag: %s" % text)
 
@@ -619,9 +617,24 @@ class ScanSettings(object):
         self.buffer = None
         self.last_key = None
         self.scalar_marshaller = scalar_marshaller
+        self.taggers = {"": {
+            "map": dict,
+            "omap": dict,
+            "seq": list,
+            "set": list,
+            "str": str,
+        }}
 
     def contents(self, start, end):
         return self.buffer[start:end]
+
+    def get_tag_handler(self, text):
+        prefix, _, name = text.partition("!")
+        transformer = None
+        tagger = self.taggers.get(prefix)
+        if tagger:
+            transformer = tagger.get(name)
+        return TagHandler(prefix, name, transformer)
 
 
 def scan_tokens(buffer, settings=None):
