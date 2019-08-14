@@ -115,7 +115,7 @@ class SingleBenchmark:
                 self.add(impl.name, t.timeit(self.iterations))
 
             except Exception as e:
-                self.add(impl.name, None, message="failed %s" % e)
+                self.add(impl.name, None, message=ParseResult.simplified_error(e, self.sample, size=160))
 
         for name, seconds in self.seconds.items():
             info = "" if seconds == self.fastest else " [x %.1f]" % (seconds / self.fastest)
@@ -335,12 +335,11 @@ class Sample(object):
                 return None
         return self._expected
 
-    def refresh(self, impl=None, stacktrace=None):
+    def refresh(self, impl, stacktrace=None):
         """
         :param YmlImplementation impl: Implementation to use
         :param bool stacktrace: If True, don't catch parsing exceptions
         """
-        assert impl is not None
         result = impl.load(self, stacktrace=stacktrace)
         rep = result.json_representation()
         with open(self.expected_path, "w") as fh:
@@ -361,9 +360,16 @@ class ParseResult(object):
             return "error: %s" % self.error
         return self.wrap(self.data)
 
+    @staticmethod
+    def simplified_error(exc, sample, size=None):
+        result = str(exc).replace(sample.path, sample.name)
+        if size:
+            result = runez.shortened(result, size)
+        return result
+
     def set_exception(self, exc):
         self.exception = exc
-        self.error = str(exc).replace(self.sample.path, self.sample.name)
+        self.error = self.simplified_error(exc, self.sample)
 
     def diff(self, other):
         if self.error or other.error:
@@ -413,7 +419,7 @@ class YmlImplementation(object):
         with open(path) as fh:
             return self.load_stream(fh)
 
-    def load(self, sample, stacktrace=None):
+    def load(self, sample, stacktrace=True):
         """
         :param Sample sample: Sample to load
         :param bool stacktrace: If True, don't catch parsing exceptions
@@ -430,7 +436,7 @@ class YmlImplementation(object):
         return result
 
     def json_representation(self, sample, stringify=as_is):
-        result = self.load(sample)
+        result = self.load(sample, stacktrace=False)
         return json_representation(result.data, stringify=stringify)
 
 
