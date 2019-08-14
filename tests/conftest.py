@@ -411,7 +411,7 @@ class YmlImplementation(object):
                 for t in self._tokens(fh.read(), comments):
                     yield t
         except Exception as e:
-            yield "--> can't get tokens: %s" % e
+            yield "Error: %s" % e
 
     def _tokens(self, contents, comments):
         raise Exception("not implemented")
