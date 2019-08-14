@@ -24,6 +24,8 @@ IMPLEMENTATIONS = []
 
 
 def get_implementations(name):
+    if name == "all":
+        return IMPLEMENTATIONS
     result = []
     for impl in IMPLEMENTATIONS:
         if name in impl.name:
@@ -74,7 +76,7 @@ def as_is(value):
 def json_sanitized(value, stringify=as_is):
     if value is None:
         return None
-    if isinstance(value, (tuple, list)):
+    if isinstance(value, (tuple, list, set)):
         return [json_sanitized(v) for v in value]
     if isinstance(value, dict):
         return dict((str(k), json_sanitized(v)) for k, v in value.items())
@@ -383,8 +385,11 @@ class ParseResult(object):
         return "diff   "
 
     def json_representation(self, stringify=as_is):
-        data = {"_error": self.error} if self.error else self.data
-        return json_representation(data, stringify=stringify)
+        try:
+            data = {"_error": self.error} if self.error else self.data
+            return json_representation(data, stringify=stringify)
+        except Exception as e:
+            raise Exception("Can't json-serialize %s: %s" % (self.sample, e))
 
 
 class YmlImplementation(object):
@@ -493,6 +498,16 @@ class PyyamlBaseImplementation(YmlImplementation):
             pos = line.find('#')
             if pos != -1:
                 yield zyaml.CommentToken(token1.end_mark.line, token1.end_mark.column, line[pos:])
+
+
+class PyyamlSafeImplementation(YmlImplementation):
+    def _load(self, stream):
+        return pyyaml.load_all(stream, Loader=pyyaml.SafeLoader)
+
+
+class PyyamlFullImplementation(YmlImplementation):
+    def _load(self, stream):
+        return pyyaml.load_all(stream, Loader=pyyaml.FullLoader)
 
 
 class PoyoImplementation(YmlImplementation):
