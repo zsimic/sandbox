@@ -82,12 +82,14 @@ def json_sanitized(value, stringify=as_is):
         return dict((str(k), json_sanitized(v)) for k, v in value.items())
     if isinstance(value, datetime.date):
         return str(value)
+    if isinstance(value, strictyaml.representation.YAML):
+        return str(value)
     if not isinstance(value, (int, str, float)):
         return stringify(value)
     return stringify(value)
 
 
-class SingleBenchmark:
+class SingleBenchmark(object):
     def __init__(self, sample, implementations):
         self.implementations = implementations
         self.sample = sample
