@@ -213,10 +213,12 @@ def benchmark(implementations, samples):
 @main.command()
 @stacktrace_option()
 @click.option("--compact", "-1", is_flag=True, help="Do not show diff text")
+@click.option("--untyped", "-u", is_flag=True, help="Parse everything as strings")
 @implementations_option(count=2)
 @samples_arg()
-def diff(stacktrace, compact, implementations, samples):
+def diff(stacktrace, compact, untyped, implementations, samples):
     """Compare deserialization of 2 implementations"""
+    stringify = str if untyped else as_is
     with runez.TempFolder():
         generated_files = []
         for sample in samples:
@@ -231,7 +233,7 @@ def diff(stacktrace, compact, implementations, samples):
                         if result.error:
                             fh.write("%s\n" % result.error)
                         else:
-                            fh.write(result.json_representation())
+                            fh.write(result.json_representation(stringify=stringify))
 
         for sample, n1, r1, n2, r2 in generated_files:
             if r1.error and r2.error:

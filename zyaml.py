@@ -410,19 +410,20 @@ class SingleQuoteTokenizer(Tokenizer):
 class LiteralTokenizer(Tokenizer):
     def __init__(self, settings, line, column, pos, current, upcoming):
         super(LiteralTokenizer, self).__init__(settings, line, column, pos, current, upcoming)
-        if not settings.last_key:
-            raise ParseError("Invalid literal", line, column)
-        self.min_indent = settings.last_key.column
+        # if not settings.last_key:
+        #     raise ParseError("Invalid literal", line, column)
+        self.min_indent = settings.last_key.column if settings.last_key else column - 2
         self.indent = None
         self.in_comment = False
-        if upcoming == "-":
-            self.style = "|-"
-        elif upcoming == "+":
-            self.style = "|+"
-        elif upcoming == "\n" or upcoming == " ":
-            self.style = "|"
+        if upcoming == "\n" or upcoming == " ":
+            self.style = current
+        elif current == "|" and upcoming in "-+":
+            self.style = "%s%s" % (current, upcoming)
+        elif upcoming.isdigit():
+            self.indent = int(upcoming)
+            self.style = "%s%s" % (current, upcoming)
         else:
-            raise ParseError("Invalid literal", line, column)
+            raise ParseError("Invalid style", line, column)
 
     def __call__(self, line, column, pos, prev, current, upcoming):
         if line == self.line:  # Allow only blanks and comments on first line
@@ -433,7 +434,7 @@ class LiteralTokenizer(Tokenizer):
                 if current == "#":
                     self.in_comment = True
                 elif current != " ":
-                    if pos != self.pos + 1 or current not in "-+ ":
+                    if pos != self.pos + 1:
                         raise ParseError("Invalid char in literal", line, column)
 
         elif current == "\n" or upcoming is None:
@@ -461,10 +462,10 @@ class LiteralTokenizer(Tokenizer):
         result = []
         indent = self.indent
         for line in text.split("\n"):
-            if not result or first_non_blank(line) != "#":
+            if not result or self.style == ">" or first_non_blank(line) != "#":
                 result.append(line[indent:])
         text = "\n".join(result)
-        if text and self.upcoming != "+":
+        if text and self.upcoming != "+" and self.style[0] != ">" and not self.style[-1].isdigit():
             if self.upcoming == "-":
                 text = text.strip()
             elif text[-1] == "\n":
@@ -493,6 +494,7 @@ class ParseError(Exception):
 TOKENIZER_MAP = {
     " ": None,
     "\n": None,
+    ">": LiteralTokenizer,
     "|": LiteralTokenizer,
     "#": CommentTokenizer,
     "{": FlowTokenizer,
