@@ -654,6 +654,10 @@ def to_bool(value):
     raise ParseError("%s is not a boolean" % value)
 
 
+def to_int(value):
+    return int(value)
+
+
 class ScanSettings(object):
     def __init__(self, yield_comments=False, scalar_marshaller=parsed_value):
         self.yield_comments = yield_comments
@@ -662,12 +666,13 @@ class ScanSettings(object):
         self.scalar_marshaller = scalar_marshaller
         self.taggers = {"": {
             "bool": to_bool,
+            "int": to_int,
             "map": to_map,
+            "null": to_null,
             "omap": to_map,
             "seq": to_list,
             "set": to_list,
             "str": to_str,
-            "null": to_null,
         }}
 
     def contents(self, start, end):
