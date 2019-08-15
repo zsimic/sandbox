@@ -1,0 +1,12 @@
+YAML is a superset of JSON: !!bool true
+Pluto is a planet: !!bool false
+
+yes-es:
+  y is true: !!bool Y
+  yes is true: !!bool yEs
+  on is true: !!bool oN
+
+no-es:
+  n is false: !!bool n
+  no is false: !!bool No
+  off is false: !!bool OFF

@@ -95,12 +95,12 @@ class DocumentEndToken(Token):
 
 class FlowMappingStartToken(Token):
     def consume_token(self, root):
-        root.push(MapNode(None))
+        root.push(MapNode(root, None))
 
 
 class FlowSequenceStartToken(Token):
     def consume_token(self, root):
-        root.push(ListNode(None))
+        root.push(ListNode(root, None))
 
 
 class FlowEndToken(Token):
@@ -151,8 +151,13 @@ class AliasToken(Token):
 
 class TagToken(Token):
     def consume_token(self, root):
+        assert not root.tag_token
+        root.tag_token = self
+
+    def transformed(self, value):
         if self.value is not None:
-            root.head.tag_token = self
+            return self.value.transformed(value)
+        return value
 
 
 class ScalarToken(Token):
@@ -182,15 +187,18 @@ class ScalarToken(Token):
 
 
 class ParseNode(object):
-    def __init__(self, indent):
-        self.indent = indent
+    def __init__(self, root, indent):
+        self.root = root  # type: RootNode
+        if root is not None and root.tag_token:
+            self.indent = root.tag_token.column
+        else:
+            self.indent = indent
         self.prev = None
         self.is_temp = False
         self.needs_apply = False
         self.last_value = None
         self.target = None
         self.anchor_token = None
-        self.tag_token = None
 
     def __repr__(self):
         result = "%s%s%s" % (self.__class__.__name__[0], "" if self.indent is None else self.indent, "*" if self.is_temp else "")
@@ -203,21 +211,15 @@ class ParseNode(object):
 
     def set_value(self, value):
         self.needs_apply = True
+        value = self.root.transformed(value)
         if self.last_value is None:
             self.last_value = value
         elif value is not None:
             self.last_value = "%s %s" % (self.last_value, value)
 
-    def auto_apply(self, root):
-        """
-        :param RootNode root: Associated root
-        """
-        if self.tag_token and self.last_value is not None:
-            transformer = self.tag_token.value.transformer
-            if transformer is not None:
-                self.last_value = transformer(self.last_value)
+    def auto_apply(self):
         if self.anchor_token:
-            root.anchors[self.anchor_token.value] = self.last_value
+            self.root.anchors[self.anchor_token.value] = self.last_value
             self.anchor_token = None
         if self.needs_apply:
             self.apply()
@@ -237,23 +239,20 @@ class ListNode(ParseNode):
 
 
 class MapNode(ParseNode):
-    def __init__(self, indent):
-        super(MapNode, self).__init__(indent)
+    def __init__(self, root, indent):
+        super(MapNode, self).__init__(root, indent)
         self.last_key = None
 
     def set_key(self, key):
         if self.last_key is not None:
             raise ParseError("Unexpected key")
-        self.last_key = key
+        self.last_key = self.root.transformed(key)
         self.needs_apply = True
 
     def apply(self):
         if self.target is None:
             self.target = {}
-        if self.last_key is None:
-            self.target[self.last_value] = None
-        else:
-            self.target[self.last_key] = self.last_value
+        self.target[self.last_key] = self.last_value
         self.last_key = None
         self.last_value = None
         self.needs_apply = False
@@ -270,17 +269,24 @@ class RootNode(object):
     def __init__(self):
         self.docs = []
         self.head = None  # type: ParseNode | None
+        self.tag_token = None
         self.anchors = {}
 
     def __repr__(self):
         return str(self.head or "/")
+
+    def transformed(self, value):
+        if self.tag_token is not None:
+            value = self.tag_token.transformed(value)
+            self.tag_token = None
+        return value
 
     def set_anchor(self, token):
         self.head.anchor_token = token
 
     def auto_apply(self):
         if self.head:
-            self.head.auto_apply(self)
+            self.head.auto_apply()
 
     def needs_new_node(self, indent, node_type):
         if self.head is None or self.head.__class__ is not node_type:
@@ -303,7 +309,7 @@ class RootNode(object):
             if node_type is ListNode and self.head is not None and self.head.indent is not None and indent is not None:
                 if indent <= self.head.indent:
                     raise ParseError("Line should be indented at least %s chars" % (self.head.indent - 1))
-            self.push(node_type(indent))
+            self.push(node_type(self, indent))
         self.auto_apply()
 
     def push_key(self, indent, key):
@@ -312,7 +318,7 @@ class RootNode(object):
 
     def push_value(self, indent, value):
         if self.head is None:
-            self.push(ScalarNode(indent))
+            self.push(ScalarNode(self, indent))
         self.head.set_value(value)
         if self.head.is_temp:
             self.pop()
@@ -334,10 +340,10 @@ class RootNode(object):
         popped = self.head
         self.head = popped.prev
         if popped:
-            popped.auto_apply(self)
+            popped.auto_apply()
             if self.head:
                 self.head.set_value(popped.target)
-                self.head.auto_apply(self)
+                self.head.auto_apply()
 
     def pop_doc(self):
         prev = None
@@ -466,6 +472,9 @@ class TagHandler(object):
         self.prefix = prefix
         self.name = name
         self.transformer = transformer
+
+    def __repr__(self):
+        return "!%s!%s" % (self.prefix, self.name)
 
     def transformed(self, value):
         if self.transformer is not None:
@@ -611,6 +620,40 @@ def massaged_key(settings, key, pos, is_key=False):
     return key
 
 
+def to_map(value):
+    if isinstance(value, list):
+        if len(value) % 2 == 0:
+            return dict(value)
+    return value
+
+
+def to_list(value):
+    if isinstance(value, dict):
+        result = []
+        for k, v in value:
+            result.append(k)
+            result.append(v)
+        return result
+    return value
+
+
+def to_str(value):
+    return str(value)
+
+
+def to_null(_):
+    return None
+
+
+def to_bool(value):
+    text = str(value).lower()
+    if text in (FALSE, "n", "no", "off"):
+        return False
+    if text in (TRUE, "y", "yes", "on"):
+        return True
+    raise ParseError("%s is not a boolean" % value)
+
+
 class ScanSettings(object):
     def __init__(self, yield_comments=False, scalar_marshaller=parsed_value):
         self.yield_comments = yield_comments
@@ -618,11 +661,13 @@ class ScanSettings(object):
         self.last_key = None
         self.scalar_marshaller = scalar_marshaller
         self.taggers = {"": {
-            "map": dict,
-            "omap": dict,
-            "seq": list,
-            "set": list,
-            "str": str,
+            "bool": to_bool,
+            "map": to_map,
+            "omap": to_map,
+            "seq": to_list,
+            "set": to_list,
+            "str": to_str,
+            "null": to_null,
         }}
 
     def contents(self, start, end):
