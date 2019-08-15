@@ -90,7 +90,7 @@ class DocumentStartToken(Token):
 
 class DocumentEndToken(Token):
     def consume_token(self, root):
-        root.pop_doc()
+        root.pop_doc(explicit=True)
 
 
 class FlowMappingStartToken(Token):
@@ -345,13 +345,15 @@ class RootNode(object):
                 self.head.set_value(popped.target)
                 self.head.auto_apply()
 
-    def pop_doc(self):
+    def pop_doc(self, explicit=False):
         prev = None
         while self.head:
             prev = self.head
             self.pop()
         if prev:
             self.docs.append(prev.target)
+        elif explicit:
+            self.docs.append(None)
 
     def deserialized(self, tokens):
         token = None
