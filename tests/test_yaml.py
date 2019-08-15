@@ -30,7 +30,7 @@ def test_tokens():
     key = zyaml.ScalarToken(1, 2, "test'ed\nsecond line", style='"')
     key.is_key = True
     assert str(key) == 'KeyToken[1,2] "test\'ed\nsecond line"'
-    assert key.name() == "KeyToken"
+    assert key.token_name() == "KeyToken"
     assert key.represented_value() == '"test\'ed\nsecond line"'
 
     assert len(list(zyaml.scan_tokens(""))) == 2
