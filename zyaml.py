@@ -186,13 +186,26 @@ class ScalarToken(Token):
             root.push_value(self.column, self.value)
 
 
+def get_min(v1, v2):
+    if v1 is None:
+        return v2
+    if v2 is None:
+        return v1
+    if v1 < v2:
+        return v1
+    return v2
+
+
 class ParseNode(object):
     def __init__(self, root, indent):
         self.root = root  # type: RootNode
-        if root is not None and root.tag_token:
-            self.indent = root.tag_token.column
+        if root is not None and root.tag_token is not None:
+            self.indent = get_min(indent, root.tag_token.column)
+            self.tag_token = root.tag_token
+            root.tag_token = None
         else:
             self.indent = indent
+            self.tag_token = None
         self.prev = None
         self.is_temp = False
         self.needs_apply = False
@@ -206,12 +219,17 @@ class ParseNode(object):
             result = "%s / %s" % (result, self.prev)
         return result
 
+    def transformed(self, value):
+        if self.tag_token is not None:
+            value = self.tag_token.transformed(value)
+            self.tag_token = None
+        return value
+
     def set_key(self, key):
         raise ParseError("Key not allowed here")
 
     def set_value(self, value):
         self.needs_apply = True
-        value = self.root.transformed(value)
         if self.last_value is None:
             self.last_value = value
         elif value is not None:
@@ -246,7 +264,7 @@ class MapNode(ParseNode):
     def set_key(self, key):
         if self.last_key is not None:
             raise ParseError("Unexpected key")
-        self.last_key = self.root.transformed(key)
+        self.last_key = key
         self.needs_apply = True
 
     def apply(self):
@@ -313,10 +331,14 @@ class RootNode(object):
         self.auto_apply()
 
     def push_key(self, indent, key):
+        if self.tag_token is not None:
+            indent = get_min(indent, self.tag_token.column)
+            key = self.transformed(key)
         self.ensure_node(indent, MapNode)
         self.head.set_key(key)
 
     def push_value(self, indent, value):
+        value = self.transformed(value)
         if self.head is None:
             self.push(ScalarNode(self, indent))
         self.head.set_value(value)
@@ -342,7 +364,7 @@ class RootNode(object):
         if popped:
             popped.auto_apply()
             if self.head:
-                self.head.set_value(popped.target)
+                self.head.set_value(self.transformed(popped.target))
                 self.head.auto_apply()
 
     def pop_doc(self, explicit=False):
@@ -351,7 +373,9 @@ class RootNode(object):
             prev = self.head
             self.pop()
         if prev:
-            self.docs.append(prev.target)
+            value = prev.transformed(prev.target)
+            value = self.transformed(value)
+            self.docs.append(value)
         elif explicit:
             self.docs.append(None)
 
@@ -624,8 +648,11 @@ def massaged_key(settings, key, pos, is_key=False):
 
 def to_map(value):
     if isinstance(value, list):
-        if len(value) % 2 == 0:
-            return dict(value)
+        if all(isinstance(x, dict) for x in value):
+            result = {}
+            for x in value:
+                result.update(x)
+            return result
     return value
 
 
