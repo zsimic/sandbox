@@ -65,8 +65,8 @@ def get_samples(sample_name):
 
 
 @pytest.fixture
-def spec_samples():
-    return get_samples("spec")
+def vanilla_samples():
+    return get_samples("vanilla")
 
 
 def as_is(value):
@@ -185,7 +185,7 @@ def samples_arg(option=False, **kwargs):
             raise click.BadParameter("No samples match %s" % value)
         return s
 
-    kwargs.setdefault("default", "spec")
+    kwargs.setdefault("default", "vanilla")
 
     if option:
         kwargs.setdefault("help", "Sample(s) to use")

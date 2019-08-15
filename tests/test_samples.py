@@ -3,9 +3,9 @@ import zyaml
 from .conftest import json_sanitized
 
 
-def test_samples(spec_samples):
+def test_samples(vanilla_samples):
     skipped = 0
-    for sample in spec_samples:
+    for sample in vanilla_samples:
         value = zyaml.load_path(sample.path)
         expected = sample.expected
         if expected is None:
