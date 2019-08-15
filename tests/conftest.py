@@ -293,6 +293,17 @@ def show(stacktrace, implementations, samples):
 @samples_arg()
 def refresh(stacktrace, implementations, samples):
     """Refresh expected json for each sample"""
+    for root, dirs, files in os.walk(SAMPLE_FOLDER):
+        if root.endswith("_expected"):
+            for fname in files:
+                ypath = os.path.dirname(root)
+                ypath = os.path.join(ypath, fname.replace(".json", ".yml"))
+                if not os.path.isfile(ypath):
+                    # Delete _expected json files for yml files that have been moved
+                    jpath = os.path.join(root, fname)
+                    print("Deleting %s" % jpath[len(SAMPLE_FOLDER) + 1:])
+                    os.unlink(jpath)
+
     for sample in samples:
         sample.refresh(impl=implementations[0], stacktrace=stacktrace)
 
@@ -348,6 +359,9 @@ class Sample(object):
         """
         result = impl.load(self, stacktrace=stacktrace)
         rep = result.json_representation()
+        folder = os.path.dirname(self.expected_path)
+        if not os.path.isdir(folder):
+            os.mkdir(folder)
         with open(self.expected_path, "w") as fh:
             fh.write(rep)
 
