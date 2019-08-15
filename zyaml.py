@@ -263,7 +263,7 @@ class MapNode(ParseNode):
 
     def set_key(self, key):
         if self.last_key is not None:
-            raise ParseError("Unexpected key")
+            raise ParseError("Internal error, previous key '%s' was not consumed" % self.last_key)
         self.last_key = key
         self.needs_apply = True
 
@@ -326,7 +326,7 @@ class RootNode(object):
         if self.needs_new_node(indent, node_type):
             if node_type is ListNode and self.head is not None and self.head.indent is not None and indent is not None:
                 if indent <= self.head.indent:
-                    raise ParseError("Line should be indented at least %s chars" % (self.head.indent - 1))
+                    raise ParseError("Line should be indented at least %s chars" % self.head.indent)
             self.push(node_type(self, indent))
         self.auto_apply()
 
@@ -519,7 +519,7 @@ class TagTokenizer(Tokenizer):
                 return [AnchorToken(self.line, self.column, text[1:])]
             if text.startswith("*"):
                 return [AliasToken(self.line, self.column, text[1:])]
-            raise ParseError("Internal error, unknown tag: %s" % text)
+            raise ParseError("Internal error, unknown tag: %s" % text, line, column)
 
 
 class DirectiveTokenizer(Tokenizer):
@@ -680,7 +680,7 @@ def to_bool(value):
         return False
     if text in (TRUE, "y", "yes", "on"):
         return True
-    raise ParseError("%s is not a boolean" % value)
+    raise ParseError("'%s' is not a boolean" % value)
 
 
 def to_int(value):
