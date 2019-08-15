@@ -377,7 +377,7 @@ class RootNode(object):
             value = self.transformed(value)
             self.docs.append(value)
         elif explicit:
-            self.docs.append(None)
+            self.docs.append("")
 
     def deserialized(self, tokens):
         token = None
