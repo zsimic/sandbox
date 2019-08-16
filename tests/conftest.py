@@ -520,10 +520,8 @@ class ScanImplementation(YmlImplementation):
             pass
 
     def _scan(self, settings):
-        pos = 0
-        for current in settings.buffer:
+        for pos, current in enumerate(settings.buffer):
             yield current
-            pos += 1
 
 
 class Scan1Implementation(ScanImplementation):
@@ -542,33 +540,11 @@ class Scan2Implementation(ScanImplementation):
 
         for upcoming in gen:
             yield pos, prev, current, upcoming
-            if current == "\n":
-                line += 1
-                column = 1
 
-            else:
-                column += 1
+            if current == " ":
+                pass
 
-            pos += 1
-            prev = current
-            current = upcoming
-
-        yield pos, prev, current, None
-
-
-class Scan3Implementation(ScanImplementation):
-    def _scan(self, settings):
-        line = column = 1
-        prev = " "
-        pos = 0
-        gen = settings.buffer.__iter__()
-        current = next(gen)
-        my_map = {}
-
-        for upcoming in gen:
-            yield pos, prev, current, upcoming
-            my_map.get(current)
-            if current == "\n":
+            elif current == "\n":
                 line += 1
                 column = 1
 
