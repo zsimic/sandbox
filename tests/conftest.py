@@ -508,6 +508,52 @@ def json_representation(data, stringify=as_is):
     return "%s\n" % json.dumps(data, sort_keys=True, indent=2)
 
 
+class DummyImplementation(YmlImplementation):
+    def _load(self, stream):
+        settings = zyaml.ScanSettings()
+        settings.buffer = stream.read()
+        tokenizer_map = {
+            # "%": zyaml.DirectiveTokenizer,
+            # "!": zyaml.TagTokenizer,
+            # "&": zyaml.TagTokenizer,
+            # "*": zyaml.TagTokenizer,
+            # ">": zyaml.LiteralTokenizer,
+            # "|": zyaml.LiteralTokenizer,
+            "#": zyaml.CommentTokenizer,
+            # "{": zyaml.FlowTokenizer,
+            # "[": zyaml.FlowTokenizer,
+            # '"': zyaml.DoubleQuoteTokenizer,
+            # "'": zyaml.SingleQuoteTokenizer,
+        }
+        line = column = 1
+        prev = " "
+        # pos = 0
+        current = tokenizer = None
+
+        for pos, upcoming in enumerate(settings.buffer):
+            if current is None:
+                current = upcoming
+                continue
+
+            if tokenizer is not None:
+                result = tokenizer(line, column, pos, prev, current, upcoming)
+                if result is not None:
+                    tokenizer = None
+
+            else:
+                tokenizer = zyaml.get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upcoming)
+
+            if current == "\n":
+                line += 1
+                column = 1
+
+            else:
+                column += 1
+
+            prev = current
+            current = upcoming
+
+
 class ZyamlImplementation(YmlImplementation):
     def _load(self, stream):
         return zyaml.load_string(stream.read())

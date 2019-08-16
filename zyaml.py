@@ -812,8 +812,7 @@ def scan_tokens(buffer, settings=None):
         "'": SingleQuoteTokenizer,
     }
 
-    line = 1
-    column = 1
+    line = column = 1
     pos = 0
     prev = " "
     upcoming = tokenizer = simple_key = None
