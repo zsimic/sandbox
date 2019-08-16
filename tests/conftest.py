@@ -82,7 +82,9 @@ def as_is(value):
 def json_sanitized(value, stringify=as_is):
     if value is None:
         return None
-    if isinstance(value, (tuple, list, set)):
+    if isinstance(value, set):
+        return [json_sanitized(v) for v in sorted(value)]
+    if isinstance(value, (tuple, list)):
         return [json_sanitized(v) for v in value]
     if isinstance(value, dict):
         return dict((str(k), json_sanitized(v)) for k, v in value.items())
