@@ -11,5 +11,5 @@ def test_samples(vanilla_samples):
         if expected is None:
             skipped += 1
         else:
-            assert payload == expected
+            assert payload == expected, "Failed sample %s" % sample
     assert skipped == 0, "Skipped %s tests, please refresh" % skipped

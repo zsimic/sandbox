@@ -463,7 +463,7 @@ class FlowTokenizer(Tokenizer):
             "'": SingleQuoteTokenizer,
         }
 
-    def consume_simple_key(self, line, column, pos, is_key=False):
+    def consume_simple_key(self, line, column, pos, is_key=None):
         if self.simple_key is None:
             key = ScalarToken(line, column, pos)
         else:
@@ -488,6 +488,9 @@ class FlowTokenizer(Tokenizer):
             if current == ",":
                 self.consume_simple_key(line, column, pos)
                 self.tokens.append(FlowEntryToken(line, column))
+
+            elif current == "?" and upcoming in " \n":
+                self.settings.key_marker = True
 
             elif current == ":" and upcoming in " \n":
                 self.consume_simple_key(line, column, pos, is_key=True)
@@ -634,9 +637,12 @@ def get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upc
         return tokenizer(settings, line, column, pos, current, upcoming)
 
 
-def massaged_key(settings, key, pos, is_key=False):
+def massaged_key(settings, key, pos, is_key=None):
+    if is_key is None:
+        is_key = settings.key_marker
     key.value = settings.contents(key.value, pos).strip()
     settings.last_key = key
+    settings.key_marker = False
     if key.column == 1:
         if key.value == "---":
             return DocumentStartToken(key.line, key.column)
@@ -763,6 +769,7 @@ class ScanSettings(object):
         self.yield_comments = yield_comments
         self.buffer = None
         self.last_key = None
+        self.key_marker = False
         self.scalar_marshaller = scalar_marshaller
         self.marshallers = {"": get_default_marshallers()}
 
@@ -835,12 +842,15 @@ def scan_tokens(buffer, settings=None):
                     simple_key = None
 
         elif simple_key is None:
-            tokenizer = get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upcoming)
-            if tokenizer is None:
-                if current == "-" and upcoming in " \n":
-                    yield BlockEntryToken(line, column)
+            if current == "-" and upcoming in " \n":
+                yield BlockEntryToken(line, column)
 
-                else:
+            elif current == "?" and upcoming in " \n":
+                settings.key_marker = True
+
+            else:
+                tokenizer = get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upcoming)
+                if tokenizer is None:
                     simple_key = ScalarToken(line, column, pos)
 
         elif current == "#":
