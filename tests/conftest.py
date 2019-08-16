@@ -1,10 +1,10 @@
-
 import datetime
 import inspect
 import json
 import os
 import re
 import timeit
+import sys
 from functools import partial
 
 import click
@@ -19,6 +19,7 @@ import zyaml
 
 
 TESTS_FOLDER = os.path.abspath(os.path.dirname(__file__))
+PROJECT_FOLDER = os.path.dirname(TESTS_FOLDER)
 SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
 IMPLEMENTATIONS = []
 
@@ -33,6 +34,12 @@ def get_implementations(name):
     return result
 
 
+def relative_sample_path(path, base=SAMPLE_FOLDER):
+    if path and path.startswith(base):
+        return path[len(base) + 1:]
+    return path
+
+
 def ignored_dirs(names):
     for name in names:
         if name.startswith("."):
@@ -45,7 +52,6 @@ def scan_samples(sample_name):
         return
 
     folder = SAMPLE_FOLDER
-
     if os.path.isdir(sample_name):
         folder = sample_name
         sample_name = "all"
@@ -140,14 +146,15 @@ def stacktrace_option():
     )
 
 
-def implementations_option(option=True, **kwargs):
+def implementations_option(option=True, default="zyaml,ruamel", count=None, **kwargs):
     """
     :param bool option: If True, make this an option
+    :param str default: Default implementation(s) to use
+    :param int|None count: Exact number of implementations needed (when applicable)
     :param kwargs: Passed-through to click
     :return list[YmlImplementation]: List of implementations to use
     """
-    kwargs.setdefault("default", "zyaml,ruamel")
-    count = kwargs.pop("count", None)
+    kwargs["default"] = default
 
     def _callback(_ctx, _param, value):
         names = [s.strip() for s in value.split(",")]
@@ -165,27 +172,36 @@ def implementations_option(option=True, **kwargs):
         return result
 
     if option:
-        if count == 1:
-            hlp = "Implementation to use"
-        elif count:
-            hlp = "%s implementations to use" % count
+        if count:
+            hlp = "%s implementation%s to use" % (count, plural(count))
         else:
             hlp = "Implementations to use"
         kwargs.setdefault("help", hlp)
         kwargs.setdefault("show_default", True)
+        kwargs.setdefault("metavar", "CSV")
         return click.option("--implementations", "-i", callback=_callback, **kwargs)
 
     return click.argument("implementations", callback=_callback, **kwargs)
 
 
-def samples_arg(option=False, **kwargs):
+def plural(count):
+    return "s" if count != 1 else ""
+
+
+def samples_arg(option=False, default="vanilla", count=None, **kwargs):
     def _callback(_ctx, _param, value):
+        if count == 1 and value and not value.endswith("."):
+            value += "."
+
         s = get_samples(value)
         if not s:
             raise click.BadParameter("No samples match %s" % value)
+        if count and len(s) != count:
+            raise click.BadParameter("Need exactly %s sample%s, filter yielded %s" % (count, plural(count), len(s)))
         return s
 
-    kwargs.setdefault("default", "vanilla")
+    kwargs["default"] = default
+    kwargs.setdefault("metavar", "SAMPLE%s" % plural(count).upper())
 
     if option:
         kwargs.setdefault("help", "Sample(s) to use")
@@ -264,6 +280,28 @@ def find_samples(samples):
         print(s)
 
 
+def move(source, dest, basename, extension, subfolder=None):
+    if os.path.isfile(source):
+        if subfolder:
+            dest = os.path.join(dest, subfolder)
+        dest = os.path.join(dest, basename + extension)
+        print("Moving %s -> %s" % (relative_sample_path(source, base=PROJECT_FOLDER), relative_sample_path(dest, base=PROJECT_FOLDER)))
+        runez.move(source, dest)
+
+
+@main.command()
+@samples_arg(count=1)
+@click.argument("category", nargs=1)
+def mv(samples, category):
+    """Move a sample to a given category"""
+    sample = samples[0]
+    dest = os.path.join(SAMPLE_FOLDER, category)
+    if not os.path.isdir(dest):
+        sys.exit("No folder %s" % relative_sample_path(dest, base=PROJECT_FOLDER))
+    move(sample.path, dest, sample.basename, ".yml")
+    move(sample.expected_path, dest, sample.basename, ".json", subfolder="_expected")
+
+
 @main.command()
 @stacktrace_option()
 @implementations_option()
@@ -301,7 +339,7 @@ def refresh(stacktrace, implementations, samples):
                 if not os.path.isfile(ypath):
                     # Delete _expected json files for yml files that have been moved
                     jpath = os.path.join(root, fname)
-                    print("Deleting %s" % jpath[len(SAMPLE_FOLDER) + 1:])
+                    print("Deleting %s" % relative_sample_path(jpath))
                     os.unlink(jpath)
 
     for sample in samples:
@@ -328,10 +366,8 @@ class Sample(object):
         self.basename = os.path.basename(self.path)
         self.basename, _, self.extension = self.basename.rpartition(os.path.extsep)
         self.folder = os.path.dirname(self.path)
-        if self.path.startswith(SAMPLE_FOLDER):
-            self.name = self.path[len(SAMPLE_FOLDER) + 1:]
-        else:
-            self.name = self.path
+        self.name = relative_sample_path(self.path)
+        self.category = os.path.dirname(self.name)
         self.key = self.name if "/" in self.name else "./%s" % self.name
         self._expected = None
 
