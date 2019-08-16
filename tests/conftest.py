@@ -75,11 +75,14 @@ def vanilla_samples():
     return get_samples("vanilla")
 
 
-def as_is(value):
+def decode(value):
+    """Python 2/3 friendly decoding of output"""
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
     return value
 
 
-def json_sanitized(value, stringify=as_is):
+def json_sanitized(value, stringify=decode):
     if value is None:
         return None
     if isinstance(value, set):
@@ -240,7 +243,7 @@ def benchmark(implementations, samples):
 @samples_arg()
 def diff(stacktrace, compact, untyped, implementations, samples):
     """Compare deserialization of 2 implementations"""
-    stringify = str if untyped else as_is
+    stringify = str if untyped else decode
     with runez.TempFolder():
         generated_files = []
         for sample in samples:
@@ -441,7 +444,7 @@ class ParseResult(object):
     def json_payload(self):
         return {"_error": self.error} if self.error else json_sanitized(self.data)
 
-    def json_representation(self, stringify=as_is):
+    def json_representation(self, stringify=decode):
         try:
             return json_representation(self.json_payload(), stringify=stringify)
         except Exception as e:
@@ -498,12 +501,12 @@ class YmlImplementation(object):
             result.set_exception(e)
         return result
 
-    def json_representation(self, sample, stringify=as_is):
+    def json_representation(self, sample, stringify=decode):
         result = self.load(sample, stacktrace=False)
         return json_representation(result.data, stringify=stringify)
 
 
-def json_representation(data, stringify=as_is):
+def json_representation(data, stringify=decode):
     data = json_sanitized(data, stringify=stringify)
     return "%s\n" % json.dumps(data, sort_keys=True, indent=2)
 

@@ -877,21 +877,20 @@ def scan_tokens(buffer, settings=None):
         prev = current
         current = upcoming
 
-    if upcoming is not None:
-        pos += 1
-        prev = current
-        current = upcoming
+    pos += 1
+    prev = current
+    current = upcoming
 
-        if tokenizer is not None:
-            result = tokenizer(line, column, pos, prev, current, None)
-            if result is not None:
-                for token in result:
-                    yield token
+    if tokenizer is not None:
+        result = tokenizer(line, column, pos, prev, current, None)
+        if result is not None:
+            for token in result:
+                yield token
 
-        if simple_key is not None:
-            yield massaged_key(settings, simple_key, pos)
+    if simple_key is not None:
+        yield massaged_key(settings, simple_key, pos)
 
-        yield StreamEndToken(line, column)
+    yield StreamEndToken(line, column)
 
 
 def load(stream):
