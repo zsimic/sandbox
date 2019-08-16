@@ -21,14 +21,15 @@ import zyaml
 TESTS_FOLDER = os.path.abspath(os.path.dirname(__file__))
 PROJECT_FOLDER = os.path.dirname(TESTS_FOLDER)
 SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
-IMPLEMENTATIONS = []
 
 
 def get_implementations(name):
+    impls = zyaml.get_descendants(YmlImplementation, adjust=lambda x: x.replace("Implementation", "").lower())
+    impls = [i() for i in impls.values()]
     if name == "all":
-        return IMPLEMENTATIONS
+        return impls
     result = []
-    for impl in IMPLEMENTATIONS:
+    for impl in impls:
         if name in impl.name:
             result.append(impl)
     return result
@@ -511,41 +512,36 @@ def json_representation(data, stringify=decode):
     return "%s\n" % json.dumps(data, sort_keys=True, indent=2)
 
 
-class DummyImplementation(YmlImplementation):
+class ScanImplementation(YmlImplementation):
     def _load(self, stream):
         settings = zyaml.ScanSettings()
         settings.buffer = stream.read()
-        tokenizer_map = {
-            # "%": zyaml.DirectiveTokenizer,
-            # "!": zyaml.TagTokenizer,
-            # "&": zyaml.TagTokenizer,
-            # "*": zyaml.TagTokenizer,
-            # ">": zyaml.LiteralTokenizer,
-            # "|": zyaml.LiteralTokenizer,
-            "#": zyaml.CommentTokenizer,
-            # "{": zyaml.FlowTokenizer,
-            # "[": zyaml.FlowTokenizer,
-            # '"': zyaml.DoubleQuoteTokenizer,
-            # "'": zyaml.SingleQuoteTokenizer,
-        }
+        for _ in self._scan(settings):
+            pass
+
+    def _scan(self, settings):
+        pos = 0
+        for current in settings.buffer:
+            yield current
+            pos += 1
+
+
+class Scan1Implementation(ScanImplementation):
+    def _scan(self, settings):
+        for pos, current in enumerate(settings.buffer):
+            yield current
+
+
+class Scan2Implementation(ScanImplementation):
+    def _scan(self, settings):
         line = column = 1
         prev = " "
-        # pos = 0
-        current = tokenizer = None
+        pos = 0
+        gen = settings.buffer.__iter__()
+        current = next(gen)
 
-        for pos, upcoming in enumerate(settings.buffer):
-            if current is None:
-                current = upcoming
-                continue
-
-            if tokenizer is not None:
-                result = tokenizer(line, column, pos, prev, current, upcoming)
-                if result is not None:
-                    tokenizer = None
-
-            else:
-                tokenizer = zyaml.get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upcoming)
-
+        for upcoming in gen:
+            yield pos, prev, current, upcoming
             if current == "\n":
                 line += 1
                 column = 1
@@ -553,8 +549,37 @@ class DummyImplementation(YmlImplementation):
             else:
                 column += 1
 
+            pos += 1
             prev = current
             current = upcoming
+
+        yield pos, prev, current, None
+
+
+class Scan3Implementation(ScanImplementation):
+    def _scan(self, settings):
+        line = column = 1
+        prev = " "
+        pos = 0
+        gen = settings.buffer.__iter__()
+        current = next(gen)
+        my_map = {}
+
+        for upcoming in gen:
+            yield pos, prev, current, upcoming
+            my_map.get(current)
+            if current == "\n":
+                line += 1
+                column = 1
+
+            else:
+                column += 1
+
+            pos += 1
+            prev = current
+            current = upcoming
+
+        yield pos, prev, current, None
 
 
 class ZyamlImplementation(YmlImplementation):
@@ -623,10 +648,6 @@ class PoyoImplementation(YmlImplementation):
 class StrictImplementation(YmlImplementation):
     def _load(self, stream):
         return strictyaml.load(stream.read())
-
-
-for i in YmlImplementation.__subclasses__():
-    IMPLEMENTATIONS.append(i())
 
 
 if __name__ == "__main__":

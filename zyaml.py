@@ -754,14 +754,16 @@ class BoolMarshaller(ScalarMarshaller):
         raise ParseError("'%s' is not a boolean" % value)
 
 
-def get_default_marshallers(ancestor=Marshaller, result=None):
-    if result is None:
-        result = {}
+def get_descendants(ancestor, adjust=None, _result=None):
+    if _result is None:
+        _result = {}
     for m in ancestor.__subclasses__():
-        name = m.__name__.replace("Marshaller", "").lower()
-        result[name] = m("", name)
-        get_default_marshallers(m, result=result)
-    return result
+        name = m.__name__
+        if adjust is not None:
+            name = adjust(name)
+        _result[name] = m
+        get_descendants(m, adjust=adjust, _result=_result)
+    return _result
 
 
 class ScanSettings(object):
@@ -771,7 +773,8 @@ class ScanSettings(object):
         self.last_key = None
         self.key_marker = False
         self.scalar_marshaller = scalar_marshaller
-        self.marshallers = {"": get_default_marshallers()}
+        marshallers = get_descendants(Marshaller, adjust=lambda x: x.replace("Marshaller", "").lower())
+        self.marshallers = {"": dict((name, m("", name)) for name, m in marshallers.items())}
 
     def contents(self, start, end):
         return self.buffer[start:end]
