@@ -7,15 +7,16 @@ import zyaml
 
 
 def test_scalar():
-    assert zyaml.parsed_value(None) is None
-    assert zyaml.parsed_value("") == ""
-    assert zyaml.parsed_value("null") is None
-    assert zyaml.parsed_value("True") is True
-    assert zyaml.parsed_value("False") is False
-    assert zyaml.parsed_value("0") == 0
-    assert zyaml.parsed_value("0.1") == 0.1
-    assert zyaml.parsed_value("0.1.1") == "0.1.1"
-    assert zyaml.parsed_value("+135.057E+3") == 135057
+    assert zyaml.default_marshal(None) is None
+    assert zyaml.default_marshal("") == ""
+    assert zyaml.default_marshal("null") is None
+    assert zyaml.default_marshal("True") is True
+    assert zyaml.default_marshal("False") is False
+    assert zyaml.default_marshal("0") == 0
+    assert zyaml.default_marshal("0.1") == 0.1
+    assert zyaml.default_marshal("0.1.1") == "0.1.1"
+    assert zyaml.default_marshal("+135.057E+3") == 135057
+    assert zyaml.default_marshal([1, 2]) == [1, 2]
 
 
 def test_tokens():

@@ -436,10 +436,12 @@ class ParseResult(object):
             return "match  "
         return "diff   "
 
+    def json_payload(self):
+        return {"_error": self.error} if self.error else json_sanitized(self.data)
+
     def json_representation(self, stringify=as_is):
         try:
-            data = {"_error": self.error} if self.error else self.data
-            return json_representation(data, stringify=stringify)
+            return json_representation(self.json_payload(), stringify=stringify)
         except Exception as e:
             raise Exception("Can't json-serialize %s: %s" % (self.sample, e))
 

@@ -1,16 +1,15 @@
-import zyaml
-
-from .conftest import json_sanitized
+from .conftest import ZyamlImplementation
 
 
 def test_samples(vanilla_samples):
     skipped = 0
+    impl = ZyamlImplementation()
     for sample in vanilla_samples:
-        value = zyaml.load_path(sample.path)
+        result = impl.load(sample, stacktrace=False)
+        payload = result.json_payload()
         expected = sample.expected
         if expected is None:
             skipped += 1
         else:
-            value = json_sanitized(value)
-            assert value == expected
+            assert payload == expected
     assert skipped == 0, "Skipped %s tests, please refresh" % skipped

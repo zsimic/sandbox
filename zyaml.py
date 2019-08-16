@@ -8,15 +8,19 @@ TRUE = "true"
 RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$", re.IGNORECASE)
 LEADING_SPACES = re.compile(r"\n\s*", re.MULTILINE)
 
+try:
+    basestring  # noqa, remove once py2 is dead
+except NameError:
+    basestring = str
 
-def parsed_value(text):
-    """
-    :param str|None text: Text to interpret
-    :return str|int|float|None: Parsed value
-    """
-    text = text and text.strip()
+
+def default_marshal(value):
+    if not isinstance(value, basestring):
+        return value
+
+    text = value.strip()
     if not text:
-        return text
+        return value
 
     m = RE_TYPED.match(text)
     if not m:
@@ -151,13 +155,10 @@ class AliasToken(Token):
 
 class TagToken(Token):
     def consume_token(self, root):
-        assert not root.tag_token
-        root.tag_token = self
-
-    def transformed(self, value):
-        if self.value is not None:
-            return self.value.transformed(value)
-        return value
+        if root.marshaller:
+            raise ParseError("2 consecutive tags given")
+        root.marshaller = self.value
+        root.tag_indent = self.column
 
 
 class ScalarToken(Token):
@@ -198,14 +199,19 @@ def get_min(v1, v2):
 
 class ParseNode(object):
     def __init__(self, root, indent):
+        """
+        :param RootNode root:
+        :param int|None indent:
+        """
         self.root = root  # type: RootNode
-        if root is not None and root.tag_token is not None:
-            self.indent = get_min(indent, root.tag_token.column)
-            self.tag_token = root.tag_token
-            root.tag_token = None
+        if root.marshaller is not None:
+            self.indent = get_min(indent, root.tag_indent)
+            self.marshaller = root.marshaller
+            root.marshaller = None
+            root.tag_indent = None
         else:
             self.indent = indent
-            self.tag_token = None
+            self.marshaller = None
         self.prev = None
         self.is_temp = False
         self.needs_apply = False
@@ -219,10 +225,10 @@ class ParseNode(object):
             result = "%s / %s" % (result, self.prev)
         return result
 
-    def transformed(self, value):
-        if self.tag_token is not None:
-            value = self.tag_token.transformed(value)
-            self.tag_token = None
+    def marshalled(self, value):
+        if self.marshaller is not None:
+            value = self.marshaller.marshalled(value)
+            self.marshaller = None
         return value
 
     def set_key(self, key):
@@ -287,17 +293,18 @@ class RootNode(object):
     def __init__(self):
         self.docs = []
         self.head = None  # type: ParseNode | None
-        self.tag_token = None
+        self.marshaller = None
+        self.tag_indent = None
         self.doc_consumed = True
         self.anchors = {}
 
     def __repr__(self):
         return str(self.head or "/")
 
-    def transformed(self, value):
-        if self.tag_token is not None:
-            value = self.tag_token.transformed(value)
-            self.tag_token = None
+    def marshalled(self, value):
+        if self.marshaller is not None:
+            value = self.marshaller.marshalled(value)
+            self.marshaller = None
         return value
 
     def set_anchor(self, token):
@@ -332,14 +339,14 @@ class RootNode(object):
         self.auto_apply()
 
     def push_key(self, indent, key):
-        if self.tag_token is not None:
-            indent = get_min(indent, self.tag_token.column)
-            key = self.transformed(key)
+        # if self.tag_indent is not None:
+        #     indent = get_min(indent, self.tag_indent)
+        #     self.tag_indent = None
         self.ensure_node(indent, MapNode)
         self.head.set_key(key)
 
     def push_value(self, indent, value):
-        value = self.transformed(value)
+        value = self.marshalled(value)
         if self.head is None:
             self.push(ScalarNode(self, indent))
         self.head.set_value(value)
@@ -366,7 +373,7 @@ class RootNode(object):
         self.head = popped.prev
         if popped:
             popped.auto_apply()
-            value = popped.transformed(popped.target)
+            value = popped.marshalled(popped.target)
             if self.head:
                 self.head.set_value(value)
                 self.head.auto_apply()
@@ -377,7 +384,7 @@ class RootNode(object):
 
     def set_value(self, value):
         self.doc_consumed = True
-        value = self.transformed(value)
+        value = self.marshalled(value)
         self.docs.append(value)
 
     def pop_doc(self):
@@ -518,28 +525,13 @@ class SingleQuoteTokenizer(Tokenizer):
             return [ScalarToken(line, column, text, style="'")]
 
 
-class TagHandler(object):
-    def __init__(self, prefix, name, transformer):
-        self.prefix = prefix
-        self.name = name
-        self.transformer = transformer
-
-    def __repr__(self):
-        return "!%s!%s" % (self.prefix, self.name)
-
-    def transformed(self, value):
-        if self.transformer is not None:
-            return self.transformer(value)
-        return value
-
-
 class TagTokenizer(Tokenizer):
     def __call__(self, line, column, pos, prev, current, upcoming):
         if current == " " or current == "\n":
             text = self.settings.contents(self.pos, pos)
             if text.startswith("!"):
-                handler = self.settings.get_tag_handler(text[1:])
-                return [TagToken(self.line, self.column, handler)]
+                marshaller = self.settings.get_marshaller(text[1:])
+                return [TagToken(self.line, self.column, marshaller)]
             if text.startswith("&"):
                 return [AnchorToken(self.line, self.column, text[1:])]
             if text.startswith("*"):
@@ -635,21 +627,6 @@ class ParseError(Exception):
         return "%s, line %s column %s" % (self.message, self.line, self.column)
 
 
-TOKENIZER_MAP = {
-    "%": DirectiveTokenizer,
-    "!": TagTokenizer,
-    "&": TagTokenizer,
-    "*": TagTokenizer,
-    ">": LiteralTokenizer,
-    "|": LiteralTokenizer,
-    "#": CommentTokenizer,
-    "{": FlowTokenizer,
-    "[": FlowTokenizer,
-    '"': DoubleQuoteTokenizer,
-    "'": SingleQuoteTokenizer,
-}
-
-
 def get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upcoming):
     """:rtype: Tokenizer"""
     tokenizer = tokenizer_map.get(current)  # type: Tokenizer
@@ -671,74 +648,132 @@ def massaged_key(settings, key, pos, is_key=False):
     return key
 
 
-def to_map(value):
-    if isinstance(value, list):
-        if all(isinstance(x, dict) for x in value):
-            result = {}
-            for x in value:
-                result.update(x)
+class Marshaller(object):
+    def __init__(self, prefix=None, name=None):
+        """
+        :param str prefix: Tag prefix to which this marshaller belongs to
+        :param str name: Tag name
+        """
+        self._prefix = prefix
+        self._name = name
+
+    def __repr__(self):
+        return self.full_name()
+
+    def full_name(self):
+        return "!%s!%s" % (self.prefix(), self.name())
+
+    def prefix(self):
+        return getattr(self, "_prefix", "") or ""
+
+    def name(self):
+        if hasattr(self, "_name"):
+            return self._name
+        cls = self
+        if not isinstance(cls, type):
+            cls = self.__class__
+        return cls.__name__.replace("Marshaller", "").lower()
+
+    def marshalled(self, value):
+        return value
+
+
+class MapMarshaller(Marshaller):
+    def marshalled(self, value):
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, list):
+            if all(isinstance(x, dict) for x in value):
+                result = {}
+                for x in value:
+                    result.update(x)
+                return result
+        raise ParseError("not a map")
+
+
+class SeqMarshaller(Marshaller):
+    def marshalled(self, value):
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            result = []
+            for k, v in value.items():
+                result.append(k)
+                result.append(v)
             return result
-    return value
+        raise ParseError("not a list or map")
 
 
-def to_list(value):
-    if isinstance(value, dict):
-        result = []
-        for k, v in value:
-            result.append(k)
-            result.append(v)
-        return result
-    return value
+class SetMarshaller(Marshaller):
+    def marshalled(self, value):
+        if isinstance(value, dict):
+            return set(value.keys())
+        raise ParseError("not a map, !!set applies to maps")
 
 
-def to_str(value):
-    return str(value)
+class ScalarMarshaller(Marshaller):
+    def marshalled(self, value):
+        if isinstance(value, list):
+            raise ParseError("scalar needed, got list instead")
+        if isinstance(value, dict):
+            raise ParseError("scalar needed, got map instead")
+        return self._marshalled(value)
+
+    def _marshalled(self, value):
+        return value
 
 
-def to_null(_):
-    return None
+class StrMarshaller(ScalarMarshaller):
+    def _marshalled(self, value):
+        return str(value)
 
 
-def to_bool(value):
-    text = str(value).lower()
-    if text in (FALSE, "n", "no", "off"):
-        return False
-    if text in (TRUE, "y", "yes", "on"):
-        return True
-    raise ParseError("'%s' is not a boolean" % value)
+class IntMarshaller(ScalarMarshaller):
+    def _marshalled(self, value):
+        return int(value)
 
 
-def to_int(value):
-    return int(value)
+class NullMarshaller(ScalarMarshaller):
+    def _marshalled(self, value):
+        return None
+
+
+class BoolMarshaller(ScalarMarshaller):
+    def _marshalled(self, value):
+        text = str(value).lower()
+        if text in (FALSE, "n", "no", "off"):
+            return False
+        if text in (TRUE, "y", "yes", "on"):
+            return True
+        raise ParseError("'%s' is not a boolean" % value)
+
+
+def get_default_marshallers(ancestor=Marshaller, result=None):
+    if result is None:
+        result = {}
+    for m in ancestor.__subclasses__():
+        name = m.__name__.replace("Marshaller", "").lower()
+        result[name] = m("", name)
+        get_default_marshallers(m, result=result)
+    return result
 
 
 class ScanSettings(object):
-    def __init__(self, yield_comments=False, scalar_marshaller=parsed_value):
+    def __init__(self, yield_comments=False, scalar_marshaller=default_marshal):
         self.yield_comments = yield_comments
         self.buffer = None
         self.last_key = None
         self.scalar_marshaller = scalar_marshaller
-        self.taggers = {"": {
-            "bool": to_bool,
-            "int": to_int,
-            "map": to_map,
-            "null": to_null,
-            "omap": to_map,
-            "seq": to_list,
-            "set": to_list,
-            "str": to_str,
-        }}
+        self.marshallers = {"": get_default_marshallers()}
 
     def contents(self, start, end):
         return self.buffer[start:end]
 
-    def get_tag_handler(self, text):
+    def get_marshaller(self, text):
         prefix, _, name = text.partition("!")
-        transformer = None
-        tagger = self.taggers.get(prefix)
-        if tagger:
-            transformer = tagger.get(name)
-        return TagHandler(prefix, name, transformer)
+        category = self.marshallers.get(prefix)
+        if category:
+            return category.get(name)
 
 
 def scan_tokens(buffer, settings=None):
