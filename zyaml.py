@@ -90,7 +90,7 @@ class DocumentStartToken(Token):
 
 class DocumentEndToken(Token):
     def consume_token(self, root):
-        root.pop_doc(explicit=True)
+        root.pop_doc()
 
 
 class FlowMappingStartToken(Token):
@@ -288,6 +288,7 @@ class RootNode(object):
         self.docs = []
         self.head = None  # type: ParseNode | None
         self.tag_token = None
+        self.doc_consumed = True
         self.anchors = {}
 
     def __repr__(self):
@@ -355,6 +356,8 @@ class RootNode(object):
             elif node.indent is not None:
                 while node.indent < self.head.indent:
                     self.pop()
+        else:
+            self.doc_consumed = False
         node.prev = self.head
         self.head = node
 
@@ -363,21 +366,26 @@ class RootNode(object):
         self.head = popped.prev
         if popped:
             popped.auto_apply()
+            value = popped.transformed(popped.target)
             if self.head:
-                self.head.set_value(self.transformed(popped.target))
+                self.head.set_value(value)
                 self.head.auto_apply()
+            else:
+                self.set_value(value)
+        else:
+            raise ParseError("check")
 
-    def pop_doc(self, explicit=False):
-        prev = None
-        while self.head:
-            prev = self.head
-            self.pop()
-        if prev:
-            value = prev.transformed(prev.target)
-            value = self.transformed(value)
-            self.docs.append(value)
-        elif explicit:
-            self.docs.append("")
+    def set_value(self, value):
+        self.doc_consumed = True
+        value = self.transformed(value)
+        self.docs.append(value)
+
+    def pop_doc(self):
+        if self.head:
+            while self.head:
+                self.pop()
+        elif not self.doc_consumed:
+            self.set_value("")
 
     def deserialized(self, tokens):
         token = None
@@ -437,11 +445,24 @@ class FlowTokenizer(Tokenizer):
             self.tokens = [FlowSequenceStartToken(line, column)]  # type: list[Token]
         self.sub_tokenizer = None
         self.simple_key = None
+        self.tokenizer_map = {
+            "!": TagTokenizer,
+            "&": TagTokenizer,
+            "*": TagTokenizer,
+            "#": CommentTokenizer,
+            "{": FlowTokenizer,
+            "[": FlowTokenizer,
+            '"': DoubleQuoteTokenizer,
+            "'": SingleQuoteTokenizer,
+        }
 
-    def consume_simple_key(self, pos, is_key=False):
-        if self.simple_key is not None:
-            self.tokens.append(massaged_key(self.settings, self.simple_key, pos, is_key=is_key))
+    def consume_simple_key(self, line, column, pos, is_key=False):
+        if self.simple_key is None:
+            key = ScalarToken(line, column, pos)
+        else:
+            key = self.simple_key
             self.simple_key = None
+        self.tokens.append(massaged_key(self.settings, key, pos, is_key=is_key))
 
     def __call__(self, line, column, pos, prev, current, upcoming):
         if self.sub_tokenizer is not None:
@@ -451,30 +472,34 @@ class FlowTokenizer(Tokenizer):
                 self.sub_tokenizer = None
 
         elif current == self.end_char:
-            self.consume_simple_key(pos)
+            if self.simple_key is not None:
+                self.consume_simple_key(line, column, pos)
             self.tokens.append(FlowEndToken(line, column))
             return self.tokens
 
         elif self.simple_key is None:
-            if current != " " and current != "\n":
-                self.sub_tokenizer = get_tokenizer(self.settings, line, column, pos, prev, current, upcoming)
-                if self.sub_tokenizer is None:
-                    if current == ",":
-                        self.tokens.append(FlowEntryToken(line, column))
+            if current == ",":
+                self.consume_simple_key(line, column, pos)
+                self.tokens.append(FlowEntryToken(line, column))
 
-                    elif current != ":" or upcoming not in " \n":
-                        self.simple_key = ScalarToken(line, column, pos)
+            elif current == ":" and upcoming in " \n":
+                self.consume_simple_key(line, column, pos, is_key=True)
+
+            elif current != " " and current != "\n":
+                self.sub_tokenizer = get_tokenizer(self.tokenizer_map, self.settings, line, column, pos, prev, current, upcoming)
+                if self.sub_tokenizer is None:
+                    self.simple_key = ScalarToken(line, column, pos)
 
         elif current == ":":
             if upcoming in " \n":
-                self.consume_simple_key(pos, is_key=True)
+                self.consume_simple_key(line, column, pos, is_key=True)
 
         elif current == ",":
-            self.consume_simple_key(pos)
+            self.consume_simple_key(line, column, pos)
             self.tokens.append(FlowEntryToken(line, column))
 
-        elif current == "\n":
-            self.consume_simple_key(pos)
+        elif current == "\n" and self.simple_key is not None:
+            self.consume_simple_key(line, column, pos)
 
 
 class DoubleQuoteTokenizer(Tokenizer):
@@ -625,9 +650,9 @@ TOKENIZER_MAP = {
 }
 
 
-def get_tokenizer(settings, line, column, pos, prev, current, upcoming):
+def get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upcoming):
     """:rtype: Tokenizer"""
-    tokenizer = TOKENIZER_MAP.get(current)  # type: Tokenizer
+    tokenizer = tokenizer_map.get(current)  # type: Tokenizer
     if tokenizer is not None and tokenizer.is_applicable(line, column, pos, prev, current, upcoming):
         return tokenizer(settings, line, column, pos, current, upcoming)
 
@@ -731,6 +756,20 @@ def scan_tokens(buffer, settings=None):
         yield StreamEndToken(1, len(buffer))
         return
 
+    tokenizer_map = {
+        "%": DirectiveTokenizer,
+        "!": TagTokenizer,
+        "&": TagTokenizer,
+        "*": TagTokenizer,
+        ">": LiteralTokenizer,
+        "|": LiteralTokenizer,
+        "#": CommentTokenizer,
+        "{": FlowTokenizer,
+        "[": FlowTokenizer,
+        '"': DoubleQuoteTokenizer,
+        "'": SingleQuoteTokenizer,
+    }
+
     line = 1
     column = 1
     pos = 0
@@ -761,7 +800,7 @@ def scan_tokens(buffer, settings=None):
                     simple_key = None
 
         elif simple_key is None:
-            tokenizer = get_tokenizer(settings, line, column, pos, prev, current, upcoming)
+            tokenizer = get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upcoming)
             if tokenizer is None:
                 if current == "-" and upcoming in " \n":
                     yield BlockEntryToken(line, column)

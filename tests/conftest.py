@@ -3,8 +3,8 @@ import inspect
 import json
 import os
 import re
-import timeit
 import sys
+import timeit
 from functools import partial
 
 import click
