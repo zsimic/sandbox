@@ -450,9 +450,9 @@ class FlowTokenizer(Tokenizer):
         else:
             self.end_char = "]"
             self.tokens = [FlowSequenceStartToken(line, column)]  # type: list[Token]
-        self.sub_tokenizer = None
+        self.tknzr = None
         self.simple_key = None
-        self.tokenizer_map = {
+        self.tknzr_map = {
             "!": TagTokenizer,
             "&": TagTokenizer,
             "*": TagTokenizer,
@@ -472,11 +472,11 @@ class FlowTokenizer(Tokenizer):
         self.tokens.append(massaged_key(self.settings, key, pos, is_key=is_key))
 
     def __call__(self, line, column, pos, prev, current, upcoming):
-        if self.sub_tokenizer is not None:
-            result = self.sub_tokenizer(line, column, pos, prev, current, upcoming)
+        if self.tknzr is not None:
+            result = self.tknzr(line, column, pos, prev, current, upcoming)
             if result is not None:
                 self.tokens.extend(result)
-                self.sub_tokenizer = None
+                self.tknzr = None
 
         elif current == self.end_char:
             if self.simple_key is not None:
@@ -496,8 +496,8 @@ class FlowTokenizer(Tokenizer):
                 self.consume_simple_key(line, column, pos, is_key=True)
 
             elif current != " " and current != "\n":
-                self.sub_tokenizer = get_tokenizer(self.tokenizer_map, self.settings, line, column, pos, prev, current, upcoming)
-                if self.sub_tokenizer is None:
+                self.tknzr = get_tknzr(self.tknzr_map, self.settings, line, column, pos, prev, current, upcoming)
+                if self.tknzr is None:
                     self.simple_key = ScalarToken(line, column, pos)
 
         elif current == ":":
@@ -630,11 +630,11 @@ class ParseError(Exception):
         return "%s, line %s column %s" % (self.message, self.line, self.column)
 
 
-def get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upcoming):
+def get_tknzr(tknzr_map, settings, line, column, pos, prev, current, upcoming):
     """:rtype: Tokenizer"""
-    tokenizer = tokenizer_map.get(current)  # type: Tokenizer
-    if tokenizer is not None and tokenizer.is_applicable(line, column, pos, prev, current, upcoming):
-        return tokenizer(settings, line, column, pos, current, upcoming)
+    tknzr = tknzr_map.get(current)  # type: Tokenizer
+    if tknzr is not None and tknzr.is_applicable(line, column, pos, prev, current, upcoming):
+        return tknzr(settings, line, column, pos, current, upcoming)
 
 
 def massaged_key(settings, key, pos, is_key=None):
@@ -801,7 +801,7 @@ def scan_tokens(buffer, settings=None):
         yield StreamEndToken(1, len(buffer))
         return
 
-    tokenizer_map = {
+    tknzr_map = {
         "%": DirectiveTokenizer,
         "!": TagTokenizer,
         "&": TagTokenizer,
@@ -818,7 +818,7 @@ def scan_tokens(buffer, settings=None):
     line = column = 1
     pos = 0
     prev = " "
-    upcoming = tokenizer = simple_key = None
+    upcoming = tknzr = simple_key = None
     current = None
 
     for upcoming in buffer:
@@ -826,12 +826,12 @@ def scan_tokens(buffer, settings=None):
             current = upcoming
             continue
 
-        if tokenizer is not None:
-            result = tokenizer(line, column, pos, prev, current, upcoming)
+        if tknzr is not None:
+            result = tknzr(line, column, pos, prev, current, upcoming)
             if result is not None:
                 for token in result:
                     yield token
-                tokenizer = None
+                tknzr = None
 
         elif current == " " or current == "\n":
             if simple_key is not None and column == 4 and line == simple_key.line and (prev == "-" or prev == "."):
@@ -851,15 +851,15 @@ def scan_tokens(buffer, settings=None):
                 settings.key_marker = True
 
             else:
-                tokenizer = get_tokenizer(tokenizer_map, settings, line, column, pos, prev, current, upcoming)
-                if tokenizer is None:
+                tknzr = get_tknzr(tknzr_map, settings, line, column, pos, prev, current, upcoming)
+                if tknzr is None:
                     simple_key = ScalarToken(line, column, pos)
 
         elif current == "#":
             if prev in " \n":
                 yield massaged_key(settings, simple_key, pos)
                 simple_key = None
-                tokenizer = CommentTokenizer(settings, line, column, pos, current, upcoming)
+                tknzr = CommentTokenizer(settings, line, column, pos, current, upcoming)
 
         elif current == ":":
             if upcoming in " \n":
@@ -884,8 +884,8 @@ def scan_tokens(buffer, settings=None):
     prev = current
     current = upcoming
 
-    if tokenizer is not None:
-        result = tokenizer(line, column, pos, prev, current, None)
+    if tknzr is not None:
+        result = tknzr(line, column, pos, prev, current, None)
         if result is not None:
             for token in result:
                 yield token
