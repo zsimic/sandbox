@@ -124,8 +124,13 @@ class SingleBenchmark(object):
             self.fastest = seconds
         self.seconds[name] = seconds
 
-    def run(self):
+    def run(self, stacktrace=False):
         for impl in self.implementations:
+            if stacktrace:
+                t = timeit.Timer(stmt=partial(impl.load, self.sample))
+                self.add(impl.name, t.timeit(self.iterations))
+                continue
+
             try:
                 t = timeit.Timer(stmt=partial(impl.load, self.sample))
                 self.add(impl.name, t.timeit(self.iterations))
@@ -226,13 +231,14 @@ def main(debug, log):
 
 
 @main.command()
+@stacktrace_option()
 @implementations_option()
 @samples_arg()
-def benchmark(implementations, samples):
+def benchmark(stacktrace, implementations, samples):
     """Run parsing benchmarks"""
     for sample in samples:
         bench = SingleBenchmark(sample, implementations)
-        bench.run()
+        bench.run(stacktrace)
         print(bench.report())
 
 
@@ -514,48 +520,140 @@ def json_representation(data, stringify=decode):
 
 class ScanImplementation(YmlImplementation):
     def _load(self, stream):
-        settings = zyaml.ScanSettings()
-        settings.buffer = stream.read()
-        for _ in self._scan(settings):
+        for token in self._tokens(stream.read(), True):
             pass
 
-    def _scan(self, settings):
-        for pos, current in enumerate(settings.buffer):
+    def _tokens(self, contents, comments):
+        for pos, current in enumerate(contents):
             yield current
 
 
 class Scan1Implementation(ScanImplementation):
-    def _scan(self, settings):
-        for pos, current in enumerate(settings.buffer):
-            yield current
+    def _tokens(self, contents, comments):
+        splitter = LineSplitter(contents)
+        token = splitter.next_token()
+        while token is not None:
+            yield token
+            token = splitter.next_token()
 
 
 class Scan2Implementation(ScanImplementation):
-    def _scan(self, settings):
-        line = column = 1
-        prev = " "
-        pos = 0
-        gen = settings.buffer.__iter__()
-        current = next(gen)
+    def _tokens(self, contents, comments):
+        splitter = LineSplitter(contents)
+        line, indent, size, text = splitter.pop_line()
+        for token in block_consume(line, indent, size, text, splitter):
+            yield token
 
-        for upcoming in gen:
-            yield pos, prev, current, upcoming
 
-            if current == " ":
-                pass
+RE_LINE_SPLIT = re.compile(r"^\s*(\S*)")
+RE_FLOW__SEP = re.compile(r"""(^#.*|^%.*|[!&*]\S+|[\[\]{}"',]|(:)( |$))""")
+RE_BLOCK_SEP = re.compile(r"""(\s+#.*|[!&*]\S+|[\[\]{}"'>|]|(:|(^|\s+)-|---|\.\.\.)(\s+|$))""", re.MULTILINE)
 
-            elif current == "\n":
-                line += 1
-                column = 1
 
+class LineSplitter(object):
+    def __init__(self, buffer):
+        if hasattr(buffer, "read"):
+            buffer = buffer.read()
+        self.gen = enumerate(buffer.splitlines(), start=1)
+        self.line_number = None
+        self.first_start = 0
+        self.first_end = 0
+        self.line_pos = 0
+        self.line_size = 0
+        self.line_text = None
+        self.flow_ender = ""
+        self.pending = None
+
+    def __repr__(self):
+        return "%s [%s]: %s" % (self.line_number, self.line_pos, self.line_text)
+
+    def next_line(self):
+        self.line_number, self.line_text = next(self.gen)
+        m = RE_LINE_SPLIT.match(self.line_text)
+        self.first_start, self.first_end = m.span(1)
+        self.line_pos = self.first_start
+        self.line_size = len(self.line_text)
+
+    def next_couple(self, regex):
+        if self.pending is not None:
+            start, end = self.pending
+            self.pending = None
+            self.line_pos = end
+            return start, end
+        if self.line_pos >= self.line_size:
+            self.next_line()
+            if self.first_start < self.line_size:
+                first_char = self.line_text[self.first_start]
+                if first_char == "%":
+                    self.line_pos = self.line_size
+                    return self.first_start, self.line_size
+                return self.first_start, self.first_start
+        start = self.line_pos
+        end = self.line_size
+        if start < end:
+            m = regex.search(self.line_text, start)
+            if m:
+                start, end = m.span(1)
+                if start > self.line_pos:
+                    self.pending = start, end
+                    return self.line_pos, start
             else:
-                column += 1
+                end = self.line_size
+            self.line_pos = end
+        return start, end
 
-            pos += 1
-            prev = current
-            current = upcoming
+    def next_token(self):
+        try:
+            if self.flow_ender:
+                start, end = self.next_couple(RE_FLOW__SEP)
+            else:
+                start, end = self.next_couple(RE_BLOCK_SEP)
+            return start, end
+            # return "%s %s->%s: '%s'" % (self.line_number, start, end, self.line_text[start:end] or "<empty>")
+        except StopIteration:
+            return None
 
-        yield pos, prev, current, None
+    def pop_line(self, include_blank=False):
+        try:
+            while True:
+                self.line_number, self.line_text = next(self.gen)
+                m = RE_LINE_SPLIT.match(self.line_text)
+                indent = m.span(1)[0]
+                size = len(self.line_text)
+                if include_blank or size > indent:
+                    return self.line_number, indent, size, self.line_text
+        except StopIteration:
+            return None, None, None, None
+
+
+def next_couple(line, indent, size, text, regex):
+    if indent < size:
+        m = regex.search(text, indent)
+        if m:
+            return m.span(1)
+        else:
+            return indent, size
+    return None, None
+
+
+def line_consume(line, column, size, text, regex):
+    while column < size:
+        start, end = next_couple(line, column, size, text, regex)
+        if start > column:
+            yield column, start
+        yield start, end
+        column = end
+
+
+def block_consume(line, indent, size, text: str, splitter: LineSplitter):
+    prmap = {}
+    regex = RE_BLOCK_SEP
+    while text is not None:
+        for start, end in line_consume(line, indent, size, text, regex):
+            current = text[start]
+            prmap.get(current)
+            yield text[start:end]
+        line, indent, size, text = splitter.pop_line()
 
 
 class ZyamlImplementation(YmlImplementation):
