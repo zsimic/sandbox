@@ -471,7 +471,7 @@ class YmlImplementation(object):
     def _load(self, stream):
         return []
 
-    def tokens(self, sample, comments=True):
+    def tokens(self, sample, comments=False):
         try:
             with open(sample.path) as fh:
                 for t in self._tokens(fh.read(), comments):
@@ -537,17 +537,11 @@ class Scan1Implementation(ScanImplementation):
             token = splitter.next_token()
 
 
-class Scan2Implementation(ScanImplementation):
-    def _tokens(self, contents, comments):
-        splitter = LineSplitter(contents)
-        line, indent, size, text = splitter.pop_line()
-        for token in block_consume(line, indent, size, text, splitter):
-            yield token
-
-
-RE_LINE_SPLIT = re.compile(r"^\s*(\S*)")
+RE_LINE_SPLIT = re.compile(r"^\s*(([%#]).*|(-|---|\.\.\.)(\s.*)?)$")
 RE_FLOW__SEP = re.compile(r"""(^#.*|^%.*|[!&*]\S+|[\[\]{}"',]|(:)( |$))""")
-RE_BLOCK_SEP = re.compile(r"""(\s+#.*|[!&*]\S+|[\[\]{}"'>|]|(:|(^|\s+)-|---|\.\.\.)(\s+|$))""", re.MULTILINE)
+RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}"'>|]|:(\s+|$))""")
+RE_DOUBLE_QUOTE = re.compile(r'([^\\]")')
+RE_SINGLE_QUOTE = re.compile(r"([^']'([^']|$))")
 
 
 class LineSplitter(object):
@@ -556,104 +550,152 @@ class LineSplitter(object):
             buffer = buffer.read()
         self.gen = enumerate(buffer.splitlines(), start=1)
         self.line_number = None
-        self.first_start = 0
-        self.first_end = 0
         self.line_pos = 0
         self.line_size = 0
         self.line_text = None
         self.flow_ender = ""
         self.pending = None
+        self.ignore_comments = True
+        self.leaders = {
+            "%": self.consume_directive,
+            "-": self.consume_block_entry,
+            "---": self.consume_doc_start,
+            "...": self.consume_doc_end,
+        }
+        self.tokenizer_map = {
+            ":": self.consume_colon,
+            '"': self.consume_double_quote,
+            "'": self.consume_single_quote,
+            "#": self.consume_comment,
+        }
 
     def __repr__(self):
         return "%s [%s]: %s" % (self.line_number, self.line_pos, self.line_text)
 
-    def next_line(self):
-        self.line_number, self.line_text = next(self.gen)
-        m = RE_LINE_SPLIT.match(self.line_text)
-        self.first_start, self.first_end = m.span(1)
-        self.line_pos = self.first_start
-        self.line_size = len(self.line_text)
+    def consume_directive(self):
+        token = zyaml.DirectiveToken(self.line_number, self.line_pos, self.line_text.strip())
+        self.line_pos = self.line_size
+        return token
+
+    def consume_block_entry(self):
+        self.line_pos += 2
+        return zyaml.BlockEntryToken(self.line_number, self.line_pos)
+
+    def consume_doc_start(self):
+        self.line_pos = 4
+        return zyaml.DocumentStartToken(self.line_number, 1)
+
+    def consume_doc_end(self):
+        self.line_pos = 4
+        return zyaml.DocumentEndToken(self.line_number, 1)
+
+    def next_line(self, keep_comments=False):
+        while True:
+            self.line_number, self.line_text = next(self.gen)
+            m = RE_LINE_SPLIT.match(self.line_text)
+            if m is None:
+                self.line_pos = 0
+                self.line_size = len(self.line_text)
+                return None
+            self.line_pos, self.line_size = m.span(1)
+            leader = m.group(2) or m.group(3)
+            if leader is None:
+                return None
+            if leader != "#":
+                return self.leaders.get(leader)()
+            if keep_comments:
+                return None
+
+    def consume_comment(self, start, end):
+        pass
+
+    def consume_colon(self, start, _):
+        return "KeyToken[%s,%s]" % (self.line_number, start)
+
+    def _consume_multiline(self, start, style, regex):
+        token = zyaml.ScalarToken(self.line_number, start, style=style)
+        try:
+            start = start + 1
+            lines = None
+            m = None
+            while m is None:
+                m = regex.search(self.line_text, start)
+                if m is not None:
+                    end = self.line_pos = m.span(1)[1]
+                    text = self.line_text[start:end]
+                    if text.endswith(style):
+                        text = text[:-1]
+                    else:
+                        text = text[:-2]
+                    if lines is None:
+                        token.set_raw_text(text)
+                    else:
+                        lines.append(text)
+                        token.set_raw_lines(lines)
+                    return token
+                if lines is None:
+                    lines = [self.line_text[start:]]
+                    start = 0
+                else:
+                    lines.append(self.line_text)
+                self.next_line(keep_comments=True)
+
+        except StopIteration:
+            raise zyaml.ParseError("Unexpected end, runaway string at line %s?" % token.line)
+
+    def consume_double_quote(self, start, _):
+        return self._consume_multiline(start, '"', RE_DOUBLE_QUOTE)
+
+    def consume_single_quote(self, start, _):
+        return self._consume_multiline(start, "'", RE_SINGLE_QUOTE)
+
+    def tokenized(self, start, end):
+        if start == end:
+            assert start == 0
+            return "<empty string>"
+        tokenizer = self.tokenizer_map.get(self.line_text[start])
+        if tokenizer is not None:
+            return tokenizer(start, end)
+        assert self.line_pos == end
+        return zyaml.ScalarToken(self.line_number, self.line_pos, text=self.line_text[start:end])
 
     def next_couple(self, regex):
         if self.pending is not None:
             start, end = self.pending
             self.pending = None
             self.line_pos = end
-            return start, end
+            return self.tokenized(start, end)
         if self.line_pos >= self.line_size:
-            self.next_line()
-            if self.first_start < self.line_size:
-                first_char = self.line_text[self.first_start]
-                if first_char == "%":
-                    self.line_pos = self.line_size
-                    return self.first_start, self.line_size
-                return self.first_start, self.first_start
+            token = self.next_line()
+            if token is not None:
+                return token
         start = self.line_pos
         end = self.line_size
         if start < end:
             m = regex.search(self.line_text, start)
             if m:
-                start, end = m.span(1)
-                if start > self.line_pos:
+                prev_start = start
+                start, end = m.span(2)
+                if m.span(1)[0] > prev_start:
                     self.pending = start, end
-                    return self.line_pos, start
+                    self.line_pos = start
+                    return self.tokenized(prev_start, start)
             else:
                 end = self.line_size
             self.line_pos = end
-        return start, end
+        return self.tokenized(start, end)
 
     def next_token(self):
         try:
-            if self.flow_ender:
-                start, end = self.next_couple(RE_FLOW__SEP)
-            else:
-                start, end = self.next_couple(RE_BLOCK_SEP)
-            return start, end
-            # return "%s %s->%s: '%s'" % (self.line_number, start, end, self.line_text[start:end] or "<empty>")
+            while True:
+                if self.flow_ender:
+                    token = self.next_couple(RE_FLOW__SEP)
+                else:
+                    token = self.next_couple(RE_BLOCK_SEP)
+                if token is not None:
+                    return token
         except StopIteration:
             return None
-
-    def pop_line(self, include_blank=False):
-        try:
-            while True:
-                self.line_number, self.line_text = next(self.gen)
-                m = RE_LINE_SPLIT.match(self.line_text)
-                indent = m.span(1)[0]
-                size = len(self.line_text)
-                if include_blank or size > indent:
-                    return self.line_number, indent, size, self.line_text
-        except StopIteration:
-            return None, None, None, None
-
-
-def next_couple(line, indent, size, text, regex):
-    if indent < size:
-        m = regex.search(text, indent)
-        if m:
-            return m.span(1)
-        else:
-            return indent, size
-    return None, None
-
-
-def line_consume(line, column, size, text, regex):
-    while column < size:
-        start, end = next_couple(line, column, size, text, regex)
-        if start > column:
-            yield column, start
-        yield start, end
-        column = end
-
-
-def block_consume(line, indent, size, text: str, splitter: LineSplitter):
-    prmap = {}
-    regex = RE_BLOCK_SEP
-    while text is not None:
-        for start, end in line_consume(line, indent, size, text, regex):
-            current = text[start]
-            prmap.get(current)
-            yield text[start:end]
-        line, indent, size, text = splitter.pop_line()
 
 
 class ZyamlImplementation(YmlImplementation):

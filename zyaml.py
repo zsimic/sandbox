@@ -171,6 +171,14 @@ class ScalarToken(Token):
     def token_name(self):
         return "KeyToken" if self.is_key else self.__class__.__name__
 
+    def set_raw_lines(self, lines):
+        self.set_raw_text(" ".join(lines))
+
+    def set_raw_text(self, text):
+        if self.style == "'":
+            text = text.replace("''", "'")
+        self.value = text
+
     def represented_value(self):
         if self.style is None:
             return str(self.value)
