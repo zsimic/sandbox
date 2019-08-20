@@ -53,3 +53,14 @@ def test_errors():
     assert str(e) == "testing"
     e.line = 1
     assert str(e) == "testing, line 1 column None"
+
+
+def test_comments():
+    assert zyaml.decommented("") == ""
+    assert zyaml.decommented(" ") == " "
+    assert zyaml.decommented("# foo") == ""
+    assert zyaml.decommented(" foo  # bar") == " foo"
+    assert zyaml.decommented(" foo ") == " foo "
+    assert zyaml.decommented("foo#bar") == "foo#bar"
+    assert zyaml.decommented("foo#bar   #baz") == "foo#bar"
+    assert zyaml.decommented("foo#bar   #baz #baz") == "foo#bar"

@@ -45,6 +45,18 @@ def default_marshal(value):
             return text
 
 
+def decommented(text):
+    if not text:
+        return text
+    if text.startswith("#"):
+        return ""
+    try:
+        i = text.index(" #")
+        return text[:i].rstrip()
+    except ValueError:
+        return text
+
+
 def first_non_blank(text):
     for c in text:
         if c != " ":
@@ -128,6 +140,7 @@ class CommentToken(Token):
 
 class DirectiveToken(Token):
     def __init__(self, line, column, text):
+        text = decommented(text)
         if text.startswith("%YAML"):
             self.name = "%YAML"
             text = text[5:].strip()
@@ -159,6 +172,16 @@ class TagToken(Token):
             raise ParseError("2 consecutive tags given")
         root.marshaller = self.value
         root.tag_indent = self.column
+
+
+class EmptyLineToken(Token):
+    def consume_token(self, root):
+        pass
+
+
+class KeyToken(Token):
+    def consume_token(self, root):
+        pass
 
 
 class ScalarToken(Token):
@@ -902,6 +925,211 @@ def scan_tokens(buffer, settings=None):
         yield massaged_key(settings, simple_key, pos)
 
     yield StreamEndToken(line, column)
+
+
+RE_LINE_SPLIT = re.compile(r"^\s*(([%#]).*|(-|---|\.\.\.)(\s.*)?)$")
+RE_FLOW__SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}"',]|:(\s+|$))""")
+RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}"'>|]|:(\s+|$))""")
+RE_DOUBLE_QUOTE = re.compile(r'([^\\]")')
+RE_SINGLE_QUOTE = re.compile(r"([^']'([^']|$))")
+
+
+class Scanner(object):
+    def __init__(self, buffer):
+        if hasattr(buffer, "read"):
+            buffer = buffer.read()
+        self.gen = enumerate(buffer.splitlines(), start=1)
+        self.line_number = None
+        self.line_pos = 0
+        self.line_size = 0
+        self.line_text = None
+        self.flow_ender = ""
+        self.pending = None
+        self.leaders = {
+            "%": self.consume_directive,
+            "-": self.consume_block_entry,
+            "---": self.consume_doc_start,
+            "...": self.consume_doc_end,
+        }
+        self.tokenizer_map = {
+            "#": self.consume_comment,
+            ":": self.consume_colon,
+            "!": self.consume_tag,
+            "&": self.consume_anchor,
+            "*": self.consume_alias,
+            ">": self.consume_literal,
+            "|": self.consume_literal,
+            "{": self.consume_flow_map_start,
+            "}": self.consume_flow_map_end,
+            "[": self.consume_flow_list_start,
+            "]": self.consume_flow_list_end,
+            ",": self.consume_comma,
+            '"': self.consume_double_quote,
+            "'": self.consume_single_quote,
+        }
+
+    def __repr__(self):
+        return "%s [%s]: %s" % (self.line_number, self.line_pos, self.line_text)
+
+    def consume_directive(self):
+        token = DirectiveToken(self.line_number, self.line_pos, self.line_text.strip())
+        self.line_pos = self.line_size
+        return token
+
+    def consume_block_entry(self):
+        self.line_pos += 2
+        return BlockEntryToken(self.line_number, self.line_pos)
+
+    def consume_doc_start(self):
+        self.line_pos = 4
+        return DocumentStartToken(self.line_number, 1)
+
+    def consume_doc_end(self):
+        self.line_pos = 4
+        return DocumentEndToken(self.line_number, 1)
+
+    def next_line(self, keep_comments=False):
+        while True:
+            self.line_number, self.line_text = next(self.gen)
+            m = RE_LINE_SPLIT.match(self.line_text)
+            if m is None:
+                self.line_pos = 0
+                self.line_size = len(self.line_text)
+                return None
+            self.line_pos, self.line_size = m.span(1)
+            leader = m.group(2) or m.group(3)
+            if leader is None:
+                return None
+            if leader != "#":
+                return self.leaders.get(leader)()
+            if keep_comments:
+                return None
+
+    def consume_comment(self, start, end):
+        pass
+
+    def consume_colon(self, start, _):
+        return KeyToken(self.line_number, start)
+
+    def consume_tag(self, start, end):
+        return TagToken(self.line_number, start, self.line_text[start:end])
+
+    def consume_anchor(self, start, end):
+        return AnchorToken(self.line_number, start, self.line_text[start:end])
+
+    def consume_alias(self, start, end):
+        return AliasToken(self.line_number, start, self.line_text[start:end])
+
+    def consume_literal(self, start, end):
+        pass
+
+    def consume_flow_map_start(self, start, end):
+        self.flow_ender += "}"
+        return FlowMappingStartToken(self.line_number, start)
+
+    def consume_flow_map_end(self, start, end):
+        if self.flow_ender[-1] != "}":
+            raise ParseError("Unexpected map end")
+        self.flow_ender = self.flow_ender[:-1]
+        return FlowEndToken(self.line_number, start)
+
+    def consume_flow_list_start(self, start, end):
+        self.flow_ender += "]"
+        return FlowSequenceStartToken(self.line_number, start)
+
+    def consume_flow_list_end(self, start, end):
+        if self.flow_ender[-1] != "]":
+            raise ParseError("Unexpected sequence end")
+        self.flow_ender = self.flow_ender[:-1]
+        return FlowEndToken(self.line_number, start)
+
+    def consume_comma(self, start, _):
+        return FlowEntryToken(self.line_number, start)
+
+    def _consume_multiline(self, start, style, regex):
+        token = ScalarToken(self.line_number, start, style=style)
+        try:
+            start = start + 1
+            lines = None
+            m = None
+            while m is None:
+                m = regex.search(self.line_text, start)
+                if m is not None:
+                    end = self.line_pos = m.span(1)[1]
+                    text = self.line_text[start:end]
+                    if text.endswith(style):
+                        text = text[:-1]
+                    else:
+                        text = text[:-2]
+                    if lines is None:
+                        token.set_raw_text(text)
+                    else:
+                        lines.append(text)
+                        token.set_raw_lines(lines)
+                    return token
+                if lines is None:
+                    lines = [self.line_text[start:]]
+                    start = 0
+                else:
+                    lines.append(self.line_text)
+                self.next_line(keep_comments=True)
+
+        except StopIteration:
+            raise ParseError("Unexpected end, runaway string at line %s?" % token.line)
+
+    def consume_double_quote(self, start, _):
+        return self._consume_multiline(start, '"', RE_DOUBLE_QUOTE)
+
+    def consume_single_quote(self, start, _):
+        return self._consume_multiline(start, "'", RE_SINGLE_QUOTE)
+
+    def tokenized(self, start, end):
+        if start == end:
+            assert start == 0
+            return EmptyLineToken(self.line_number, start)
+        tokenizer = self.tokenizer_map.get(self.line_text[start])
+        if tokenizer is not None:
+            return tokenizer(start, end)
+        assert self.line_pos == end
+        return ScalarToken(self.line_number, start, text=self.line_text[start:end])
+
+    def next_token(self, regex):
+        if self.pending is not None:
+            start, end = self.pending
+            self.pending = None
+            self.line_pos = end
+            return self.tokenized(start, end)
+        if self.line_pos >= self.line_size:
+            token = self.next_line()
+            if token is not None:
+                return token
+        start = self.line_pos
+        end = self.line_size
+        if start < end:
+            m = regex.search(self.line_text, start)
+            if m:
+                prev_start = start
+                start, end = m.span(2)
+                if m.span(1)[0] > prev_start:
+                    self.pending = start, end
+                    self.line_pos = start
+                    return self.tokenized(prev_start, start)
+            else:
+                end = self.line_size
+            self.line_pos = end
+        return self.tokenized(start, end)
+
+    def __iter__(self):
+        try:
+            while True:
+                if self.flow_ender:
+                    token = self.next_token(RE_FLOW__SEP)
+                else:
+                    token = self.next_token(RE_BLOCK_SEP)
+                if token is not None:
+                    yield token
+        except StopIteration:
+            return
 
 
 def load(stream):
