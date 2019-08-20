@@ -313,15 +313,16 @@ def mv(samples, category):
 def _bench1(size):
     s = "a"
     for _ in range(size):
-        if s:
-            pass
+        s += "b"
+        s = s[:-1]
 
 
 def _bench2(size):
     s = zyaml.collections.deque()
+    s.append("a")
     for _ in range(size):
-        if s:
-            pass
+        s.append("b")
+        s.pop()
 
 
 @main.command()
@@ -337,6 +338,7 @@ def quick_bench(iterations, size):
     bench = BenchmarkRunner(functions, iterations=iterations)
     bench.run(stacktrace=True)
     print(bench.report())
+
 
 @main.command()
 @stacktrace_option()
@@ -383,15 +385,16 @@ def show(stacktrace, implementations, samples):
 
 
 @main.command()
+@stacktrace_option()
 @implementations_option(default="zyaml,pyyaml_base")
 @samples_arg(default="misc.yml")
-def tokens(implementations, samples):
+def tokens(stacktrace, implementations, samples):
     """Refresh expected json for each sample"""
     for sample in samples:
         print("==== %s:" % sample)
         for impl in implementations:
             print("\n-- %s tokens:" % impl)
-            for t in impl.tokens(sample):
+            for t in impl.tokens(sample, stacktrace=stacktrace):
                 print(t)
             print()
 
@@ -495,7 +498,13 @@ class YmlImplementation(object):
     def _load(self, stream):
         return []
 
-    def tokens(self, sample, comments=False):
+    def tokens(self, sample, comments=False, stacktrace=False):
+        if stacktrace:
+            with open(sample.path) as fh:
+                for t in self._tokens(fh.read(), comments):
+                    yield t
+            return
+
         try:
             with open(sample.path) as fh:
                 for t in self._tokens(fh.read(), comments):
