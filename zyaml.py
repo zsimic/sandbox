@@ -28,7 +28,7 @@ def default_marshal(value):
         return value
 
     m = RE_TYPED.match(text)
-    if not m:
+    if m is None:
         return text
 
     text = text.lower()
@@ -58,8 +58,6 @@ def decode(value):
 
 
 def decommented(text):
-    if not text:
-        return text
     if text.startswith("#"):
         return ""
     try:
@@ -188,7 +186,7 @@ class TagToken(Token):
         self.marshaller = marshaller
 
     def consume_token(self, root):
-        if root.marshaller:
+        if root.marshaller is not None:
             raise ParseError("2 consecutive tags given")
         root.marshaller = self.marshaller
         root.tag_indent = self.indent
@@ -249,14 +247,14 @@ class ParseNode(object):
         :param int|None indent:
         """
         self.root = root  # type: RootNode
-        if root.marshaller is not None:
+        if root.marshaller is None:
+            self.indent = indent
+            self.marshaller = None
+        else:
             self.indent = get_min(indent, root.tag_indent)
             self.marshaller = root.marshaller
             root.marshaller = None
             root.tag_indent = None
-        else:
-            self.indent = indent
-            self.marshaller = None
         self.prev = None
         self.is_temp = False
         self.needs_apply = False
@@ -266,7 +264,7 @@ class ParseNode(object):
 
     def __repr__(self):
         result = "%s%s%s" % (self.__class__.__name__[0], "" if self.indent is None else self.indent, "*" if self.is_temp else "")
-        if self.prev:
+        if self.prev is not None:
             result = "%s / %s" % (result, self.prev)
         return result
 
@@ -287,7 +285,7 @@ class ParseNode(object):
             self.last_value = "%s %s" % (self.last_value, value)
 
     def auto_apply(self):
-        if self.anchor_token:
+        if self.anchor_token is not None:
             self.root.anchors[self.anchor_token.value] = self.last_value
             self.anchor_token = None
         if self.needs_apply:
@@ -356,7 +354,7 @@ class RootNode(object):
         self.head.anchor_token = token
 
     def auto_apply(self):
-        if self.head:
+        if self.head is not None:
             self.head.auto_apply()
 
     def needs_new_node(self, indent, node_type):
@@ -399,30 +397,28 @@ class RootNode(object):
         """
         :param ParseNode node:
         """
-        if self.head:
-            if self.head.indent is None:
-                node.is_temp = node.indent is not None
-            elif node.indent is not None:
-                while node.indent < self.head.indent:
-                    self.pop()
-        else:
+        if self.head is None:
             self.doc_consumed = False
+        elif self.head.indent is None:
+            node.is_temp = node.indent is not None
+        elif node.indent is not None:
+            while node.indent < self.head.indent:
+                self.pop()
         node.prev = self.head
         self.head = node
 
     def pop(self):
         popped = self.head
         self.head = popped.prev
-        if popped:
-            popped.auto_apply()
-            value = popped.marshalled(popped.target)
-            if self.head:
-                self.head.set_value(value)
-                self.head.auto_apply()
-            else:
-                self.set_value(value)
-        else:
+        if popped is None:
             raise ParseError("check")
+        popped.auto_apply()
+        value = popped.marshalled(popped.target)
+        if self.head is None:
+            self.set_value(value)
+        else:
+            self.head.set_value(value)
+            self.head.auto_apply()
 
     def set_value(self, value):
         self.doc_consumed = True
@@ -430,8 +426,8 @@ class RootNode(object):
         self.docs.append(value)
 
     def pop_doc(self):
-        if self.head:
-            while self.head:
+        if self.head is not None:
+            while self.head is not None:
                 self.pop()
         elif not self.doc_consumed:
             self.set_value("")
@@ -707,7 +703,7 @@ class Scanner(object):
         lines = []
         while True:
             self.next_line(keep_comments=True)
-            if not self.line_text:
+            if self.line_size == 0:
                 lines.append(self.line_text)
                 continue
             i = get_indent(self.line_text)
@@ -795,9 +791,9 @@ class Scanner(object):
         if start == end:
             return EmptyLineToken(self.line_number, start)
         tokenizer = self.tokenizer_map.get(self.line_text[start])
-        if tokenizer is not None:
-            return tokenizer(start, end)
-        return ScalarToken(self.line_number, start, text=self.line_text[start:end])
+        if tokenizer is None:
+            return ScalarToken(self.line_number, start, text=self.line_text[start:end])
+        return tokenizer(start, end)
 
     def next_token(self, regex):
         if self.pending:
@@ -812,15 +808,15 @@ class Scanner(object):
         end = self.line_size
         if start < end:
             m = regex.search(self.line_text, start)
-            if m:
+            if m is None:
+                end = self.line_size
+            else:
                 prev_start = start
                 start, end = m.span(2)
                 if m.span(1)[0] > prev_start:
                     self.pending.append((start, end))
                     self.line_pos = start
                     return self.tokenized(prev_start, start)
-            else:
-                end = self.line_size
             self.line_pos = end
         return self.tokenized(start, end)
 
