@@ -1060,7 +1060,6 @@ class Scanner(object):
         return folded, keep, indent, ScalarToken(self.line_number, start, style=original)
 
     def consume_literal(self, start, end):
-        self.line_pos = self.line_size
         folded, keep, indent, token = self._get_literal_styled_token(start, decommented(self.line_text[start:]))
         lines = []
         while True:
@@ -1070,7 +1069,7 @@ class Scanner(object):
                 continue
             i = get_indent(self.line_text)
             if indent is None:
-                indent = i
+                indent = i if i != 0 else 1
             if i < indent:
                 text = "\n".join(lines)
                 if keep is None:
@@ -1187,15 +1186,13 @@ class Scanner(object):
 
     def __iter__(self):
         try:
+            yield StreamStartToken(1, 0)
             while True:
-                if self.flow_ender:
-                    token = self.next_token(RE_FLOW__SEP)
-                else:
-                    token = self.next_token(RE_BLOCK_SEP)
+                token = self.next_token(RE_FLOW__SEP if self.flow_ender else RE_BLOCK_SEP)
                 if token is not None:
                     yield token
         except StopIteration:
-            return
+            yield StreamEndToken(self.line_number, 0)
 
 
 def load(stream):
