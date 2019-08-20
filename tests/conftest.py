@@ -94,14 +94,14 @@ def json_sanitized(value, stringify=zyaml.decode):
     return stringify(value)
 
 
-class SingleBenchmark(object):
-    def __init__(self, sample, implementations):
-        self.implementations = implementations
-        self.sample = sample
+class BenchmarkRunner(object):
+    def __init__(self, functions, target_name=None, iterations=100):
+        self.functions = functions
+        self.target_name = target_name
+        self.iterations = iterations
         self.fastest = None
         self.seconds = {}
         self.outcome = {}
-        self.iterations = 100
 
     def add(self, name, seconds, message=None):
         if seconds is None:
@@ -118,25 +118,26 @@ class SingleBenchmark(object):
         self.seconds[name] = seconds
 
     def run(self, stacktrace=False):
-        for impl in self.implementations:
+        for name, func in self.functions.items():
+            t = timeit.Timer(stmt=func)
             if stacktrace:
-                t = timeit.Timer(stmt=partial(impl.load, self.sample))
-                self.add(impl.name, t.timeit(self.iterations))
+                self.add(name, t.timeit(self.iterations))
                 continue
 
             try:
-                t = timeit.Timer(stmt=partial(impl.load, self.sample))
-                self.add(impl.name, t.timeit(self.iterations))
+                self.add(name, t.timeit(self.iterations))
 
             except Exception as e:
-                self.add(impl.name, None, message=ParseResult.simplified_error(e, self.sample, size=160))
+                self.add(name, None, message=runez.shortened(str(e)))
 
         for name, seconds in self.seconds.items():
             info = "" if seconds == self.fastest else " [x %.1f]" % (seconds / self.fastest)
             self.outcome[name] = "%.3fs%s" % (seconds, info)
 
     def report(self):
-        result = ["%s:" % self.sample]
+        result = []
+        if self.target_name:
+            result.append("%s:" % self.target_name)
         for name, outcome in sorted(self.outcome.items()):
             result.append("  %s: %s" % (name, outcome))
         return "\n".join(result)
@@ -230,9 +231,11 @@ def main(debug, log):
 def benchmark(stacktrace, implementations, samples):
     """Run parsing benchmarks"""
     for sample in samples:
-        bench = SingleBenchmark(sample, implementations)
-        bench.run(stacktrace)
-        print(bench.report())
+        impls = dict((i.name, partial(i.load, sample)) for i in implementations)
+        with runez.Anchored(SAMPLE_FOLDER):
+            bench = BenchmarkRunner(impls, target_name=sample.name)
+            bench.run(stacktrace)
+            print(bench.report())
 
 
 @main.command()
@@ -307,6 +310,55 @@ def mv(samples, category):
     move(sample.expected_path, dest, sample.basename, ".json", subfolder="_expected")
 
 
+def _bench1(size):
+    s = "a"
+    for _ in range(size):
+        if s:
+            pass
+
+
+def _bench2(size):
+    s = zyaml.collections.deque()
+    for _ in range(size):
+        if s:
+            pass
+
+
+@main.command()
+@click.option("--iterations", "-i", default=100, help="Number of iterations to run")
+@click.option("--size", "-s", default=100000, help="Simulated size of each iteration")
+def quick_bench(iterations, size):
+    """Convenience entry point to time different function samples"""
+    functions = {}
+    for name, func in globals().items():
+        if name.startswith("_bench"):
+            name = name[1:]
+            functions[name] = partial(func, size)
+    bench = BenchmarkRunner(functions, iterations=iterations)
+    bench.run(stacktrace=True)
+    print(bench.report())
+
+@main.command()
+@stacktrace_option()
+@implementations_option(count=1, default="zyaml")
+@samples_arg()
+def refresh(stacktrace, implementations, samples):
+    """Refresh expected json for each sample"""
+    for root, dirs, files in os.walk(SAMPLE_FOLDER):
+        if root.endswith("_expected"):
+            for fname in files:
+                ypath = os.path.dirname(root)
+                ypath = os.path.join(ypath, fname.replace(".json", ".yml"))
+                if not os.path.isfile(ypath):
+                    # Delete _expected json files for yml files that have been moved
+                    jpath = os.path.join(root, fname)
+                    print("Deleting %s" % relative_sample_path(jpath))
+                    os.unlink(jpath)
+
+    for sample in samples:
+        sample.refresh(impl=implementations[0], stacktrace=stacktrace)
+
+
 @main.command()
 @stacktrace_option()
 @implementations_option()
@@ -328,27 +380,6 @@ def show(stacktrace, implementations, samples):
             report.append("-- %s:\n%s" % (impl, rep))
         print("==== %s (match: %s):" % (sample, len(values) == 1))
         print("\n".join(report))
-
-
-@main.command()
-@stacktrace_option()
-@implementations_option(count=1, default="zyaml")
-@samples_arg()
-def refresh(stacktrace, implementations, samples):
-    """Refresh expected json for each sample"""
-    for root, dirs, files in os.walk(SAMPLE_FOLDER):
-        if root.endswith("_expected"):
-            for fname in files:
-                ypath = os.path.dirname(root)
-                ypath = os.path.join(ypath, fname.replace(".json", ".yml"))
-                if not os.path.isfile(ypath):
-                    # Delete _expected json files for yml files that have been moved
-                    jpath = os.path.join(root, fname)
-                    print("Deleting %s" % relative_sample_path(jpath))
-                    os.unlink(jpath)
-
-    for sample in samples:
-        sample.refresh(impl=implementations[0], stacktrace=stacktrace)
 
 
 @main.command()
@@ -509,23 +540,6 @@ class YmlImplementation(object):
 def json_representation(data, stringify=zyaml.decode):
     data = json_sanitized(data, stringify=stringify)
     return "%s\n" % json.dumps(data, sort_keys=True, indent=2)
-
-
-class ScanImplementation(YmlImplementation):
-    def _load(self, stream):
-        for _ in self._tokens(stream.read(), True):
-            pass
-
-    def _tokens(self, contents, comments):
-        for pos, current in enumerate(contents):
-            yield pos, current
-
-
-class Scan1Implementation(ScanImplementation):
-    def _tokens(self, contents, comments):
-        scanner = zyaml.Scanner(contents)
-        for token in scanner:
-            yield token
 
 
 class ZyamlImplementation(YmlImplementation):

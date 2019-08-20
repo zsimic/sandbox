@@ -1,4 +1,5 @@
 import codecs
+import collections
 import re
 
 
@@ -143,6 +144,16 @@ class FlowEntryToken(Token):
         root.auto_apply()
 
 
+class BlockSequenceStartToken(Token):
+    def consume_token(self, root):
+        pass
+
+
+class BlockEndToken(Token):
+    def consume_token(self, root):
+        pass
+
+
 class BlockEntryToken(Token):
     def consume_token(self, root):
         root.ensure_node(self.column + 1, ListNode)
@@ -199,7 +210,7 @@ class EmptyLineToken(Token):
 
 class KeyToken(Token):
     def consume_token(self, root):
-        pass
+        root.push_key(self.column, self.value)
 
 
 class ScalarToken(Token):
@@ -207,10 +218,6 @@ class ScalarToken(Token):
     def __init__(self, line_number, column, text=None, style=None):
         super(ScalarToken, self).__init__(line_number, column, text)
         self.style = style
-        self.is_key = False
-
-    def token_name(self):
-        return "KeyToken" if self.is_key else self.__class__.__name__
 
     def set_raw_lines(self, lines):
         self.set_raw_text(" ".join(lines))
@@ -232,10 +239,7 @@ class ScalarToken(Token):
         return "%s %s" % (self.style, self.value)
 
     def consume_token(self, root):
-        if self.is_key:
-            root.push_key(self.column, self.value)
-        else:
-            root.push_value(self.column, self.value)
+        root.push_value(self.column, self.value)
 
 
 def get_min(v1, v2):
@@ -384,7 +388,7 @@ class RootNode(object):
             self.pop()
         if self.needs_new_node(indent, node_type):
             if node_type is ListNode and self.head is not None and self.head.indent is not None and indent is not None:
-                if indent <= self.head.indent:
+                if indent < self.head.indent:
                     raise ParseError("Line should be indented at least %s chars" % self.head.indent)
             self.push(node_type(self, indent))
         self.auto_apply()
@@ -594,7 +598,8 @@ class Scanner(object):
         self.line_size = 0
         self.line_text = None
         self.flow_ender = ""
-        self.pending = None
+        self.pending = collections.deque()
+        # self.pending = None
         marshallers = get_descendants(Marshaller, adjust=lambda x: x.replace("Marshaller", "").lower())
         self.marshallers = {"": dict((name, m("", name)) for name, m in marshallers.items())}
         self.leaders = {
@@ -637,8 +642,9 @@ class Scanner(object):
         return token
 
     def consume_block_entry(self):
+        indent = self.line_pos
         self.line_pos += 2
-        return BlockEntryToken(self.line_number, self.line_pos)
+        return BlockEntryToken(self.line_number, indent)
 
     def consume_doc_start(self):
         self.line_pos = 4
@@ -811,11 +817,9 @@ class Scanner(object):
         return ScalarToken(self.line_number, start, text=self.line_text[start:end])
 
     def next_token(self, regex):
-        if self.pending is not None:
-            start, end = self.pending
-            self.pending = None
-            self.line_pos = end
-            return self.tokenized(start, end)
+        if self.pending:
+            self.line_pos, pending = self.pending.pop()
+            return pending
         if self.line_pos >= self.line_size:
             token = self.next_line()
             if token is not None:
@@ -828,7 +832,7 @@ class Scanner(object):
                 prev_start = start
                 start, end = m.span(2)
                 if m.span(1)[0] > prev_start:
-                    self.pending = start, end
+                    self.pending.append((end, self.tokenized(start, end)))
                     self.line_pos = start
                     return self.tokenized(prev_start, start)
             else:
