@@ -57,6 +57,15 @@ def decommented(text):
         return text
 
 
+def get_indent(text):
+    count = 0
+    for c in text:
+        if c != " ":
+            return count
+        count += 1
+    return count
+
+
 def first_non_blank(text):
     for c in text:
         if c != " ":
@@ -1020,8 +1029,65 @@ class Scanner(object):
     def consume_alias(self, start, end):
         return AliasToken(self.line_number, start, self.line_text[start:end])
 
+    def _get_literal_styled_token(self, start, style):
+        original = style
+        if len(style) > 3:
+            raise ParseError("Invalid literal style '%s', should be less than 3 chars" % style, self.line_number, start)
+        keep = None
+        if "-" in style:
+            style = style.replace("-", "", 1)
+            keep = False
+        if "+" in style:
+            if keep is not None:
+                raise ParseError("Ambiguous literal style '%s'" % original, self.line_number, start)
+            keep = True
+            style = style.replace("+", "", 1)
+        indent = None
+        if len(style) == 2:
+            indent = style[1]
+            style = style[0]
+            if not indent.isdigit():
+                raise ParseError("Invalid literal style '%s'" % original, self.line_number, start)
+            indent = int(indent)
+            if indent < 1:
+                raise ParseError("Indent must be between 1 and 9", self.line_number, start)
+        if style == ">":
+            folded = True
+        elif style == "|":
+            folded = False
+        else:
+            raise ParseError("Internal error, invalid style '%s'" % original, self.line_number, start)
+        return folded, keep, indent, ScalarToken(self.line_number, start, style=original)
+
     def consume_literal(self, start, end):
-        pass
+        self.line_pos = self.line_size
+        folded, keep, indent, token = self._get_literal_styled_token(start, decommented(self.line_text[start:]))
+        lines = []
+        while True:
+            self.next_line(keep_comments=True)
+            if not self.line_text:
+                lines.append(self.line_text)
+                continue
+            i = get_indent(self.line_text)
+            if indent is None:
+                indent = i
+            if i < indent:
+                text = "\n".join(lines)
+                if keep is None:
+                    token.value = "%s\n" % text.rstrip()
+                elif keep is False:
+                    token.value = text.rstrip()
+                else:
+                    token.value = "%s\n" % text
+                return token
+            value = self.line_text[indent:]
+            if folded and lines and not value.startswith(" ") and not lines[-1].startswith(" "):
+                if lines[-1]:
+                    lines[-1] = "%s %s" % (lines[-1], value)
+                else:
+                    lines[-1] = value
+            else:
+                lines.append(value)
 
     def consume_flow_map_start(self, start, end):
         self.flow_ender += "}"
