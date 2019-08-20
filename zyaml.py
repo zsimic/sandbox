@@ -2,11 +2,15 @@ import codecs
 import re
 
 
-NULL = "null"
+NULL = ("null", "~")
 FALSE = "false"
 TRUE = "true"
 RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$", re.IGNORECASE)
-LEADING_SPACES = re.compile(r"\n\s*", re.MULTILINE)
+RE_LINE_SPLIT = re.compile(r"^\s*(([%#]).*|(-|---|\.\.\.)(\s.*)?)$")
+RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}"',]|:(\s+|$))""")
+RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}"'>|]|:(\s+|$))""")
+RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
+RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 
 try:
     basestring  # noqa, remove once py2 is dead
@@ -27,7 +31,7 @@ def default_marshal(value):
         return text
 
     text = text.lower()
-    if text == NULL:
+    if text in NULL:
         return None
 
     if text == FALSE:
@@ -43,6 +47,13 @@ def default_marshal(value):
             return float(text)
         except ValueError:
             return text
+
+
+def decode(value):
+    """Python 2/3 friendly decoding of output"""
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value
 
 
 def decommented(text):
@@ -66,26 +77,20 @@ def get_indent(text):
     return count
 
 
-def first_non_blank(text):
-    for c in text:
-        if c != " ":
-            return c
-
-
 class Token(object):
     """Scanned token, visitor pattern is used for parsing"""
 
-    def __init__(self, line, column, value=None):
-        self.line = line
+    def __init__(self, line_number, column, value=None):
+        self.line_number = line_number
         self.column = column
         self.value = value
 
     def __repr__(self):
         if self.value is None:
-            if self.line:
-                return "%s[%s,%s]" % (self.token_name(), self.line, self.column)
+            if self.line_number:
+                return "%s[%s,%s]" % (self.token_name(), self.line_number, self.column)
             return self.token_name()
-        return "%s[%s,%s] %s" % (self.token_name(), self.line, self.column, self.represented_value())
+        return "%s[%s,%s] %s" % (self.token_name(), self.line_number, self.column, self.represented_value())
 
     def token_name(self):
         return self.__class__.__name__
@@ -148,7 +153,7 @@ class CommentToken(Token):
 
 
 class DirectiveToken(Token):
-    def __init__(self, line, column, text):
+    def __init__(self, line_number, column, text):
         text = decommented(text)
         if text.startswith("%YAML"):
             self.name = "%YAML"
@@ -158,7 +163,7 @@ class DirectiveToken(Token):
             text = text[4:].strip()
         else:
             self.name, _, text = text.partition(" ")
-        super(DirectiveToken, self).__init__(line, column, text.strip())
+        super(DirectiveToken, self).__init__(line_number, column, text.strip())
 
     def represented_value(self):
         return "%s %s" % (self.name, self.value)
@@ -176,10 +181,14 @@ class AliasToken(Token):
 
 
 class TagToken(Token):
+    def __init__(self, line_number, column, text, marshaller):
+        super(TagToken, self).__init__(line_number, column, text)
+        self.marshaller = marshaller
+
     def consume_token(self, root):
         if root.marshaller:
             raise ParseError("2 consecutive tags given")
-        root.marshaller = self.value
+        root.marshaller = self.marshaller
         root.tag_indent = self.column
 
 
@@ -195,8 +204,8 @@ class KeyToken(Token):
 
 class ScalarToken(Token):
 
-    def __init__(self, line, column, text=None, style=None):
-        super(ScalarToken, self).__init__(line, column, text)
+    def __init__(self, line_number, column, text=None, style=None):
+        super(ScalarToken, self).__init__(line_number, column, text)
         self.style = style
         self.is_key = False
 
@@ -209,15 +218,17 @@ class ScalarToken(Token):
     def set_raw_text(self, text):
         if self.style == "'":
             text = text.replace("''", "'")
+        elif self.style == '"':
+            text = codecs.decode(text, "unicode_escape")
         self.value = text
 
     def represented_value(self):
         if self.style is None:
             return str(self.value)
         if self.style == '"':
-            return '"%s"' % self.value
+            return '"%s"' % decode(codecs.encode(self.value, "unicode_escape"))
         if self.style == "'":
-            return "'%s'" % self.value
+            return "'%s'" % self.value.replace("'", "''")
         return "%s %s" % (self.style, self.value)
 
     def consume_token(self, root):
@@ -379,9 +390,6 @@ class RootNode(object):
         self.auto_apply()
 
     def push_key(self, indent, key):
-        # if self.tag_indent is not None:
-        #     indent = get_min(indent, self.tag_indent)
-        #     self.tag_indent = None
         self.ensure_node(indent, MapNode)
         self.head.set_key(key)
 
@@ -442,256 +450,26 @@ class RootNode(object):
             return simplified(self.docs)
 
         except ParseError as error:
-            if token and error.line is None:
-                error.line = token.line
-                error.column = token.column
+            error.complete(token.line_number, token.column)
             raise
 
 
-class Tokenizer(object):
-    def __init__(self, settings, line, column, pos, current, upcoming):
-        self.settings = settings  # type: ScanSettings
-        self.line = line  # type: int
-        self.column = column  # type: int
-        self.pos = pos  # type: int
-        self.current = current  # type: str
-        self.upcoming = upcoming  # type: str
-
-    @classmethod
-    def is_applicable(cls, line, column, pos, prev, current, upcoming):
-        return True
-
-    def contents(self, start, end):
-        return self.settings.contents(start, end)
-
-    def __call__(self, line, column, pos, prev, current, upcoming):
-        """Implemented by descendants, consuming one char at a time"""
-
-
-class CommentTokenizer(Tokenizer):
-
-    @classmethod
-    def is_applicable(cls, line, column, pos, prev, current, upcoming):
-        return current == "#" and (prev == " " or prev == "\n")
-
-    def __call__(self, line, column, pos, prev, current, upcoming):
-        if current == "\n":
-            if not self.settings.yield_comments:
-                return []
-            return [CommentToken(self.line, self.column, self.contents(self.pos, pos).strip())]
-
-
-class FlowTokenizer(Tokenizer):
-    def __init__(self, settings, line, column, pos, current, upcoming):
-        super(FlowTokenizer, self).__init__(settings, line, column, pos, current, upcoming)
-        if current == "{":
-            self.end_char = "}"
-            self.tokens = [FlowMappingStartToken(line, column)]  # type: list[Token]
-        else:
-            self.end_char = "]"
-            self.tokens = [FlowSequenceStartToken(line, column)]  # type: list[Token]
-        self.tknzr = None
-        self.simple_key = None
-        self.tknzr_map = {
-            "!": TagTokenizer,
-            "&": TagTokenizer,
-            "*": TagTokenizer,
-            "#": CommentTokenizer,
-            "{": FlowTokenizer,
-            "[": FlowTokenizer,
-            '"': DoubleQuoteTokenizer,
-            "'": SingleQuoteTokenizer,
-        }
-
-    def consume_simple_key(self, line, column, pos, is_key=None):
-        if self.simple_key is None:
-            key = ScalarToken(line, column, pos)
-        else:
-            key = self.simple_key
-            self.simple_key = None
-        self.tokens.append(massaged_key(self.settings, key, pos, is_key=is_key))
-
-    def __call__(self, line, column, pos, prev, current, upcoming):
-        if self.tknzr is not None:
-            result = self.tknzr(line, column, pos, prev, current, upcoming)
-            if result is not None:
-                self.tokens.extend(result)
-                self.tknzr = None
-
-        elif current == self.end_char:
-            if self.simple_key is not None:
-                self.consume_simple_key(line, column, pos)
-            self.tokens.append(FlowEndToken(line, column))
-            return self.tokens
-
-        elif self.simple_key is None:
-            if current == ",":
-                self.consume_simple_key(line, column, pos)
-                self.tokens.append(FlowEntryToken(line, column))
-
-            elif current == "?" and upcoming in " \n":
-                self.settings.key_marker = True
-
-            elif current == ":" and upcoming in " \n":
-                self.consume_simple_key(line, column, pos, is_key=True)
-
-            elif current != " " and current != "\n":
-                self.tknzr = get_tknzr(self.tknzr_map, self.settings, line, column, pos, prev, current, upcoming)
-                if self.tknzr is None:
-                    self.simple_key = ScalarToken(line, column, pos)
-
-        elif current == ":":
-            if upcoming in " \n":
-                self.consume_simple_key(line, column, pos, is_key=True)
-
-        elif current == ",":
-            self.consume_simple_key(line, column, pos)
-            self.tokens.append(FlowEntryToken(line, column))
-
-        elif current == "\n" and self.simple_key is not None:
-            self.consume_simple_key(line, column, pos)
-
-
-class DoubleQuoteTokenizer(Tokenizer):
-    def __call__(self, line, column, pos, prev, current, upcoming):
-        if current == '"' and prev != "\\":
-            text = self.contents(self.pos + 1, pos)
-            text = LEADING_SPACES.sub(" ", codecs.decode(text, "unicode_escape"))
-            return [ScalarToken(line, column, text, style='"')]
-
-
-class SingleQuoteTokenizer(Tokenizer):
-    def __call__(self, line, column, pos, prev, current, upcoming):
-        if current == "'" and prev != "'" and upcoming != "'":
-            text = self.contents(self.pos + 1, pos).replace("''", "'")
-            text = LEADING_SPACES.sub(" ", text)
-            return [ScalarToken(line, column, text, style="'")]
-
-
-class TagTokenizer(Tokenizer):
-    def __call__(self, line, column, pos, prev, current, upcoming):
-        if current == " " or current == "\n":
-            text = self.settings.contents(self.pos, pos)
-            if text.startswith("!"):
-                marshaller = self.settings.get_marshaller(text[1:])
-                return [TagToken(self.line, self.column, marshaller)]
-            if text.startswith("&"):
-                return [AnchorToken(self.line, self.column, text[1:])]
-            if text.startswith("*"):
-                return [AliasToken(self.line, self.column, text[1:])]
-            raise ParseError("Internal error, unknown tag: %s" % text, line, column)
-
-
-class DirectiveTokenizer(Tokenizer):
-    @classmethod
-    def is_applicable(cls, line, column, pos, prev, current, upcoming):
-        return column == 1
-
-    def __call__(self, line, column, pos, prev, current, upcoming):
-        if current == "\n":
-            text = self.settings.contents(self.pos, pos)
-            return [DirectiveToken(self.line, self.column, text)]
-
-
-class LiteralTokenizer(Tokenizer):
-    def __init__(self, settings, line, column, pos, current, upcoming):
-        super(LiteralTokenizer, self).__init__(settings, line, column, pos, current, upcoming)
-        self.min_indent = settings.last_key.column if settings.last_key else 1
-        self.indent = None
-        self.in_comment = False
-        if upcoming == "\n" or upcoming == " ":
-            self.style = current
-        elif current == "|" and upcoming in "-+":
-            self.style = "%s%s" % (current, upcoming)
-        elif upcoming.isdigit():
-            self.min_indent = int(upcoming)
-            self.indent = int(upcoming)
-            self.style = "%s%s" % (current, upcoming)
-        else:
-            raise ParseError("Invalid style", line, column)
-
-    def __call__(self, line, column, pos, prev, current, upcoming):
-        if line == self.line:  # Allow only blanks and comments on first line
-            if current == "\n":  # We're done with the first line
-                self.pos = pos + 1
-                self.in_comment = False
-            elif not self.in_comment:
-                if current == "#":
-                    self.in_comment = True
-                elif current != " ":
-                    if pos != self.pos + 1:
-                        raise ParseError("Invalid char in literal", line, column)
-
-        elif current == "\n" or upcoming is None:
-            self.in_comment = False
-            if upcoming is None or upcoming not in "# \n":
-                return self.extracted_tokens(line, column, pos)
-
-        elif not self.in_comment:
-            if self.indent is None:
-                if current != " ":
-                    if column < self.min_indent:
-                        raise ParseError("Literal value should be indented", line, column)
-                    self.indent = column - 1
-
-            elif current == "#" and prev in " \n":
-                self.in_comment = True
-
-            elif upcoming != " " and column <= self.min_indent:
-                return self.extracted_tokens(line, column, pos)
-
-    def extracted_tokens(self, line, column, pos):
-        if self.indent is None:
-            raise ParseError("No indent in literal", line, column)
-        text = self.contents(self.pos, pos + 1)
-        result = []
-        indent = self.indent
-        for line in text.split("\n"):
-            if not result or self.style == ">" or first_non_blank(line) != "#":
-                result.append(line[indent:])
-        text = "\n".join(result)
-        if text and self.upcoming != "+" and self.style[0] != ">" and not self.style[-1].isdigit():
-            if self.upcoming == "-":
-                text = text.strip()
-            elif text[-1] == "\n":
-                text = "%s\n" % text.strip()
-        return [ScalarToken(line, column, text, style=self.style)]
-
-
 class ParseError(Exception):
-    def __init__(self, message, line=None, column=None):
+    def __init__(self, message, line_number=None, column=None):
         self.message = message
-        self.line = line
+        self.line_number = line_number
         self.column = column
 
     def __str__(self):
-        if self.line is None:
+        if self.line_number is None:
             return self.message
-        return "%s, line %s column %s" % (self.message, self.line, self.column)
+        return "%s, line %s column %s" % (self.message, self.line_number, self.column)
 
-
-def get_tknzr(tknzr_map, settings, line, column, pos, prev, current, upcoming):
-    """:rtype: Tokenizer"""
-    tknzr = tknzr_map.get(current)  # type: Tokenizer
-    if tknzr is not None and tknzr.is_applicable(line, column, pos, prev, current, upcoming):
-        return tknzr(settings, line, column, pos, current, upcoming)
-
-
-def massaged_key(settings, key, pos, is_key=None):
-    if is_key is None:
-        is_key = settings.key_marker
-    key.value = settings.contents(key.value, pos).strip()
-    settings.last_key = key
-    settings.key_marker = False
-    if key.column == 1:
-        if key.value == "---":
-            return DocumentStartToken(key.line, key.column)
-        if key.value == "...":
-            return DocumentEndToken(key.line, key.column)
-    key.is_key = is_key
-    if not is_key and key.style is None:
-        key.value = settings.scalar_marshaller(key.value)
-    return key
+    def complete(self, line_number=None, column=None):
+        if self.line_number is None:
+            self.line_number = line_number
+        if self.column is None:
+            self.column = column
 
 
 class Marshaller(object):
@@ -806,143 +584,6 @@ def get_descendants(ancestor, adjust=None, _result=None):
     return _result
 
 
-class ScanSettings(object):
-    def __init__(self, yield_comments=False, scalar_marshaller=default_marshal):
-        self.yield_comments = yield_comments
-        self.buffer = None
-        self.last_key = None
-        self.key_marker = False
-        self.scalar_marshaller = scalar_marshaller
-        marshallers = get_descendants(Marshaller, adjust=lambda x: x.replace("Marshaller", "").lower())
-        self.marshallers = {"": dict((name, m("", name)) for name, m in marshallers.items())}
-
-    def contents(self, start, end):
-        return self.buffer[start:end]
-
-    def get_marshaller(self, text):
-        prefix, _, name = text.partition("!")
-        category = self.marshallers.get(prefix)
-        if category:
-            return category.get(name)
-
-
-def scan_tokens(buffer, settings=None):
-    yield StreamStartToken(1, 1)
-    if not buffer:
-        yield StreamEndToken(1, 1)
-        return
-
-    if settings is None:
-        settings = ScanSettings()
-    settings.buffer = buffer
-
-    if len(buffer) <= 2:
-        yield massaged_key(settings, ScalarToken(1, 1, 0), len(buffer))
-        yield StreamEndToken(1, len(buffer))
-        return
-
-    tknzr_map = {
-        "%": DirectiveTokenizer,
-        "!": TagTokenizer,
-        "&": TagTokenizer,
-        "*": TagTokenizer,
-        ">": LiteralTokenizer,
-        "|": LiteralTokenizer,
-        "#": CommentTokenizer,
-        "{": FlowTokenizer,
-        "[": FlowTokenizer,
-        '"': DoubleQuoteTokenizer,
-        "'": SingleQuoteTokenizer,
-    }
-
-    line = column = 1
-    pos = 0
-    prev = " "
-    upcoming = tknzr = simple_key = None
-    current = None
-
-    for upcoming in buffer:
-        if current is None:
-            current = upcoming
-            continue
-
-        if tknzr is not None:
-            result = tknzr(line, column, pos, prev, current, upcoming)
-            if result is not None:
-                for token in result:
-                    yield token
-                tknzr = None
-
-        elif current == " " or current == "\n":
-            if simple_key is not None and column == 4 and line == simple_key.line and (prev == "-" or prev == "."):
-                text = settings.contents(pos - 3, pos)
-                if text == "---":
-                    yield DocumentStartToken(line, column)
-                    simple_key = None
-                elif text == "...":
-                    yield DocumentEndToken(line, column)
-                    simple_key = None
-
-        elif simple_key is None:
-            if current == "-" and upcoming in " \n":
-                yield BlockEntryToken(line, column)
-
-            elif current == "?" and upcoming in " \n":
-                settings.key_marker = True
-
-            else:
-                tknzr = get_tknzr(tknzr_map, settings, line, column, pos, prev, current, upcoming)
-                if tknzr is None:
-                    simple_key = ScalarToken(line, column, pos)
-
-        elif current == "#":
-            if prev in " \n":
-                yield massaged_key(settings, simple_key, pos)
-                simple_key = None
-                tknzr = CommentTokenizer(settings, line, column, pos, current, upcoming)
-
-        elif current == ":":
-            if upcoming in " \n":
-                yield massaged_key(settings, simple_key, pos, is_key=True)
-                simple_key = None
-
-        if current == "\n":
-            if simple_key is not None:
-                yield massaged_key(settings, simple_key, pos)
-                simple_key = None
-            line += 1
-            column = 1
-
-        else:
-            column += 1
-
-        pos += 1
-        prev = current
-        current = upcoming
-
-    pos += 1
-    prev = current
-    current = upcoming
-
-    if tknzr is not None:
-        result = tknzr(line, column, pos, prev, current, None)
-        if result is not None:
-            for token in result:
-                yield token
-
-    if simple_key is not None:
-        yield massaged_key(settings, simple_key, pos)
-
-    yield StreamEndToken(line, column)
-
-
-RE_LINE_SPLIT = re.compile(r"^\s*(([%#]).*|(-|---|\.\.\.)(\s.*)?)$")
-RE_FLOW__SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}"',]|:(\s+|$))""")
-RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}"'>|]|:(\s+|$))""")
-RE_DOUBLE_QUOTE = re.compile(r'([^\\]")')
-RE_SINGLE_QUOTE = re.compile(r"([^']'([^']|$))")
-
-
 class Scanner(object):
     def __init__(self, buffer):
         if hasattr(buffer, "read"):
@@ -954,6 +595,8 @@ class Scanner(object):
         self.line_text = None
         self.flow_ender = ""
         self.pending = None
+        marshallers = get_descendants(Marshaller, adjust=lambda x: x.replace("Marshaller", "").lower())
+        self.marshallers = {"": dict((name, m("", name)) for name, m in marshallers.items())}
         self.leaders = {
             "%": self.consume_directive,
             "-": self.consume_block_entry,
@@ -979,6 +622,14 @@ class Scanner(object):
 
     def __repr__(self):
         return "%s [%s]: %s" % (self.line_number, self.line_pos, self.line_text)
+
+    def get_marshaller(self, text):
+        if text.startswith("!"):
+            text = text[1:]
+        prefix, _, name = text.partition("!")
+        category = self.marshallers.get(prefix)
+        if category:
+            return category.get(name)
 
     def consume_directive(self):
         token = DirectiveToken(self.line_number, self.line_pos, self.line_text.strip())
@@ -1021,7 +672,8 @@ class Scanner(object):
         return KeyToken(self.line_number, start)
 
     def consume_tag(self, start, end):
-        return TagToken(self.line_number, start, self.line_text[start:end])
+        text = self.line_text[start:end]
+        return TagToken(self.line_number, start, text, self.get_marshaller(text))
 
     def consume_anchor(self, start, end):
         return AnchorToken(self.line_number, start, self.line_text[start:end])
@@ -1140,13 +792,13 @@ class Scanner(object):
                 self.next_line(keep_comments=True)
 
         except StopIteration:
-            raise ParseError("Unexpected end, runaway string at line %s?" % token.line)
+            raise ParseError("Unexpected end, runaway string at line %s?" % token.line_number)
 
     def consume_double_quote(self, start, _):
-        return self._consume_multiline(start, '"', RE_DOUBLE_QUOTE)
+        return self._consume_multiline(start, '"', RE_DOUBLE_QUOTE_END)
 
     def consume_single_quote(self, start, _):
-        return self._consume_multiline(start, "'", RE_SINGLE_QUOTE)
+        return self._consume_multiline(start, "'", RE_SINGLE_QUOTE_END)
 
     def tokenized(self, start, end):
         if start == end:
@@ -1188,7 +840,7 @@ class Scanner(object):
         try:
             yield StreamStartToken(1, 0)
             while True:
-                token = self.next_token(RE_FLOW__SEP if self.flow_ender else RE_BLOCK_SEP)
+                token = self.next_token(RE_FLOW_SEP if self.flow_ender else RE_BLOCK_SEP)
                 if token is not None:
                     yield token
         except StopIteration:
@@ -1208,7 +860,8 @@ def load_string(contents):
     """
     :param str contents: Yaml to deserialize
     """
-    return RootNode().deserialized(scan_tokens(contents))
+    scanner = Scanner(contents)
+    return RootNode().deserialized(scanner)
 
 
 def load_path(path):

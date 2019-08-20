@@ -76,14 +76,7 @@ def vanilla_samples():
     return get_samples("vanilla")
 
 
-def decode(value):
-    """Python 2/3 friendly decoding of output"""
-    if isinstance(value, bytes):
-        return value.decode("utf-8")
-    return value
-
-
-def json_sanitized(value, stringify=decode):
+def json_sanitized(value, stringify=zyaml.decode):
     if value is None:
         return None
     if isinstance(value, set):
@@ -250,7 +243,7 @@ def benchmark(stacktrace, implementations, samples):
 @samples_arg()
 def diff(stacktrace, compact, untyped, implementations, samples):
     """Compare deserialization of 2 implementations"""
-    stringify = str if untyped else decode
+    stringify = str if untyped else zyaml.decode
     with runez.TempFolder():
         generated_files = []
         for sample in samples:
@@ -451,7 +444,7 @@ class ParseResult(object):
     def json_payload(self):
         return {"_error": self.error} if self.error else json_sanitized(self.data)
 
-    def json_representation(self, stringify=decode):
+    def json_representation(self, stringify=zyaml.decode):
         try:
             return json_representation(self.json_payload(), stringify=stringify)
         except Exception as e:
@@ -508,19 +501,19 @@ class YmlImplementation(object):
             result.set_exception(e)
         return result
 
-    def json_representation(self, sample, stringify=decode):
+    def json_representation(self, sample, stringify=zyaml.decode):
         result = self.load(sample, stacktrace=False)
         return json_representation(result.data, stringify=stringify)
 
 
-def json_representation(data, stringify=decode):
+def json_representation(data, stringify=zyaml.decode):
     data = json_sanitized(data, stringify=stringify)
     return "%s\n" % json.dumps(data, sort_keys=True, indent=2)
 
 
 class ScanImplementation(YmlImplementation):
     def _load(self, stream):
-        for token in self._tokens(stream.read(), True):
+        for _ in self._tokens(stream.read(), True):
             pass
 
     def _tokens(self, contents, comments):
@@ -540,8 +533,7 @@ class ZyamlImplementation(YmlImplementation):
         return zyaml.load_string(stream.read())
 
     def _tokens(self, stream, comments):
-        settings = zyaml.ScanSettings(yield_comments=comments)
-        return zyaml.scan_tokens(stream, settings=settings)
+        return zyaml.Scanner(stream)
 
 
 class RuamelImplementation(YmlImplementation):
