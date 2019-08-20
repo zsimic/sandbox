@@ -1,4 +1,5 @@
-% foo
+%YAML 1.1
+# comment
 ---
 - list value on
     3

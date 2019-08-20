@@ -573,11 +573,11 @@ class Scanner(object):
         if hasattr(buffer, "read"):
             buffer = buffer.read()
         self.gen = enumerate(buffer.splitlines(), start=1)
+        self.line_regex = RE_BLOCK_SEP
         self.line_number = None
         self.line_pos = 0
         self.line_size = 0
         self.line_text = None
-        self.pending = collections.deque()
         self.flow_ender = None
         marshallers = get_descendants(Marshaller, adjust=lambda x: x.replace("Marshaller", "").lower())
         self.marshallers = {"": dict((name, m("", name)) for name, m in marshallers.items())}
@@ -588,7 +588,6 @@ class Scanner(object):
             "...": self.consume_doc_end,
         }
         self.tokenizer_map = {
-            "#": self.consume_comment,
             ":": self.consume_colon,
             "!": self.consume_tag,
             "&": self.consume_anchor,
@@ -605,7 +604,11 @@ class Scanner(object):
         }
 
     def __repr__(self):
-        return "%s [%s]: %s" % (self.line_number, self.line_pos, self.line_text)
+        if self.line_pos < self.line_size:
+            pos = "%s/%s" % (self.line_pos, self.line_size)
+        else:
+            pos = str(self.line_size)
+        return "%s [%s]: %s" % (self.line_number, pos, self.line_text)
 
     def get_marshaller(self, text):
         if text.startswith("!"):
@@ -635,25 +638,24 @@ class Scanner(object):
         return DocumentEndToken(self.line_number, 0)
 
     def next_line(self, keep_comments=False):
-        while True:
-            self.line_number, self.line_text = next(self.gen)
-            m = RE_LINE_SPLIT.match(self.line_text)
-            if m is None:
-                self.line_pos = 0
-                self.line_size = len(self.line_text)
-                return None
-            self.line_pos, self.line_size = m.span(1)
-            leader = m.group(2) or m.group(3)
-            if leader is None:
-                return None
-            leader = leader.strip()
-            if leader != "#":
-                return self.leaders.get(leader)()
-            if keep_comments:
-                return None
-
-    def consume_comment(self, start, end):
-        pass
+        self.line_number, self.line_text = next(self.gen)
+        if keep_comments:
+            self.line_pos = 0
+            self.line_size = len(self.line_text)
+            return
+        m = RE_LINE_SPLIT.match(self.line_text)
+        if m is None:
+            self.line_pos = 0
+            self.line_size = len(self.line_text)
+            return
+        self.line_pos, self.line_size = m.span(1)
+        leader = m.group(2) or m.group(3)
+        if leader is None:
+            return
+        leader = leader.strip()
+        if leader == "#":
+            return self.next_line()
+        return self.leaders.get(leader)()
 
     def consume_colon(self, start, _):
         return KeyToken(self.line_number, start)
@@ -730,6 +732,7 @@ class Scanner(object):
     def push_flow_ender(self, ender):
         if self.flow_ender is None:
             self.flow_ender = collections.deque()
+            self.line_regex = RE_FLOW_SEP
         self.flow_ender.append(ender)
 
     def pop_flow_ender(self, expected):
@@ -738,6 +741,7 @@ class Scanner(object):
         popped = self.flow_ender.pop()
         if not self.flow_ender:
             self.flow_ender = None
+            self.line_regex = RE_BLOCK_SEP
         if popped != expected:
             raise ParseError("Expecting '%s', but found '%s'" % (expected, popped))
 
@@ -801,44 +805,32 @@ class Scanner(object):
             return ScalarToken(self.line_number, start, text=self.line_text[start:end])
         return tokenizer(start, end)
 
-    def next_token(self, regex):
-        if self.pending:
-            start, end = self.pending.pop()
-            self.line_pos = end
-            return self.tokenized(start, end)
-        if self.line_pos >= self.line_size:
-            token = self.next_line()
-            if token is not None:
-                return token
-        start = self.line_pos
-        end = self.line_size
-        if start < end:
-            m = regex.search(self.line_text, start)
-            if m is None:
-                end = self.line_size
-            else:
-                prev_start = start
-                start, end = m.span(2)
-                if m.span(1)[0] > prev_start:
-                    self.pending.append((start, end))
-                    self.line_pos = start
-                    return self.tokenized(prev_start, start)
-            self.line_pos = end
-        return self.tokenized(start, end)
-
     def __iter__(self):
-        token = None
         try:
             yield StreamStartToken(1, 0)
             while True:
-                token = self.next_token(RE_BLOCK_SEP if self.flow_ender is None else RE_FLOW_SEP)
-                if token is not None:
-                    yield token
+                if self.line_pos >= self.line_size:
+                    token = self.next_line()
+                    if token is not None:
+                        yield token
+                        continue
+                start = self.line_pos
+                end = self.line_size
+                if start < end:
+                    m = self.line_regex.search(self.line_text, start)
+                    if m is None:
+                        end = self.line_size
+                    else:
+                        prev_start = start
+                        start, end = m.span(2)
+                        if m.span(1)[0] > prev_start:
+                            yield self.tokenized(prev_start, start)
+                self.line_pos = end
+                if start == end or self.line_text[start] != "#":
+                    yield self.tokenized(start, end)
         except StopIteration:
             yield StreamEndToken(self.line_number, 0)
         except ParseError as error:
-            if token is not None:
-                error.complete(token.line_number, token.indent)
             error.complete(self.line_number, self.line_pos)
             raise
 
