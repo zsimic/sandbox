@@ -578,7 +578,7 @@ class Scanner(object):
         self.line_size = 0
         self.line_text = None
         self.pending = collections.deque()
-        self.flow_ender = collections.deque()
+        self.flow_ender = None
         marshallers = get_descendants(Marshaller, adjust=lambda x: x.replace("Marshaller", "").lower())
         self.marshallers = {"": dict((name, m("", name)) for name, m in marshallers.items())}
         self.leaders = {
@@ -727,24 +727,30 @@ class Scanner(object):
             else:
                 lines.append(value)
 
-    def consume_flow_map_start(self, start, _):
-        self.flow_ender.append("}")
-        return FlowMappingStartToken(self.line_number, start)
+    def push_flow_ender(self, ender):
+        if self.flow_ender is None:
+            self.flow_ender = collections.deque()
+        self.flow_ender.append(ender)
 
     def pop_flow_ender(self, expected):
-        try:
-            popped = self.flow_ender.pop()
-            if popped != expected:
-                raise ParseError("Expecting '%s', but found '%s'" % (expected, popped))
-        except IndexError:
+        if self.flow_ender is None:
             raise ParseError("'%s' without corresponding opener" % expected)
+        popped = self.flow_ender.pop()
+        if not self.flow_ender:
+            self.flow_ender = None
+        if popped != expected:
+            raise ParseError("Expecting '%s', but found '%s'" % (expected, popped))
+
+    def consume_flow_map_start(self, start, _):
+        self.push_flow_ender("}")
+        return FlowMappingStartToken(self.line_number, start)
 
     def consume_flow_map_end(self, start, _):
         self.pop_flow_ender("}")
         return FlowEndToken(self.line_number, start)
 
     def consume_flow_list_start(self, start, _):
-        self.flow_ender.append("]")
+        self.push_flow_ender("]")
         return FlowSequenceStartToken(self.line_number, start)
 
     def consume_flow_list_end(self, start, _):
@@ -825,7 +831,7 @@ class Scanner(object):
         try:
             yield StreamStartToken(1, 0)
             while True:
-                token = self.next_token(RE_FLOW_SEP if self.flow_ender else RE_BLOCK_SEP)
+                token = self.next_token(RE_BLOCK_SEP if self.flow_ender is None else RE_FLOW_SEP)
                 if token is not None:
                     yield token
         except StopIteration:
