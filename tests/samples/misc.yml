@@ -4,7 +4,7 @@
 --- # comment on docstart
 - list value
 
-  - on
+  on
       5
      lines
 ---
@@ -17,7 +17,12 @@ on 'multiple lines' within flow}, g: h
 - ...  # This is not a doc end
 ...  # This is a doc end
 ---
+a
 "a"
 ---
 'b''c'
 ...
+---
+a |+
+ f
+ g

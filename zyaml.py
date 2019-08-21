@@ -8,8 +8,8 @@ FALSE = "false"
 TRUE = "true"
 RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$", re.IGNORECASE)
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}"',]|:(\s+|$))""")
-RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}"'>|]|:(\s+|$))""")
+RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{},]|:(\s+|$))""")
+RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}]|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 
@@ -609,8 +609,6 @@ class Scanner(object):
             "!": self.consume_tag,
             "&": self.consume_anchor,
             "*": self.consume_alias,
-            ">": self.consume_literal,
-            "|": self.consume_literal,
             "{": self.consume_flow_map_start,
             "}": self.consume_flow_map_end,
             "[": self.consume_flow_list_start,
@@ -619,7 +617,7 @@ class Scanner(object):
         }
 
     def __repr__(self):
-        return "%s: %s" % (self.line_number, self.line_text)
+        return "%s: [%s]" % (self.line_number, self.line_text)
 
     def get_marshaller(self, text):
         if text.startswith("!"):
@@ -651,7 +649,7 @@ class Scanner(object):
         self.next_line()
         m = RE_LINE_SPLIT.match(self.line_text)
         if m is None:
-            return 0, len(self.line_text), None
+            return get_indent(self.line_text), len(self.line_text), None
         end = m.span(0)[1]
         start, leader = first_line_split_match(m)
         if leader is None:
@@ -672,65 +670,6 @@ class Scanner(object):
 
     def consume_alias(self, start, end):
         return AliasToken(self.line_number, start, self.line_text[start:end])
-
-    def _get_literal_styled_token(self, start, style):
-        original = style
-        if len(style) > 3:
-            raise ParseError("Invalid literal style '%s', should be less than 3 chars" % style, self.line_number, start)
-        keep = None
-        if "-" in style:
-            style = style.replace("-", "", 1)
-            keep = False
-        if "+" in style:
-            if keep is not None:
-                raise ParseError("Ambiguous literal style '%s'" % original, self.line_number, start)
-            keep = True
-            style = style.replace("+", "", 1)
-        indent = None
-        if len(style) == 2:
-            indent = style[1]
-            style = style[0]
-            if not indent.isdigit():
-                raise ParseError("Invalid literal style '%s'" % original, self.line_number, start)
-            indent = int(indent)
-            if indent < 1:
-                raise ParseError("Indent must be between 1 and 9", self.line_number, start)
-        if style == ">":
-            folded = True
-        elif style == "|":
-            folded = False
-        else:
-            raise ParseError("Internal error, invalid style '%s'" % original, self.line_number, start)
-        return folded, keep, indent, ScalarToken(self.line_number, indent, None, style=original)
-
-    def consume_literal(self, start, _):
-        folded, keep, indent, token = self._get_literal_styled_token(start, decommented(self.line_text[start:]))
-        lines = []
-        while True:
-            self.next_line()
-            if not self.line_text:
-                lines.append(self.line_text)
-                continue
-            i = get_indent(self.line_text)
-            if indent is None:
-                indent = i if i != 0 else 1
-            if i < indent:
-                text = "\n".join(lines)
-                if keep is None:
-                    token.value = "%s\n" % text.rstrip()
-                elif keep is False:
-                    token.value = text.rstrip()
-                else:
-                    token.value = "%s\n" % text
-                return token
-            value = self.line_text[indent:]
-            if folded and lines and not value.startswith(" ") and not lines[-1].startswith(" "):
-                if lines[-1]:
-                    lines[-1] = "%s %s" % (lines[-1], value)
-                else:
-                    lines[-1] = value
-            else:
-                lines.append(value)
 
     def push_flow_ender(self, ender):
         if self.flow_ender is None:
@@ -794,6 +733,65 @@ class Scanner(object):
         except StopIteration:
             raise ParseError("Unexpected end, runaway string at line %s?" % token.line_number)
 
+    def _get_literal_styled_token(self, start, style):
+        original = style
+        if len(style) > 3:
+            raise ParseError("Invalid literal style '%s', should be less than 3 chars" % style, self.line_number, start)
+        keep = None
+        if "-" in style:
+            style = style.replace("-", "", 1)
+            keep = False
+        if "+" in style:
+            if keep is not None:
+                raise ParseError("Ambiguous literal style '%s'" % original, self.line_number, start)
+            keep = True
+            style = style.replace("+", "", 1)
+        indent = None
+        if len(style) == 2:
+            indent = style[1]
+            style = style[0]
+            if not indent.isdigit():
+                raise ParseError("Invalid literal style '%s'" % original, self.line_number, start)
+            indent = int(indent)
+            if indent < 1:
+                raise ParseError("Indent must be between 1 and 9", self.line_number, start)
+        if style == ">":
+            folded = True
+        elif style == "|":
+            folded = False
+        else:
+            raise ParseError("Internal error, invalid style '%s'" % original, self.line_number, start)
+        return folded, keep, indent, ScalarToken(self.line_number, indent, None, style=original)
+
+    def _consume_literal(self, start):
+        folded, keep, indent, token = self._get_literal_styled_token(start, decommented(self.line_text[start:]))
+        lines = []
+        while True:
+            self.next_line()
+            if not self.line_text:
+                lines.append(self.line_text)
+                continue
+            i = get_indent(self.line_text)
+            if indent is None:
+                indent = i if i != 0 else 1
+            if i < indent:
+                text = "\n".join(lines)
+                if keep is None:
+                    token.value = "%s\n" % text.rstrip()
+                elif keep is False:
+                    token.value = text.rstrip()
+                else:
+                    token.value = "%s\n" % text
+                return token
+            value = self.line_text[indent:]
+            if folded and lines and not value.startswith(" ") and not lines[-1].startswith(" "):
+                if lines[-1]:
+                    lines[-1] = "%s %s" % (lines[-1], value)
+                else:
+                    lines[-1] = value
+            else:
+                lines.append(value)
+
     def __iter__(self):
         start = 0
         line_size = 0
@@ -813,14 +811,23 @@ class Scanner(object):
                 if start < end:
                     m = self.line_regex.search(self.line_text, start)
                     if m is None:
-                        end = line_size
+                        # if start == 0:
+                        #     start = get_indent(self.line_text)
+                        assert end == line_size
                     else:
                         prev_start = start
                         start, end = m.span(2)
                         if m.span(1)[0] > prev_start:
+                            if simple_key is None:
+                                matched = self.line_text[prev_start]
+                                if matched in '|>':
+                                    yield self._consume_literal(prev_start)
+                                    start = get_indent(self.line_text)
+                                    line_size = len(self.line_text)
+                                    continue
                             text = self.line_text[prev_start:start]
                             if simple_key is None:
-                                simple_key = ScalarToken(self.line_number, prev_start, text)
+                                simple_key = ScalarToken(self.line_number, prev_start, text.strip())
                             else:
                                 simple_key.append_text(text)
                 if start == end:
@@ -832,24 +839,28 @@ class Scanner(object):
                     matched = self.line_text[start]
                     if matched == "#":
                         start = line_size
-                    elif matched == '"' and simple_key is None:
-                        start, line_size, token = self._consume_multiline(start, '"', RE_DOUBLE_QUOTE_END)
-                        yield token
-                    elif matched == "'" and simple_key is None:
-                        start, line_size, token = self._consume_multiline(start, "'", RE_SINGLE_QUOTE_END)
-                        yield token
                     elif matched == ":":
                         if simple_key is None:
                             raise ParseError("Incomplete mapping pair")
                         start = end
                         yield KeyToken(simple_key.line_number, simple_key.indent, value=simple_key.value)
                         simple_key = None
+                    elif simple_key is None and matched == '"':
+                        start, line_size, token = self._consume_multiline(start, '"', RE_DOUBLE_QUOTE_END)
+                        yield token
+                    elif simple_key is None and matched == "'":
+                        start, line_size, token = self._consume_multiline(start, "'", RE_SINGLE_QUOTE_END)
+                        yield token
+                    elif simple_key is None and matched in '|>':
+                        yield self._consume_literal(start)
+                        start = get_indent(self.line_text)
+                        line_size = len(self.line_text)
                     else:
                         tokenizer = self.tokenizer_map.get(matched)
                         if tokenizer is None:
                             text = self.line_text[start:end]
                             if simple_key is None:
-                                simple_key = ScalarToken(self.line_number, start, text)
+                                simple_key = ScalarToken(self.line_number, start, text.strip())
                             else:
                                 simple_key.append_text(text)
                         else:
@@ -859,9 +870,14 @@ class Scanner(object):
                             yield tokenizer(start, end)
                         start = end
         except StopIteration:
+            if simple_key is not None:
+                yield simple_key
             yield StreamEndToken(self.line_number, 0)
         except ParseError as error:
             error.complete(self.line_number, start)
+            raise
+        except Exception as e:
+            print("%s: %s" % (self, e))
             raise
 
 
