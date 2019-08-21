@@ -233,7 +233,7 @@ def benchmark(stacktrace, implementations, samples):
     for sample in samples:
         impls = dict((i.name, partial(i.load, sample)) for i in implementations)
         with runez.Anchored(SAMPLE_FOLDER):
-            bench = BenchmarkRunner(impls, target_name=sample.name)
+            bench = BenchmarkRunner(impls, target_name=sample.name, iterations=200)
             bench.run(stacktrace)
             print(bench.report())
 

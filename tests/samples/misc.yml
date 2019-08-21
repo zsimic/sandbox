@@ -1,9 +1,12 @@
 %YAML 1.1
-# comment
----
-- list value on
-    3
-   lines
+
+# lone comment
+--- # comment on docstart
+- list value
+
+  - on
+      5
+     lines
 ---
 - {a: b, c: [
 x,  # some comment inside a flow
@@ -14,7 +17,7 @@ on 'multiple lines' within flow}, g: h
 - ...  # This is not a doc end
 ...  # This is a doc end
 ---
-a
---- # Comment on docstart
-b
+"a"
+---
+'b''c'
 ...
