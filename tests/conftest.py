@@ -80,15 +80,17 @@ def json_sanitized(value, stringify=zyaml.decode):
     if value is None:
         return None
     if isinstance(value, set):
-        return [json_sanitized(v) for v in sorted(value)]
+        return [json_sanitized(v, stringify=stringify) for v in sorted(value)]
     if isinstance(value, (tuple, list)):
-        return [json_sanitized(v) for v in value]
+        return [json_sanitized(v, stringify=stringify) for v in value]
     if isinstance(value, dict):
-        return dict((str(k), json_sanitized(v)) for k, v in value.items())
+        return dict((str(k), json_sanitized(v, stringify=stringify)) for k, v in value.items())
     if isinstance(value, datetime.date):
         return str(value)
     if isinstance(value, strictyaml.representation.YAML):
         return str(value)
+    if stringify is None:
+        return value
     if not isinstance(value, (int, str, float)):
         return stringify(value)
     return stringify(value)
@@ -261,23 +263,34 @@ def diff(stacktrace, compact, untyped, implementations, samples):
                         if result.error:
                             fh.write("%s\n" % result.error)
                         else:
-                            fh.write(result.json_representation(stringify=stringify))
+                            fh.write(impl.json_representation(result, stringify=stringify))
 
+        matches = 0
+        failed = 0
+        differ = 0
         for sample, n1, r1, n2, r2 in generated_files:
             if r1.error and r2.error:
-                print("-- %s: both failed" % sample)
+                matches += 1
+                failed += 1
+                print("%s: both failed" % sample)
             elif r1.data == r2.data:
-                print("-- %s: OK" % sample)
-            elif compact:
-                print("-- %s: differ" % sample)
+                matches += 1
+                print("%s: OK" % sample)
+            else:
+                differ += 1
+                if compact:
+                    print("%s: differ" % sample)
 
         if not compact:
             for sample, n1, r1, n2, r2 in generated_files:
                 if r1.data != r2.data:
                     output = runez.run("diff", "-br", "-U1", n1, n2, fatal=None, include_error=True)
-                    print("\n==== diff for %s:\n====" % sample)
+                    print("========  %s  ========" % sample)
                     print(output)
                     print()
+
+        print()
+        print("%s samples, %s match, %s differ, %s failed" % (matches + differ, matches, differ, failed))
 
 
 @main.command()
@@ -368,7 +381,7 @@ def refresh(stacktrace, implementations, samples):
 def show(stacktrace, implementations, samples):
     """Show deserialized yaml objects as json"""
     for sample in samples:
-        report = []
+        print("========  %s  ========" % sample)
         values = set()
         for impl in implementations:
             assert isinstance(impl, YmlImplementation)
@@ -377,11 +390,12 @@ def show(stacktrace, implementations, samples):
                 rep = "Error: %s\n" % result.error
                 values.add("error")
             else:
-                rep = result.json_representation()
+                rep = impl.json_representation(result)
                 values.add(rep)
-            report.append("-- %s:\n%s" % (impl, rep))
-        print("==== %s (match: %s):" % (sample, len(values) == 1))
-        print("\n".join(report))
+            print("--------  %s  --------" % impl)
+            print(rep)
+        print("-- %s %s" % ("/".join(str(i) for i in implementations), "matches" if len(values) == 1 else "differ"))
+        print()
 
 
 @main.command()
@@ -391,9 +405,9 @@ def show(stacktrace, implementations, samples):
 def tokens(stacktrace, implementations, samples):
     """Refresh expected json for each sample"""
     for sample in samples:
-        print("==== %s:" % sample)
+        print("========  %s  ========" % sample)
         for impl in implementations:
-            print("\n-- %s tokens:" % impl)
+            print("--------  %s  --------" % impl)
             for t in impl.tokens(sample, stacktrace=stacktrace):
                 print(t)
             print()
@@ -433,7 +447,7 @@ class Sample(object):
         :param bool stacktrace: If True, don't catch parsing exceptions
         """
         result = impl.load(self, stacktrace=stacktrace)
-        rep = result.json_representation()
+        rep = impl.json_representation(result)
         folder = os.path.dirname(self.expected_path)
         if not os.path.isdir(folder):
             os.mkdir(folder)
@@ -444,7 +458,6 @@ class Sample(object):
 class ParseResult(object):
     def __init__(self, impl, sample, data=None):
         self.impl = impl  # type: YmlImplementation
-        self.wrap = str
         self.sample = sample
         self.data = data
         self.exception = None
@@ -452,37 +465,15 @@ class ParseResult(object):
 
     def __repr__(self):
         if self.error:
-            return "error: %s" % self.error
-        return self.wrap(self.data)
-
-    @staticmethod
-    def simplified_error(exc, sample, size=None):
-        result = str(exc).replace(sample.path, sample.name)
-        if size:
-            result = runez.shortened(result, size)
-        return result
+            return "Error: %s" % self.error
+        return str(self.data)
 
     def set_exception(self, exc):
         self.exception = exc
-        self.error = self.simplified_error(exc, self.sample)
-
-    def diff(self, other):
-        if self.error or other.error:
-            if self.error and other.error:
-                return "invalid"
-            return "%s %s  " % ("F " if self.error else "  ", "F " if other.error else "  ")
-        if self.data == other.data:
-            return "match  "
-        return "diff   "
+        self.error = runez.shortened(runez.short(str(exc)), size=160)
 
     def json_payload(self):
-        return {"_error": self.error} if self.error else json_sanitized(self.data)
-
-    def json_representation(self, stringify=zyaml.decode):
-        try:
-            return json_representation(self.json_payload(), stringify=stringify)
-        except Exception as e:
-            raise Exception("Can't json-serialize %s: %s" % (self.sample, e))
+        return {"_error": self.error} if self.error else self.data
 
 
 class YmlImplementation(object):
@@ -541,14 +532,20 @@ class YmlImplementation(object):
             result.set_exception(e)
         return result
 
-    def json_representation(self, sample, stringify=zyaml.decode):
-        result = self.load(sample, stacktrace=False)
-        return json_representation(result.data, stringify=stringify)
+    def json_representation(self, result, stringify=zyaml.decode):
+        payload = result.json_payload()
+        payload = json_sanitized(payload, stringify=stringify)
+        return "%s\n" % json.dumps(payload, sort_keys=True, indent=2)
 
 
-def json_representation(data, stringify=zyaml.decode):
-    data = json_sanitized(data, stringify=stringify)
-    return "%s\n" % json.dumps(data, sort_keys=True, indent=2)
+class RawImplementation(YmlImplementation):
+    def _load(self, stream):
+        return stream.read()
+
+    def json_representation(self, result, stringify=zyaml.decode):
+        if result.error:
+            return str(result)
+        return result.data
 
 
 class ZyamlImplementation(YmlImplementation):
