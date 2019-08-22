@@ -23,18 +23,6 @@ PROJECT_FOLDER = os.path.dirname(TESTS_FOLDER)
 SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
 
 
-def get_implementations(name):
-    impls = zyaml.get_descendants(YmlImplementation, adjust=lambda x: x.replace("Implementation", "").lower())
-    impls = [i() for i in impls.values()]
-    if name == "all":
-        return impls
-    result = []
-    for impl in impls:
-        if name in impl.name:
-            result.append(impl)
-    return result
-
-
 def relative_sample_path(path, base=SAMPLE_FOLDER):
     if path and path.startswith(base):
         return path[len(base) + 1:]
@@ -153,30 +141,72 @@ def stacktrace_option():
     )
 
 
+class ImplementationCollection(object):
+    def __init__(self, names, default="zyaml,ruamel"):
+        self.available = zyaml.get_descendants(YmlImplementation, adjust=lambda x: x.replace("Implementation", "").lower())
+        self.available = dict((n, i()) for n, i in self.available.items())
+        self.unknown = []
+        self.selected = []
+        self.uncombined = set("raw".split())
+        if names.startswith("+"):
+            names = "%s,%s" % (names[1:], default)
+        names = [s.strip() for s in names.split(",")]
+        names = [s for s in names if s]
+        seen = {}
+        for name in names:
+            found = 0
+            for i in self.available.values():
+                if name == "all" or name in i.name:
+                    if i.name not in seen:
+                        seen[i.name] = True
+                        self.selected.append(i)
+                    found += 1
+            if found == 0:
+                self.unknown.append(name)
+        self.combinations = None
+
+    def track_result_combination(self, impl, value):
+        name = impl.name
+        if self.combinations is None:
+            self.combinations = {}
+            for i1 in self.selected:
+                for i2 in self.selected:
+                    if i1.name < i2.name and i1.name not in self.uncombined and i2.name not in self.uncombined:
+                        self.combinations[(i1.name, i2.name)] = set()
+        for names, values in self.combinations.items():
+            if name in names:
+                values.add(value)
+
+    def __repr__(self):
+        return ",".join(str(i) for i in self.selected)
+
+    def __len__(self):
+        return len(self.selected)
+
+    def __iter__(self):
+        for i in self.selected:
+            yield i
+
+
 def implementations_option(option=True, default="zyaml,ruamel", count=None, **kwargs):
     """
     :param bool option: If True, make this an option
     :param str default: Default implementation(s) to use
     :param int|None count: Exact number of implementations needed (when applicable)
     :param kwargs: Passed-through to click
-    :return list[YmlImplementation]: List of implementations to use
+    :return ImplementationCollection: Implementations to use
     """
     kwargs["default"] = default
 
     def _callback(_ctx, _param, value):
-        names = [s.strip() for s in value.split(",")]
-        names = [s for s in names if s]
-        result = []
-        for name in names:
-            impl = get_implementations(name)
-            if not impl:
-                raise click.BadParameter("Unknown implementation %s" % name)
-            result.extend(impl)
-        if count and len(result) != count:
+        implementations = ImplementationCollection(value, default=default)
+        if implementations.unknown:
+            raise click.BadParameter("Unknown implementation%s %s" % (plural(len(implementations)), ", ".join(implementations.unknown)))
+        if count and len(implementations) != count:
             if count == 1:
                 raise click.BadParameter("Need exactly 1 implementation")
             raise click.BadParameter("Need exactly %s implementations" % count)
-        return result
+        return implementations
 
     if option:
         if count:
@@ -382,19 +412,21 @@ def show(stacktrace, implementations, samples):
     """Show deserialized yaml objects as json"""
     for sample in samples:
         print("========  %s  ========" % sample)
-        values = set()
+        assert isinstance(implementations, ImplementationCollection)
         for impl in implementations:
             assert isinstance(impl, YmlImplementation)
             result = impl.load(sample, stacktrace=stacktrace)
             if result.error:
                 rep = "Error: %s\n" % result.error
-                values.add("error")
+                implementations.track_result_combination(impl, "error")
             else:
                 rep = impl.json_representation(result)
-                values.add(rep)
+                implementations.track_result_combination(impl, rep)
             print("--------  %s  --------" % impl)
             print(rep)
-        print("-- %s %s" % ("/".join(str(i) for i in implementations), "matches" if len(values) == 1 else "differ"))
+        fmt = "-- %%%ss %%s" % max(len(s) for s in ("/".join(x) for x in implementations.combinations))
+        for names, values in implementations.combinations.items():
+            print(fmt % ("/".join(names), "matches" if len(values) == 1 else "differ"))
         print()
 
 
