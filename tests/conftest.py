@@ -35,6 +35,18 @@ def ignored_dirs(names):
             yield Sample(name)
 
 
+def get_descendants(ancestor, adjust=None, _result=None):
+    if _result is None:
+        _result = {}
+    for m in ancestor.__subclasses__():
+        name = m.__name__
+        if adjust is not None:
+            name = adjust(name)
+        _result[name] = m
+        get_descendants(m, adjust=adjust, _result=_result)
+    return _result
+
+
 def scan_samples(sample_name):
     if os.path.isfile(sample_name) or os.path.isabs(sample_name):
         yield Sample(sample_name)
@@ -143,7 +155,7 @@ def stacktrace_option():
 
 class ImplementationCollection(object):
     def __init__(self, names, default="zyaml,ruamel"):
-        self.available = zyaml.get_descendants(YmlImplementation, adjust=lambda x: x.replace("Implementation", "").lower())
+        self.available = get_descendants(YmlImplementation, adjust=lambda x: x.replace("Implementation", "").lower())
         self.available = dict((n, i()) for n, i in self.available.items())
         self.unknown = []
         self.selected = []

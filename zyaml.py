@@ -30,25 +30,19 @@ def first_line_split_match(match):
 def default_marshal(value):
     if not isinstance(value, basestring):
         return value
-
     text = value.strip()
     if not text:
         return value
-
     m = RE_TYPED.match(text)
     if m is None:
         return value
-
     text = text.lower()
     if text in NULL:
         return None
-
     if text == FALSE:
         return False
-
     if text == TRUE:
         return True
-
     try:
         return int(text)
     except ValueError:
@@ -65,9 +59,7 @@ def decode(value):
     return value
 
 
-def decommented(text):
-    if text.startswith("#"):
-        return ""
+def de_commented(text):
     try:
         i = text.index(" #")
         return text[:i].rstrip()
@@ -158,7 +150,7 @@ class BlockEntryToken(Token):
 
 class DirectiveToken(Token):
     def __init__(self, line_number, indent, text):
-        text = decommented(text)
+        text = de_commented(text)
         if text.startswith("%YAML"):
             self.name = "%YAML"
             text = text[5:].strip()
@@ -185,14 +177,15 @@ class AliasToken(Token):
 
 
 class TagToken(Token):
-    def __init__(self, line_number, indent, text, marshaller):
+    def __init__(self, line_number, indent, text):
         super(TagToken, self).__init__(line_number, indent, text)
-        self.marshaller = marshaller
+        self.marshaller = Marshallers.get_marshaller(text)
 
     def consume_token(self, root):
         if root.marshaller is not None:
             raise ParseError("2 consecutive tags given")
         root.marshaller = self.marshaller
+        # assert root.tag_indent is None
         root.tag_indent = self.indent
 
 
@@ -257,14 +250,10 @@ class ParseNode(object):
         :param int|None indent:
         """
         self.root = root  # type: RootNode
-        if root.marshaller is None:
-            self.indent = indent
-            self.marshaller = None
-        else:
-            self.indent = get_min(indent, root.tag_indent)
-            self.marshaller = root.marshaller
-            root.marshaller = None
-            root.tag_indent = None
+        self.indent = get_min(indent, root.tag_indent)
+        self.marshaller = root.marshaller
+        root.marshaller = None
+        root.tag_indent = None
         self.prev = None
         self.is_temp = False
         self.needs_apply = False
@@ -280,8 +269,10 @@ class ParseNode(object):
 
     def marshalled(self, value):
         if self.marshaller is not None:
-            value = self.marshaller.marshalled(value)
+            value = self.marshaller(value)
             self.marshaller = None
+        else:
+            value = default_marshal(value)
         return value
 
     def set_key(self, key):
@@ -356,8 +347,10 @@ class RootNode(object):
 
     def marshalled(self, value):
         if self.marshaller is not None:
-            value = self.marshaller.marshalled(value)
+            value = self.marshaller(value)
             self.marshaller = None
+        else:
+            value = default_marshal(value)
         return value
 
     def set_anchor(self, token):
@@ -466,38 +459,21 @@ class ParseError(Exception):
             self.indent = indent
 
 
-class Marshaller(object):
-    def __init__(self, prefix=None, name=None):
-        """
-        :param str prefix: Tag prefix to which this marshaller belongs to
-        :param str name: Tag name
-        """
-        self._prefix = prefix
-        self._name = name
-
-    def __repr__(self):
-        return self.full_name()
-
-    def full_name(self):
-        return "!%s!%s" % (self.prefix(), self.name())
-
-    def prefix(self):
-        return getattr(self, "_prefix", "") or ""
-
-    def name(self):
-        if hasattr(self, "_name"):
-            return self._name
-        cls = self
-        if not isinstance(cls, type):
-            cls = self.__class__
-        return cls.__name__.replace("Marshaller", "").lower()
-
-    def marshalled(self, value):
-        return value
+def _checked_scalar(value):
+    if isinstance(value, list):
+        raise ParseError("scalar needed, got list instead")
+    if isinstance(value, dict):
+        raise ParseError("scalar needed, got map instead")
+    return value
 
 
-class MapMarshaller(Marshaller):
-    def marshalled(self, value):
+class DefaultMarshaller:
+    @staticmethod
+    def get_marshaller(name):
+        return getattr(DefaultMarshaller, name, None)
+
+    @staticmethod
+    def map(value):
         if isinstance(value, dict):
             return value
         if isinstance(value, list):
@@ -508,9 +484,8 @@ class MapMarshaller(Marshaller):
                 return result
         raise ParseError("not a map")
 
-
-class SeqMarshaller(Marshaller):
-    def marshalled(self, value):
+    @staticmethod
+    def seq(value):
         if isinstance(value, list):
             return value
         if isinstance(value, dict):
@@ -521,44 +496,28 @@ class SeqMarshaller(Marshaller):
             return result
         raise ParseError("not a list or map")
 
-
-class SetMarshaller(Marshaller):
-    def marshalled(self, value):
+    @staticmethod
+    def set(value):
         if isinstance(value, dict):
             return set(value.keys())
         raise ParseError("not a map, !!set applies to maps")
 
+    @staticmethod
+    def str(value):
+        return str(_checked_scalar(value))
 
-class ScalarMarshaller(Marshaller):
-    def marshalled(self, value):
-        if isinstance(value, list):
-            raise ParseError("scalar needed, got list instead")
-        if isinstance(value, dict):
-            raise ParseError("scalar needed, got map instead")
-        return self._marshalled(value)
+    @staticmethod
+    def int(value):
+        return int(_checked_scalar(value))
 
-    def _marshalled(self, value):
-        return value
-
-
-class StrMarshaller(ScalarMarshaller):
-    def _marshalled(self, value):
-        return str(value)
-
-
-class IntMarshaller(ScalarMarshaller):
-    def _marshalled(self, value):
-        return int(value)
-
-
-class NullMarshaller(ScalarMarshaller):
-    def _marshalled(self, value):
+    @staticmethod
+    def null(value):
+        _checked_scalar(value)
         return None
 
-
-class BoolMarshaller(ScalarMarshaller):
-    def _marshalled(self, value):
-        text = str(value).lower()
+    @staticmethod
+    def bool(value):
+        text = str(_checked_scalar(value)).lower()
         if text in (FALSE, "n", "no", "off"):
             return False
         if text in (TRUE, "y", "yes", "on"):
@@ -566,16 +525,17 @@ class BoolMarshaller(ScalarMarshaller):
         raise ParseError("'%s' is not a boolean" % value)
 
 
-def get_descendants(ancestor, adjust=None, _result=None):
-    if _result is None:
-        _result = {}
-    for m in ancestor.__subclasses__():
-        name = m.__name__
-        if adjust is not None:
-            name = adjust(name)
-        _result[name] = m
-        get_descendants(m, adjust=adjust, _result=_result)
-    return _result
+class Marshallers(object):
+    providers = {"": DefaultMarshaller}
+
+    @classmethod
+    def get_marshaller(cls, text):
+        if text.startswith("!"):
+            text = text[1:]
+        prefix, _, name = text.partition("!")
+        provider = cls.providers.get(prefix)
+        if provider:
+            return provider.get_marshaller(name)
 
 
 class Scanner(object):
@@ -585,8 +545,6 @@ class Scanner(object):
         self.generator = enumerate(buffer.splitlines(), start=1)
         self.line_regex = RE_BLOCK_SEP
         self.flow_ender = None
-        marshallers = get_descendants(Marshaller, adjust=lambda x: x.replace("Marshaller", "").lower())
-        self.marshallers = {"": dict((name, m("", name)) for name, m in marshallers.items())}
         self.leaders = {
             "%": self.consume_directive,
             "-": self.consume_block_entry,
@@ -594,7 +552,7 @@ class Scanner(object):
             "...": self.consume_doc_end,
         }
         self.tokenizer_map = {
-            "!": self.consume_tag,
+            "!": TagToken,
             "&": AnchorToken,
             "*": AliasToken,
             "{": self.consume_flow_map_start,
@@ -606,14 +564,6 @@ class Scanner(object):
 
     def __repr__(self):
         return "block mode" if self.flow_ender is None else "flow mode"
-
-    def get_marshaller(self, text):
-        if text.startswith("!"):
-            text = text[1:]
-        prefix, _, name = text.partition("!")
-        category = self.marshallers.get(prefix)
-        if category:
-            return category.get(name)
 
     @staticmethod
     def consume_directive(line_number, start, text):
@@ -650,9 +600,6 @@ class Scanner(object):
                 return line_number, start, end, line_text, comments, token
             comments += 1
             line_number, line_text = next(self.generator)
-
-    def consume_tag(self, line_number, start, text):
-        return TagToken(line_number, start, text, self.get_marshaller(text))
 
     def push_flow_ender(self, ender):
         if self.flow_ender is None:
@@ -753,7 +700,7 @@ class Scanner(object):
         return folded, keep, indent, ScalarToken(line_number, indent, None, style=original)
 
     def _consume_literal(self, line_number, start, line_text):
-        folded, keep, indent, token = self._get_literal_styled_token(line_number, start, decommented(line_text[start:]))
+        folded, keep, indent, token = self._get_literal_styled_token(line_number, start, de_commented(line_text[start:]))
         lines = []
         while True:
             line_number, line_text = next(self.generator)
@@ -795,7 +742,7 @@ class Scanner(object):
             matched = line_text[start]
             if prev_start is not None:
                 if matched in "!&*{[":
-                    yield prev_start, decommented(line_text[prev_start:])
+                    yield prev_start, de_commented(line_text[prev_start:])
                     return
                 yield prev_start, line_text[prev_start:start]
             if matched == "#":

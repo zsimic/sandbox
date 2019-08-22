@@ -13,7 +13,7 @@ foo: a |> bar
 - {a: b, c: [
 x,  # some comment inside a flow
 {d: some "text"
-on 'multiple lines' within flow}, g: h
+on 'multiple lines' within flow}, g: 6
 ]}
 - foo
 - ...  # This is not a doc end
