@@ -792,15 +792,23 @@ class Scanner(object):
             else:
                 lines.append(value)
 
+    def next_match(self, start):
+        m = self.line_regex.search(self.line_text, start)
+        if m is None:
+            pass
+
     def __iter__(self):
         start = 0
         line_size = 0
+        line_tokens = 0
+        prev_start = None
         simple_key = None
         try:
             yield StreamStartToken(1, 0)
             while True:
                 if start >= line_size:
                     start, line_size, token = self.next_actionable_line()
+                    line_tokens = 0
                     if token is not None:
                         if simple_key is not None:
                             yield simple_key
@@ -810,26 +818,22 @@ class Scanner(object):
                 end = line_size
                 if start < end:
                     m = self.line_regex.search(self.line_text, start)
-                    if m is None:
-                        # if start == 0:
-                        #     start = get_indent(self.line_text)
-                        assert end == line_size
-                    else:
-                        prev_start = start
+                    if m is not None:
+                        line_tokens += 1
+                        if self.flow_ender is None and line_tokens > 1:
+                            pass
+                        prev_start = start if start < m.span(1)[0] else None  # span1: spaces, span2: match, span3: spaces following ':'
                         start, end = m.span(2)
-                        if m.span(1)[0] > prev_start:
-                            if simple_key is None:
-                                matched = self.line_text[prev_start]
-                                if matched in '|>':
-                                    yield self._consume_literal(prev_start)
-                                    start = get_indent(self.line_text)
-                                    line_size = len(self.line_text)
-                                    continue
-                            text = self.line_text[prev_start:start]
-                            if simple_key is None:
-                                simple_key = ScalarToken(self.line_number, prev_start, text.strip())
-                            else:
-                                simple_key.append_text(text)
+                        if prev_start is not None:
+                            prev_match = self.line_text[prev_start]
+                            if simple_key is None and prev_match in '|>':
+                                if self.line_text[start] != "#":
+                                    raise ParseError("Content not allowed after literal start")
+                                yield self._consume_literal(prev_start)
+                                start = get_indent(self.line_text)
+                                line_size = len(self.line_text)
+                                prev_start = None
+                                continue
                 if start == end:
                     if simple_key is None:
                         yield EmptyLineToken(self.line_number, start)
@@ -837,14 +841,25 @@ class Scanner(object):
                         simple_key.append_newline()
                 else:
                     matched = self.line_text[start]
+                    if matched == ":":
+                        if simple_key is not None:
+                            yield simple_key
+                            simple_key = None
+                        if prev_start is None:
+                            raise ParseError("Incomplete mapping pair")
+                        yield KeyToken(self.line_number, prev_start, value=self.line_text[prev_start:start])
+                        start = end
+                        prev_start = None
+                        continue
+                    if prev_start is not None:
+                        text = self.line_text[prev_start:start]
+                        if simple_key is None:
+                            simple_key = ScalarToken(self.line_number, prev_start, text.strip())
+                        else:
+                            simple_key.append_text(text)
+
                     if matched == "#":
                         start = line_size
-                    elif matched == ":":
-                        if simple_key is None:
-                            raise ParseError("Incomplete mapping pair")
-                        start = end
-                        yield KeyToken(simple_key.line_number, simple_key.indent, value=simple_key.value)
-                        simple_key = None
                     elif simple_key is None and matched == '"':
                         start, line_size, token = self._consume_multiline(start, '"', RE_DOUBLE_QUOTE_END)
                         yield token
@@ -858,6 +873,7 @@ class Scanner(object):
                     else:
                         tokenizer = self.tokenizer_map.get(matched)
                         if tokenizer is None:
+                            assert m is None
                             text = self.line_text[start:end]
                             if simple_key is None:
                                 simple_key = ScalarToken(self.line_number, start, text.strip())
@@ -876,9 +892,9 @@ class Scanner(object):
         except ParseError as error:
             error.complete(self.line_number, start)
             raise
-        except Exception as e:
-            print("%s: %s" % (self, e))
-            raise
+        # except Exception as e:
+        #     print("%s: %s" % (self, e))
+        #     raise
 
 
 def load(stream):
