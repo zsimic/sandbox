@@ -2,6 +2,8 @@
 
 # lone comment
 --- # comment on docstart
+foo: a |> bar
+---
 - list value
 
   on

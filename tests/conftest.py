@@ -521,21 +521,21 @@ class YmlImplementation(object):
     def _load(self, stream):
         return []
 
-    def tokens(self, sample, comments=False, stacktrace=False):
+    def tokens(self, sample, stacktrace=False):
         if stacktrace:
             with open(sample.path) as fh:
-                for t in self._tokens(fh.read(), comments):
+                for t in self._tokens(fh.read()):
                     yield t
             return
 
         try:
             with open(sample.path) as fh:
-                for t in self._tokens(fh.read(), comments):
+                for t in self._tokens(fh.read()):
                     yield t
         except Exception as e:
             yield "Error: %s" % e
 
-    def _tokens(self, contents, comments):
+    def _tokens(self, contents):
         raise Exception("not implemented")
 
     def load_stream(self, contents):
@@ -584,7 +584,7 @@ class ZyamlImplementation(YmlImplementation):
     def _load(self, stream):
         return zyaml.load_string(stream.read())
 
-    def _tokens(self, stream, comments):
+    def _tokens(self, stream):
         return zyaml.Scanner(stream)
 
 
@@ -599,32 +599,12 @@ class PyyamlBaseImplementation(YmlImplementation):
     def _load(self, stream):
         return pyyaml.load_all(stream, Loader=pyyaml.BaseLoader)
 
-    def _tokens(self, stream, comments):
+    def _tokens(self, stream):
         yaml_loader = pyyaml.BaseLoader(stream)
         curr = yaml_loader.get_token()
         while curr is not None:
             yield curr
-            nxt = yaml_loader.get_token()
-            if comments:
-                for comment in self._comments_between_tokens(curr, nxt):
-                    yield comment
-            curr = nxt
-
-    @staticmethod
-    def _comments_between_tokens(token1, token2):
-        """Find all comments between two tokens"""
-        if token2 is None:
-            buf = token1.end_mark.buffer[token1.end_mark.pointer:]
-        elif (token1.end_mark.line == token2.start_mark.line and
-              not isinstance(token1, pyyaml.StreamStartToken) and
-              not isinstance(token2, pyyaml.StreamEndToken)):
-            return
-        else:
-            buf = token1.end_mark.buffer[token1.end_mark.pointer:token2.start_mark.pointer]
-        for line in buf.split('\n'):
-            pos = line.find('#')
-            if pos != -1:
-                yield zyaml.CommentToken(token1.end_mark.line, token1.end_mark.column, line[pos:])
+            curr = yaml_loader.get_token()
 
 
 class PyyamlSafeImplementation(YmlImplementation):
