@@ -137,7 +137,7 @@ class FlowEndToken(Token):
 
 class FlowEntryToken(Token):
     def consume_token(self, root):
-        root.flush()
+        root.wrap_up()
 
 
 class BlockEntryToken(Token):
@@ -145,7 +145,7 @@ class BlockEntryToken(Token):
         super(BlockEntryToken, self).__init__(line_number, indent)
 
     def consume_token(self, root):
-        root.flush()
+        root.wrap_up()
         root.ensure_node(self.indent + 1, ListNode)
 
 
@@ -314,6 +314,9 @@ class ParseNode(object):
         elif value is not None:
             self.target = "%s %s" % (self.target, value)
 
+    def wrap_up(self):
+        """Nothing to do for lists and scalars"""
+
 
 class ListNode(ParseNode):
     def _new_target(self):
@@ -353,6 +356,11 @@ class MapNode(ParseNode):
             self.target[self.last_key] = None
         self.last_key = value
 
+    def wrap_up(self):
+        if self.last_key is not None:
+            self.target[self.last_key] = None
+            self.last_key = None
+
 
 class RootNode(object):
     def __init__(self):
@@ -378,26 +386,8 @@ class RootNode(object):
 
     def update_head_token(self, token):
         if self._head_token is None or self._head_token.line_number != token.line_number:
-            self.flush()
+            self.wrap_up()
             self._head_token = token
-
-    def flush(self):
-        if self.scalar_token is not None:
-            value = self.popped_scalar_value()
-            if self.head is None:
-                self.push(ParseNode(self, self._head_token.indent))
-            self.head.set_value(value)
-            if self.head.is_temp:
-                self.pop()
-
-    def popped_scalar_value(self):
-        if self.scalar_token is not None:
-            value = self.scalar_token.resolved_value(self)
-            self.scalar_token = None
-            if self.anchor_token is not None:
-                self.anchors[self.anchor_token.value] = value
-                self.anchor_token = None
-            return value
 
     def set_anchor_token(self, token):
         self.update_head_token(token)
@@ -419,6 +409,24 @@ class RootNode(object):
         if self.scalar_token is not None:
             raise ParseError("2 consecutive scalars given")
         self.scalar_token = token
+
+    def wrap_up(self):
+        if self.scalar_token is not None:
+            value = self.popped_scalar_value()
+            if self.head is None:
+                self.push(ParseNode(self, self._head_token.indent))
+            self.head.set_value(value)
+            if self.head.is_temp:
+                self.pop()
+
+    def popped_scalar_value(self):
+        if self.scalar_token is not None:
+            value = self.scalar_token.resolved_value(self)
+            self.scalar_token = None
+            if self.anchor_token is not None:
+                self.anchors[self.anchor_token.value] = value
+                self.anchor_token = None
+            return value
 
     def needs_new_node(self, indent, node_type):
         if self.head is None or self.head.__class__ is not node_type:
@@ -464,7 +472,7 @@ class RootNode(object):
         self.head = node
 
     def pop(self):
-        self.flush()
+        self.wrap_up()
         popped = self.head
         if popped is not None:
             self.head = popped.prev
@@ -476,7 +484,7 @@ class RootNode(object):
 
     def pop_doc(self, closing=False):
         if self.head is None:
-            self.flush()
+            self.wrap_up()
         if closing and self.head is None:
             self.docs.append("")
         while self.head is not None:
