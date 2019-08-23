@@ -182,11 +182,14 @@ class TagToken(Token):
         self.marshaller = Marshallers.get_marshaller(text)
 
     def consume_token(self, root):
-        if root.marshaller is not None:
+        if root.tag_token is not None:
             raise ParseError("2 consecutive tags given")
-        root.marshaller = self.marshaller
-        # assert root.tag_indent is None
-        root.tag_indent = self.indent
+        root.tag_token = self
+
+    def marshalled(self, value):
+        if self.marshaller is None:
+            return default_marshal(value)
+        return self.marshaller(value)
 
 
 class KeyToken(Token):
@@ -250,10 +253,12 @@ class ParseNode(object):
         :param int|None indent:
         """
         self.root = root  # type: RootNode
-        self.indent = get_min(indent, root.tag_indent)
-        self.marshaller = root.marshaller
-        root.marshaller = None
-        root.tag_indent = None
+        self.tag_token = root.tag_token
+        if root.tag_token is None:
+            self.indent = indent
+        else:
+            self.indent = get_min(indent, root.tag_token.indent)
+            root.tag_token = None
         self.prev = None
         self.is_temp = False
         self.needs_apply = False
@@ -268,11 +273,9 @@ class ParseNode(object):
         return result
 
     def marshalled(self, value):
-        if self.marshaller is not None:
-            value = self.marshaller(value)
-            self.marshaller = None
-        else:
-            value = default_marshal(value)
+        if self.tag_token is None:
+            return default_marshal(value)
+        value = self.tag_token.marshalled(value)
         return value
 
     def set_key(self, key):
@@ -337,8 +340,7 @@ class RootNode(object):
     def __init__(self):
         self.docs = []
         self.head = None  # type: ParseNode | None
-        self.marshaller = None
-        self.tag_indent = None
+        self.tag_token = None
         self.doc_consumed = True
         self.anchors = {}
 
@@ -346,11 +348,9 @@ class RootNode(object):
         return str(self.head or "/")
 
     def marshalled(self, value):
-        if self.marshaller is not None:
-            value = self.marshaller(value)
-            self.marshaller = None
-        else:
-            value = default_marshal(value)
+        if self.tag_token is None:
+            return default_marshal(value)
+        value = self.tag_token.marshalled(value)
         return value
 
     def set_anchor(self, token):
@@ -584,8 +584,6 @@ class Scanner(object):
         return 4, DocumentEndToken(line_number, start)
 
     def next_actionable_line(self, line_number, line_text):
-        if line_text is None:
-            line_number, line_text = next(self.generator)
         comments = 0
         while True:
             m = RE_LINE_SPLIT.match(line_text)
@@ -759,8 +757,21 @@ class Scanner(object):
         try:
             yield StreamStartToken(1, 0)
             while True:
-                if token is None:
+                if token is not None:
+                    if pending is not None:
+                        yield pending
+                        pending = None
+                    yield token
+                    token = None
+                if upcoming is None:
+                    line_number, upcoming = next(self.generator)
                     line_number, start, line_size, upcoming, comments, token = self.next_actionable_line(line_number, upcoming)
+                    if token is not None:
+                        if pending is not None:
+                            yield pending
+                            pending = None
+                        yield token
+                        token = None
                     if simple_key is not None:
                         if pending is None:
                             pending = ScalarToken(line_number, simple_key[0], simple_key[1])
@@ -770,18 +781,12 @@ class Scanner(object):
                     if pending is not None and comments:
                         yield pending
                         pending = None
-                if token is not None:
-                    if pending is not None:
-                        yield pending
-                        pending = None
-                    yield token
-                    token = None
-                elif start == line_size:
-                    if pending is not None:
-                        pending.append_newline()
-                    upcoming = None
-                if upcoming is None:
-                    continue
+                    if start == line_size:
+                        if pending is not None:
+                            pending.append_newline()
+                        continue
+                else:
+                    pass
                 current_line = upcoming
                 upcoming = None
                 for start, text in self.next_match(start, line_size, current_line):

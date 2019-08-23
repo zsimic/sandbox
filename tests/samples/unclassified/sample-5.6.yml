@@ -1,2 +1,2 @@
-anchored: !local &anchor value
+anchored: !!str &anchor value
 alias: *anchor
