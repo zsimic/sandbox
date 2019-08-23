@@ -1,7 +1,8 @@
-filebeat.inputs:
+some.config:
 #  enabled: false
 - type: docker
   enabled: true
+  cmd: ["echo", "'[{}]'"]
 ---
 !!str &foo a: !!str &stringified 1
 &baz !!str b: *baz
@@ -16,6 +17,7 @@ foo: a |> bar
       5
      lines
 ---
+!!seq
 - {a: b, c: [
 x,  # some comment inside a flow
 {d: some "text"

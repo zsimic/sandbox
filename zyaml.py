@@ -8,7 +8,7 @@ FALSE = "false"
 TRUE = "true"
 RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$", re.IGNORECASE)
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|[!&*][^\s:,\[\]{}]+\s*|[\[\]{},]\s*|:(\s+|$))""")
+RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|[!&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
 RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
@@ -166,6 +166,29 @@ class DirectiveToken(Token):
         return "%s %s" % (self.name, self.value)
 
 
+class KeyToken(Token):
+    def consume_token(self, root):
+        root.push_key(self)
+
+
+class TagToken(Token):
+    def __init__(self, line_number, indent, text):
+        super(TagToken, self).__init__(line_number, indent, text)
+        self.marshaller = Marshallers.get_marshaller(text)
+
+    def consume_token(self, root):
+        root.set_tag_token(self)
+
+    def marshalled(self, value):
+        try:
+            if self.marshaller is None:
+                return default_marshal(value)
+            return self.marshaller(value)
+        except ParseError as e:
+            e.complete(self)
+            raise
+
+
 class AnchorToken(Token):
     def __init__(self, line_number, indent, text):
         super(AnchorToken, self).__init__(line_number, indent, text[1:])
@@ -184,35 +207,42 @@ class AliasToken(Token):
     def represented_value(self):
         return "*%s" % self.value
 
+    def resolved_value(self, root):
+        return root.anchors.get(self.value)
+
+    def set_tag_token(self, token):
+        raise ParseError("Tag not allowed on aliases")
+
     def consume_token(self, root):
         if self.value not in root.anchors:
             raise ParseError("Undefined anchor &%s" % self.value)
-        root.set_alias_token(self)
-
-
-class TagToken(Token):
-    def __init__(self, line_number, indent, text):
-        super(TagToken, self).__init__(line_number, indent, text)
-        self.marshaller = Marshallers.get_marshaller(text)
-
-    def consume_token(self, root):
-        root.set_tag_token(self)
-
-    def marshalled(self, value):
-        if self.marshaller is None:
-            return default_marshal(value)
-        return self.marshaller(value)
-
-
-class KeyToken(Token):
-    def consume_token(self, root):
-        root.push_key(self)
+        root.set_scalar_token(self)
 
 
 class ScalarToken(Token):
     def __init__(self, line_number, indent, text, style=None):
         super(ScalarToken, self).__init__(line_number, indent, text)
         self.style = style
+        self.tag_token = None
+
+    def represented_value(self):
+        if self.style is None:
+            return str(self.value)
+        if self.style == '"':
+            return '"%s"' % decode(codecs.encode(self.value, "unicode_escape"))
+        if self.style == "'":
+            return "'%s'" % self.value.replace("'", "''")
+        return "%s %s" % (self.style, self.value)
+
+    def resolved_value(self, root):
+        if self.tag_token is None:
+            return default_marshal(self.value)
+        return self.tag_token.marshalled(self.value)
+
+    def set_tag_token(self, token):
+        if self.tag_token is not None:
+            raise ParseError("2 consecutive tags on scalar")
+        self.tag_token = token
 
     def set_raw_lines(self, lines):
         self.set_raw_text(" ".join(lines))
@@ -235,27 +265,8 @@ class ScalarToken(Token):
         else:
             self.value = "%s %s" % (self.value, text.lstrip())
 
-    def represented_value(self):
-        if self.style is None:
-            return str(self.value)
-        if self.style == '"':
-            return '"%s"' % decode(codecs.encode(self.value, "unicode_escape"))
-        if self.style == "'":
-            return "'%s'" % self.value.replace("'", "''")
-        return "%s %s" % (self.style, self.value)
-
     def consume_token(self, root):
         root.set_scalar_token(self)
-
-
-def get_min(v1, v2):
-    if v1 is None:
-        return v2
-    if v2 is None:
-        return v1
-    if v1 < v2:
-        return v1
-    return v2
 
 
 class ParseNode(object):
@@ -289,7 +300,7 @@ class ParseNode(object):
     def _new_target(self):
         """Return specific target instance for this node type"""
 
-    def applied(self):
+    def resolved_value(self):
         if self.tag_token is None:
             return default_marshal(self.target)
         return self.tag_token.marshalled(self.target)
@@ -308,7 +319,7 @@ class ListNode(ParseNode):
     def _new_target(self):
         return []
 
-    def applied(self):
+    def resolved_value(self):
         if self.tag_token is None:
             return self.target
         return self.tag_token.marshalled(self.target)
@@ -325,7 +336,7 @@ class MapNode(ParseNode):
     def _new_target(self):
         return {}
 
-    def applied(self):
+    def resolved_value(self):
         if self.last_key is not None:
             self.target[self.last_key] = None
             self.last_key = None
@@ -348,7 +359,6 @@ class RootNode(object):
         self.docs = []
         self.head = None  # type: ParseNode | None
         self._head_token = None
-        self.alias_token = None
         self.anchor_token = None
         self.tag_token = None
         self.scalar_token = None
@@ -357,7 +367,7 @@ class RootNode(object):
     def __repr__(self):
         result = ""
         result += "" if self._head_token is None else str(self._head_token.indent)
-        result += "*" if self.alias_token else ""
+        result += "*" if isinstance(self.scalar_token, AliasToken) else ""
         result += "&" if self.anchor_token else ""
         result += "!" if self.tag_token else ""
         result += "$" if self.scalar_token else ""
@@ -372,28 +382,22 @@ class RootNode(object):
             self._head_token = token
 
     def flush(self):
-        if self.alias_token is not None or self.scalar_token is not None:
-            value = self.applied(self.popped_value())
+        if self.scalar_token is not None:
+            value = self.popped_scalar_value()
             if self.head is None:
                 self.push(ParseNode(self, self._head_token.indent))
             self.head.set_value(value)
             if self.head.is_temp:
                 self.pop()
 
-    def popped_value(self):
+    def popped_scalar_value(self):
         if self.scalar_token is not None:
-            value = self.scalar_token.value
+            value = self.scalar_token.resolved_value(self)
             self.scalar_token = None
-        else:
-            value = self.anchors.get(self.alias_token.value)
-            self.alias_token = None
-        return value
-
-    def set_alias_token(self, token):
-        self.update_head_token(token)
-        if self.alias_token is not None:
-            raise ParseError("2 consecutive aliases given")
-        self.alias_token = token
+            if self.anchor_token is not None:
+                self.anchors[self.anchor_token.value] = value
+                self.anchor_token = None
+            return value
 
     def set_anchor_token(self, token):
         self.update_head_token(token)
@@ -408,9 +412,12 @@ class RootNode(object):
         self.tag_token = token
 
     def set_scalar_token(self, token):
-        if self.scalar_token is not None:
-            self.flush()
         self.update_head_token(token)
+        if self.tag_token is not None:
+            token.tag_token = self.tag_token
+            self.tag_token = None
+        if self.scalar_token is not None:
+            raise ParseError("2 consecutive scalars given")
         self.scalar_token = token
 
     def needs_new_node(self, indent, node_type):
@@ -436,18 +443,9 @@ class RootNode(object):
                     raise ParseError("Line should be indented at least %s chars" % self.head.indent)
             self.push(node_type(self, indent))
 
-    def applied(self, value):
-        if self.tag_token is not None:
-            value = self.tag_token.marshalled(value)
-            self.tag_token = None
-        if self.anchor_token is not None:
-            self.anchors[self.anchor_token.value] = value
-            self.anchor_token = None
-        return value
-
     def push_key(self, key_token):
         self.update_head_token(key_token)
-        key = self.applied(self.popped_value())
+        key = self.popped_scalar_value()
         self.ensure_node(self._head_token.indent, MapNode)
         self.head.push_key(key)
 
@@ -470,7 +468,7 @@ class RootNode(object):
         popped = self.head
         if popped is not None:
             self.head = popped.prev
-            value = popped.applied()
+            value = popped.resolved_value()
             if self.head is None:
                 self.docs.append(value)
             else:
@@ -483,29 +481,43 @@ class RootNode(object):
             self.docs.append("")
         while self.head is not None:
             self.pop()
+        self.anchors = {}
 
     def deserialized(self, tokens):
-        for token in tokens:
-            token.consume_token(self)
-        return simplified(self.docs)
+        token = None
+        try:
+            for token in tokens:
+                token.consume_token(self)
+            return simplified(self.docs)
+        except ParseError as error:
+            error.complete(token)
+            raise
 
 
 class ParseError(Exception):
-    def __init__(self, message, line_number=None, indent=None):
+    def __init__(self, message, *context):
         self.message = message
-        self.line_number = line_number
-        self.indent = indent
+        self.line_number = None
+        self.indent = None
+        self.complete(*context)
 
     def __str__(self):
         if self.indent is None:
             return self.message
         return "%s, line %s column %s" % (self.message, self.line_number, self.indent + 1)
 
-    def complete(self, line_number=None, indent=None):
+    def complete_coordinates(self, line_number, indent):
         if self.line_number is None:
             self.line_number = line_number
         if self.indent is None:
             self.indent = indent
+
+    def complete(self, *context):
+        if context:
+            if isinstance(context[0], Token):
+                self.complete_coordinates(context[0].line_number, context[0].indent)
+            elif len(context) == 2:
+                self.complete_coordinates(*context)
 
 
 def _checked_scalar(value):
@@ -801,7 +813,7 @@ class Scanner(object):
             start = end
 
     def __iter__(self):
-        start = line_number = 0
+        start = line_number = line_size = comments = 0
         pending = simple_key = upcoming = token = None
         try:
             yield StreamStartToken(1, 0)
@@ -811,11 +823,12 @@ class Scanner(object):
                         yield pending
                         pending = None
                     yield token
+                    token = None
                 if upcoming is None:
                     line_number, upcoming = next(self.generator)
-                # else:
-                #     assert start == 0
-                line_number, start, line_size, upcoming, comments, token = self.next_actionable_line(line_number, upcoming)
+                    start = comments = 0
+                if start == 0:
+                    line_number, start, line_size, upcoming, comments, token = self.next_actionable_line(line_number, upcoming)
                 if simple_key is not None:
                     if pending is None:
                         pending = simple_key
@@ -883,6 +896,9 @@ class Scanner(object):
                             yield tokenizer(line_number, start, text)
         except StopIteration:
             if pending is not None:
+                if simple_key is not None:
+                    pending.append_text(simple_key.value)
+                    simple_key = None
                 yield pending
             if simple_key is not None:
                 yield simple_key
