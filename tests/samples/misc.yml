@@ -1,7 +1,13 @@
-%YAML 1.1
-
-# lone comment
---- # comment on docstart
+filebeat.inputs:
+#  enabled: false
+- type: docker
+  enabled: true
+---
+!!str &foo a: !!str &stringified 1
+&baz !!str b: *baz
+*stringified: *stringified
+c: *foo
+---
 foo: a |> bar
 ---
 - list value
