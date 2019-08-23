@@ -1,8 +1,11 @@
-some.config:
+&someconfig some.config:
 #  enabled: false
-- type: docker
+- &mymap
+  type: docker
   enabled: true
   cmd: ["echo", "'[{}]'"]
+- key was: *someconfig
+- map was: *mymap
 ---
 !!str &foo a: !!str &stringified 1
 &baz !!str b: *baz

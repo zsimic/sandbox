@@ -122,12 +122,12 @@ class DocumentEndToken(Token):
 
 class FlowMappingStartToken(Token):
     def consume_token(self, root):
-        root.push(MapNode(root, None))
+        root.push(MapNode(None))
 
 
 class FlowSequenceStartToken(Token):
     def consume_token(self, root):
-        root.push(ListNode(root, None))
+        root.push(ListNode(None))
 
 
 class FlowEndToken(Token):
@@ -270,12 +270,7 @@ class ScalarToken(Token):
 
 
 class ParseNode(object):
-    def __init__(self, root, indent):
-        """
-        :param RootNode root:
-        :param int|None indent:
-        """
-        self.root = root  # type: RootNode
+    def __init__(self, indent):
         self.indent = indent
         self.anchor_token = None
         self.tag_token = None
@@ -300,7 +295,7 @@ class ParseNode(object):
     def _new_target(self):
         """Return specific target instance for this node type"""
 
-    def resolved_value(self):
+    def resolved_value(self, root):
         if self.tag_token is None:
             return default_marshal(self.target)
         return self.tag_token.marshalled(self.target)
@@ -322,7 +317,7 @@ class ListNode(ParseNode):
     def _new_target(self):
         return []
 
-    def resolved_value(self):
+    def resolved_value(self, root):
         if self.tag_token is None:
             return self.target
         return self.tag_token.marshalled(self.target)
@@ -332,14 +327,14 @@ class ListNode(ParseNode):
 
 
 class MapNode(ParseNode):
-    def __init__(self, root, indent):
-        super(MapNode, self).__init__(root, indent)
+    def __init__(self, indent):
+        super(MapNode, self).__init__(indent)
         self.last_key = None
 
     def _new_target(self):
         return {}
 
-    def resolved_value(self):
+    def resolved_value(self, root):
         if self.last_key is not None:
             self.target[self.last_key] = None
             self.last_key = None
@@ -360,6 +355,15 @@ class MapNode(ParseNode):
         if self.last_key is not None:
             self.target[self.last_key] = None
             self.last_key = None
+
+
+class Decoration:
+    def __init__(self):
+        self.anchor_token = None
+        self.tag_token = None
+
+    def pop(self):
+        pass
 
 
 class RootNode(object):
@@ -414,7 +418,7 @@ class RootNode(object):
         if self.scalar_token is not None:
             value = self.popped_scalar_value()
             if self.head is None:
-                self.push(ParseNode(self, self._head_token.indent))
+                self.push(ParseNode(self._head_token.indent))
             self.head.set_value(value)
             if self.head.is_temp:
                 self.pop()
@@ -422,10 +426,10 @@ class RootNode(object):
     def popped_scalar_value(self):
         if self.scalar_token is not None:
             value = self.scalar_token.resolved_value(self)
-            self.scalar_token = None
             if self.anchor_token is not None:
                 self.anchors[self.anchor_token.value] = value
                 self.anchor_token = None
+            self.scalar_token = None
             return value
 
     def needs_new_node(self, indent, node_type):
@@ -449,7 +453,7 @@ class RootNode(object):
             if node_type is ListNode and self.head is not None and self.head.indent is not None and indent is not None:
                 if indent < self.head.indent:
                     raise ParseError("Line should be indented at least %s chars" % self.head.indent)
-            self.push(node_type(self, indent))
+            self.push(node_type(indent))
 
     def push_key(self, key_token):
         self.update_head_token(key_token)
@@ -476,7 +480,7 @@ class RootNode(object):
         popped = self.head
         if popped is not None:
             self.head = popped.prev
-            value = popped.resolved_value()
+            value = popped.resolved_value(self)
             if self.head is None:
                 self.docs.append(value)
             else:
