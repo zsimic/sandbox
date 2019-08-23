@@ -8,8 +8,8 @@ FALSE = "false"
 TRUE = "true"
 RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$", re.IGNORECASE)
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{},]|:(\s+|$))""")
-RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+|[\[\]{}]|:(\s+|$))""")
+RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+\s*|[\[\]{},]\s*|:(\s+|$))""")
+RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*]\S+\s*|[\[\]{}]\s*|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 
@@ -171,8 +171,11 @@ class AnchorToken(Token):
 
 class AliasToken(Token):
     def consume_token(self, root):
-        value = root.anchors.get(self.value)
-        root.push_value(self.indent, value)
+        node = root.anchors.get(self.value)
+        if node is None:
+            root.push_value(self.indent, None)
+        else:
+            root.push_value(self.indent, node.target)
 
 
 class TagToken(Token):
@@ -286,7 +289,7 @@ class ParseNode(object):
 
     def set_value(self, value):
         if self.anchor_token is not None:
-            self.root.anchors[self.anchor_token.value] = self.target
+            self.root.anchors[self.anchor_token.value] = self
             self.anchor_token = None
         self._set_value(value)
 
@@ -324,7 +327,7 @@ class MapNode(ParseNode):
 
     def set_key(self, key):
         if self.last_key is not None:
-            raise ParseError("Internal error, previous key '%s' was not consumed" % self.last_key)
+            self.target[self.last_key] = None
         self.last_key = key
 
 
@@ -734,7 +737,7 @@ class Scanner(object):
             if matched == ":":
                 yield start, matched
             else:
-                yield start, line_text[start:end]
+                yield start, line_text[start:end].strip()
             start = end
 
     def __iter__(self):
@@ -751,28 +754,29 @@ class Scanner(object):
                     token = None
                 if upcoming is None:
                     line_number, upcoming = next(self.generator)
-                    line_number, start, line_size, upcoming, comments, token = self.next_actionable_line(line_number, upcoming)
-                    if token is not None:
-                        if pending is not None:
-                            yield pending
-                            pending = None
-                        yield token
-                        token = None
-                    if simple_key is not None:
-                        if pending is None:
-                            pending = ScalarToken(line_number, simple_key[0], simple_key[1])
-                        else:
-                            pending.append_text(simple_key[1])
-                        simple_key = None
-                    if pending is not None and comments:
+                else:
+                    assert start == 0
+                line_number, start, line_size, upcoming, comments, token = self.next_actionable_line(line_number, upcoming)
+                if token is not None:
+                    if pending is not None:
                         yield pending
                         pending = None
-                    if start == line_size:
-                        if pending is not None:
-                            pending.append_newline()
-                        continue
-                else:
-                    pass
+                    yield token
+                    token = None
+                if simple_key is not None:
+                    if pending is None:
+                        pending = ScalarToken(line_number, simple_key[0], simple_key[1])
+                    else:
+                        pending.append_text(simple_key[1])
+                    simple_key = None
+                if pending is not None and comments:
+                    yield pending
+                    pending = None
+                if start == line_size:
+                    if pending is not None:
+                        pending.append_newline()
+                    upcoming = None
+                    continue
                 current_line = upcoming
                 upcoming = None
                 for start, text in self.next_match(start, line_size, current_line):
