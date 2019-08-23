@@ -136,8 +136,7 @@ class FlowEndToken(Token):
 
 
 class FlowEntryToken(Token):
-    def consume_token(self, root):
-        root.auto_apply()
+    pass
 
 
 class BlockEntryToken(Token):
@@ -261,9 +260,7 @@ class ParseNode(object):
             root.tag_token = None
         self.prev = None
         self.is_temp = False
-        self.needs_apply = False
-        self.last_value = None
-        self.target = None
+        self.target = self._new_target()
         self.anchor_token = None
 
     def __repr__(self):
@@ -272,41 +269,40 @@ class ParseNode(object):
             result = "%s / %s" % (result, self.prev)
         return result
 
+    def _new_target(self):
+        """Return specific target instance for this node type"""
+
     def marshalled(self, value):
         if self.tag_token is None:
             return default_marshal(value)
         value = self.tag_token.marshalled(value)
         return value
 
+    def apply(self):
+        """Called when node is popped from stack"""
+
     def set_key(self, key):
         raise ParseError("Key not allowed here")
 
     def set_value(self, value):
-        self.needs_apply = True
-        if self.last_value is None:
-            self.last_value = value
-        elif value is not None:
-            self.last_value = "%s %s" % (self.last_value, value)
-
-    def auto_apply(self):
         if self.anchor_token is not None:
-            self.root.anchors[self.anchor_token.value] = self.last_value
+            self.root.anchors[self.anchor_token.value] = self.target
             self.anchor_token = None
-        if self.needs_apply:
-            self.apply()
+        self._set_value(value)
 
-    def apply(self):
-        """Apply 'self.last_value' to 'self.target'"""
-        self.needs_apply = False
+    def _set_value(self, value):
+        if self.target is None:
+            self.target = value
+        elif value is not None:
+            self.target = "%s %s" % (self.target, value)
 
 
 class ListNode(ParseNode):
-    def apply(self):
-        if self.target is None:
-            self.target = []
-        self.target.append(self.last_value)
-        self.last_value = None
-        self.needs_apply = False
+    def _new_target(self):
+        return []
+
+    def _set_value(self, value):
+        self.target.append(value)
 
 
 class MapNode(ParseNode):
@@ -314,26 +310,22 @@ class MapNode(ParseNode):
         super(MapNode, self).__init__(root, indent)
         self.last_key = None
 
+    def _new_target(self):
+        return {}
+
+    def apply(self):
+        if self.last_key is not None:
+            self.target[self.last_key] = None
+            self.last_key = None
+
+    def _set_value(self, value):
+        self.target[self.last_key] = value
+        self.last_key = None
+
     def set_key(self, key):
         if self.last_key is not None:
             raise ParseError("Internal error, previous key '%s' was not consumed" % self.last_key)
         self.last_key = key
-        self.needs_apply = True
-
-    def apply(self):
-        if self.target is None:
-            self.target = {}
-        self.target[self.last_key] = self.last_value
-        self.last_key = None
-        self.last_value = None
-        self.needs_apply = False
-
-
-class ScalarNode(ParseNode):
-    def apply(self):
-        self.target = self.last_value
-        self.last_value = None
-        self.needs_apply = False
 
 
 class RootNode(object):
@@ -355,10 +347,6 @@ class RootNode(object):
 
     def set_anchor(self, token):
         self.head.anchor_token = token
-
-    def auto_apply(self):
-        if self.head is not None:
-            self.head.auto_apply()
 
     def needs_new_node(self, indent, node_type):
         if self.head is None or self.head.__class__ is not node_type:
@@ -382,7 +370,6 @@ class RootNode(object):
                 if indent < self.head.indent:
                     raise ParseError("Line should be indented at least %s chars" % self.head.indent)
             self.push(node_type(self, indent))
-        self.auto_apply()
 
     def push_key(self, indent, key):
         self.ensure_node(indent, MapNode)
@@ -391,7 +378,7 @@ class RootNode(object):
     def push_value(self, indent, value):
         value = self.marshalled(value)
         if self.head is None:
-            self.push(ScalarNode(self, indent))
+            self.push(ParseNode(self, indent))
         self.head.set_value(value)
         if self.head.is_temp:
             self.pop()
@@ -415,13 +402,12 @@ class RootNode(object):
         self.head = popped.prev
         if popped is None:
             raise ParseError("check")
-        popped.auto_apply()
+        popped.apply()
         value = popped.marshalled(popped.target)
         if self.head is None:
             self.set_value(value)
         else:
             self.head.set_value(value)
-            self.head.auto_apply()
 
     def set_value(self, value):
         self.doc_consumed = True
