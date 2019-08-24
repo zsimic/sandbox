@@ -64,7 +64,7 @@ def default_marshal(value):
 def decode(value):
     """Python 2/3 friendly decoding of output"""
     if isinstance(value, bytes):
-        return value.decode("utf-8")
+        return value.decode("utf-8", errors="ignore")
     return value
 
 
