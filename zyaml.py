@@ -13,11 +13,6 @@ RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 
-try:
-    basestring  # noqa, remove once py2 is dead
-except NameError:
-    basestring = str
-
 
 def first_line_split_match(match):
     for g in (2, 4, 6):
@@ -28,8 +23,8 @@ def first_line_split_match(match):
 
 
 def default_marshal(value):
-    if not isinstance(value, basestring):
-        return value
+    if value is None:
+        return None
     text = value.strip()
     if not text:
         return value
@@ -168,6 +163,8 @@ class DirectiveToken(Token):
 
 class KeyToken(Token):
     def consume_token(self, root):
+        if root.scalar_token is None:
+            root.set_scalar_token(ScalarToken(self.line_number, self.indent, ""))
         root.push_key(self)
 
 
@@ -180,12 +177,12 @@ class TagToken(Token):
         root.decoration.set_tag_token(self)
 
     def marshalled(self, value):
+        if self.marshaller is None:
+            return value
         try:
-            if self.marshaller is None:
-                return default_marshal(value)
             return self.marshaller(value)
         except ParseError as e:
-            e.complete(self)
+            e.auto_complete(self)
             raise
 
 
@@ -202,17 +199,19 @@ class AnchorToken(Token):
 
 class AliasToken(Token):
     def __init__(self, line_number, indent, text):
-        super(AliasToken, self).__init__(line_number, indent, text[1:])
+        super(AliasToken, self).__init__(line_number, indent)
+        self.anchor = text[1:]
 
     def represented_value(self):
-        return "*%s" % self.value
+        return "*%s" % self.anchor
 
-    def resolved_value(self, root):
-        return root.anchors.get(self.value)
+    def resolved_value(self):
+        return self.value
 
     def consume_token(self, root):
-        if self.value not in root.anchors:
-            raise ParseError("Undefined anchor &%s" % self.value)
+        if self.anchor not in root.anchors:
+            raise ParseError("Undefined anchor &%s" % self.anchor)
+        self.value = root.anchors.get(self.anchor)
         root.set_scalar_token(self)
 
 
@@ -232,7 +231,7 @@ class ScalarToken(Token):
             return "'%s'" % self.value.replace("'", "''")
         return "%s %s" % (self.style, self.value)
 
-    def resolved_value(self, root):
+    def resolved_value(self):
         if self.tag_token is None:
             return default_marshal(self.value)
         return self.tag_token.marshalled(self.value)
@@ -288,7 +287,7 @@ class ParseNode(object):
     def _new_target(self):
         """Return specific target instance for this node type"""
 
-    def resolved_value(self, root):
+    def resolved_value(self):
         if self.tag_token is None:
             return default_marshal(self.target)
         return self.tag_token.marshalled(self.target)
@@ -310,7 +309,7 @@ class ListNode(ParseNode):
     def _new_target(self):
         return []
 
-    def resolved_value(self, root):
+    def resolved_value(self):
         if self.tag_token is None:
             return self.target
         return self.tag_token.marshalled(self.target)
@@ -327,7 +326,7 @@ class MapNode(ParseNode):
     def _new_target(self):
         return {}
 
-    def resolved_value(self, root):
+    def resolved_value(self):
         if self.last_key is not None:
             self.target[self.last_key] = None
             self.last_key = None
@@ -427,7 +426,8 @@ class Decoration:
             self.secondary_tag_token = None
         return anchor_token, tag_token
 
-    def decorate(self, target, anchor_token, tag_token):
+    @staticmethod
+    def decorate(target, anchor_token, tag_token):
         if anchor_token is not None:
             if not hasattr(target, "anchor_token"):
                 raise ParseError("Anchors not allowed on %s" % target.__class__.__name__)
@@ -441,7 +441,7 @@ class Decoration:
     def resolved_value(root, target):
         if target is None:
             return None
-        value = target.resolved_value(root)
+        value = target.resolved_value()
         anchor = getattr(target, "anchor_token", None)
         if anchor is not None:
             root.anchors[anchor.value] = value
@@ -549,7 +549,7 @@ class RootNode(object):
                 token.consume_token(self)
             return simplified(self.docs)
         except ParseError as error:
-            error.complete(token)
+            error.auto_complete(token)
             raise
 
 
@@ -558,7 +558,7 @@ class ParseError(Exception):
         self.message = message
         self.line_number = None
         self.indent = None
-        self.complete(*context)
+        self.auto_complete(*context)
 
     def __str__(self):
         if self.indent is None:
@@ -571,7 +571,7 @@ class ParseError(Exception):
         if self.indent is None:
             self.indent = indent
 
-    def complete(self, *context):
+    def auto_complete(self, *context):
         if context:
             if isinstance(context[0], Token):
                 self.complete_coordinates(context[0].line_number, context[0].indent)
@@ -768,6 +768,7 @@ class Scanner(object):
                     end = m.span(1)[1]
                     text = line_text[start:end]
                     text = text[:-1] if text.endswith(style) else text[:-2]
+                    text = text.strip()
                     line_size = len(line_text)
                     if lines is None:
                         token.set_raw_text(text)
@@ -781,7 +782,7 @@ class Scanner(object):
                     lines = [line_text[start:]]
                     start = 0
                 else:
-                    lines.append(line_text)
+                    lines.append(line_text.strip())
                 line_number, line_text = next(self.generator)
         except StopIteration:
             raise ParseError("Unexpected end, runaway string at line %s?" % token.line_number)
@@ -821,11 +822,16 @@ class Scanner(object):
         folded, keep, indent, token = self._get_literal_styled_token(line_number, start, de_commented(line_text[start:]))
         lines = []
         while True:
-            line_number, line_text = next(self.generator)
-            line_size = len(line_text)
-            if line_size == 0:
-                lines.append(line_text)
-                continue
+            try:
+                line_number, line_text = next(self.generator)
+                line_size = len(line_text)
+                if line_size == 0:
+                    lines.append(line_text)
+                    continue
+            except StopIteration:
+                line_number += 1
+                line_text = ""
+                line_size = 0
             i = get_indent(line_text)
             if indent is None:
                 indent = i if i != 0 else 1
@@ -963,7 +969,7 @@ class Scanner(object):
                 yield simple_key
             yield StreamEndToken(line_number, 0)
         except ParseError as error:
-            error.complete(line_number, start)
+            error.auto_complete(line_number, start)
             raise
 
 
