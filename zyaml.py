@@ -24,11 +24,16 @@ def first_line_split_match(match):
 
 
 if (sys.version_info > (3, 0)):
+    import base64
+
     def to_number(text):
         try:
             return int(text)
         except ValueError:
             return float(text)
+
+    def base64_decode(value):
+        return base64.decodebytes(_checked_scalar(value).encode("ascii"))
 
 else:
     def to_number(text):
@@ -38,11 +43,13 @@ else:
         except ValueError:
             return float(text)
 
+    def base64_decode(value):
+        return _checked_scalar(value)
 
-def default_marshal(value):
-    if value is None:
+
+def default_marshal(text):
+    if text is None:
         return None
-    text = value.strip()
     if not text:
         return text
     m = RE_TYPED.match(text)
@@ -249,11 +256,14 @@ class ScalarToken(Token):
         return "%s %s" % (self.style, self.value)
 
     def resolved_value(self):
+        value = self.value
+        if self.style is None and value is not None:
+            value = value.strip()
         if self.tag_token is None:
             if self.style is None:
-                return default_marshal(self.value)
-            return self.value
-        return self.tag_token.marshalled(self.value)
+                return default_marshal(value)
+            return value
+        return self.tag_token.marshalled(value)
 
     def set_raw_lines(self, lines):
         self.set_raw_text(" ".join(lines))
@@ -656,12 +666,16 @@ class DefaultMarshaller:
 
     @staticmethod
     def bool(value):
-        text = str(_checked_scalar(value)).strip().lower()
+        text = str(_checked_scalar(value)).lower()
         if text in (FALSE, "n", "no", "off"):
             return False
         if text in (TRUE, "y", "yes", "on"):
             return True
         raise ParseError("'%s' is not a boolean" % value)
+
+    @staticmethod
+    def binary(value):
+        return base64_decode(value)
 
 
 class Marshallers(object):
@@ -788,7 +802,6 @@ class Scanner(object):
                     end = m.span(1)[1]
                     text = line_text[start:end]
                     text = text[:-1] if text.endswith(style) else text[:-2]
-                    text = text.strip()
                     line_size = len(line_text)
                     if lines is None:
                         token.set_raw_text(text)
@@ -802,8 +815,9 @@ class Scanner(object):
                     lines = [line_text[start:]]
                     start = 0
                 else:
-                    lines.append(line_text.strip())
+                    lines.append(line_text)
                 line_number, line_text = next(self.generator)
+                line_text = line_text.strip()
         except StopIteration:
             raise ParseError("Unexpected end, runaway string at line %s?" % token.line_number)
 
@@ -953,7 +967,7 @@ class Scanner(object):
                                 break
                         tokenizer = self.tokenizer_map.get(text[0])
                         if tokenizer is None:
-                            simple_key = ScalarToken(line_number, start, text.strip())
+                            simple_key = ScalarToken(line_number, start, text)
                         else:
                             if pending is not None:
                                 yield pending

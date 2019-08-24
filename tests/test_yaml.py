@@ -9,15 +9,14 @@ import zyaml
 def test_scalar():
     assert zyaml.default_marshal(None) is None
     assert zyaml.default_marshal("") == ""
-    assert zyaml.default_marshal("\n") == ""
-    assert zyaml.default_marshal("\nfoo\n") == "foo"
-    assert zyaml.default_marshal("null\n") is None
+    assert zyaml.default_marshal("foo") == "foo"
+    assert zyaml.default_marshal("null") is None
     assert zyaml.default_marshal("True") is True
-    assert zyaml.default_marshal("False\n") is False
+    assert zyaml.default_marshal("False") is False
     assert zyaml.default_marshal("0") == 0
     assert zyaml.default_marshal("10_000") == 10000
     assert zyaml.default_marshal("0.1") == 0.1
-    assert zyaml.default_marshal("0.1.1\n") == "0.1.1"
+    assert zyaml.default_marshal("0.1.1") == "0.1.1"
     assert zyaml.default_marshal("+135.057E+3") == 135057
     assert zyaml.default_marshal("_") == "_"
 

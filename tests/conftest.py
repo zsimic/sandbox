@@ -10,10 +10,10 @@ from functools import partial
 import click
 import poyo
 import pytest
+import ruamel.yaml
 import runez
 import strictyaml
 import yaml as pyyaml
-from ruamel.yaml import YAML as RYAML
 
 import zyaml
 
@@ -79,6 +79,8 @@ def vanilla_samples():
 def json_sanitized(value, stringify=zyaml.decode):
     if value is None:
         return None
+    if hasattr(value, "value"):
+        return json_sanitized(value.value)
     if isinstance(value, set):
         return [json_sanitized(v, stringify=stringify) for v in sorted(value)]
     if isinstance(value, (tuple, list)):
@@ -579,9 +581,13 @@ class YmlImplementation(object):
         return result
 
     def json_representation(self, result, stringify=zyaml.decode):
-        payload = result.json_payload()
-        payload = json_sanitized(payload, stringify=stringify)
-        return "%s\n" % json.dumps(payload, sort_keys=True, indent=2)
+        try:
+            payload = result.json_payload()
+            payload = json_sanitized(payload, stringify=stringify)
+            return "%s\n" % json.dumps(payload, sort_keys=True, indent=2)
+        except Exception:
+            print("Failed to json serialize %s" % result.sample)
+            raise
 
 
 class RawImplementation(YmlImplementation):
@@ -604,7 +610,8 @@ class ZyamlImplementation(YmlImplementation):
 
 class RuamelImplementation(YmlImplementation):
     def _load(self, stream):
-        y = RYAML(typ="safe")
+        y = ruamel.yaml.YAML(typ="safe")
+        ruamel.yaml.add_multi_constructor('', lambda l, t, n: n.value, Loader=ruamel.yaml.SafeLoader)
         y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
         return y.load_all(stream)
 
