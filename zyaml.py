@@ -141,7 +141,10 @@ class BlockEntryToken(Token):
 
     def consume_token(self, root):
         root.wrap_up()
-        root.ensure_node(self.indent + 1, ListNode)
+        indent = self.indent + 1
+        if root.head is not None and root.head.indent == indent and not isinstance(root.head, ListNode):
+            raise ParseError("Bad sequence entry indentation", self)
+        root.ensure_node(indent, ListNode)
 
 
 class DirectiveToken(Token):
@@ -457,7 +460,6 @@ class RootNode(object):
         result = str(self.decoration)
         result += "*" if isinstance(self.scalar_token, AliasToken) else ""
         result += "$" if self.scalar_token else ""
-        result = "[%s]" % result
         if self.head is None:
             return "%s /" % result
         return "%s %s" % (result, self.head.full_representation())
@@ -848,7 +850,7 @@ class Scanner(object):
                     token.value = "%s\n" % text
                 if i >= line_size:
                     line_text = None
-                return line_number, i, line_size, line_text, token
+                return line_number, 0, line_size, line_text, token
             value = line_text[indent:]
             if folded and lines and not value.startswith(" ") and not lines[-1].startswith(" "):
                 if lines[-1]:

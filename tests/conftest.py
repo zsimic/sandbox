@@ -418,7 +418,7 @@ def refresh(stacktrace, implementations, samples):
 
 @main.command()
 @stacktrace_option()
-@implementations_option()
+@implementations_option(default="raw,zyaml,ruamel")
 @samples_arg(default="misc.yml")
 def show(stacktrace, implementations, samples):
     """Show deserialized yaml objects as json"""
@@ -436,10 +436,12 @@ def show(stacktrace, implementations, samples):
                 implementations.track_result_combination(impl, rep)
             print("--------  %s  --------" % impl)
             print(rep)
-        fmt = "-- %%%ss %%s" % max(len(s) for s in ("/".join(x) for x in implementations.combinations))
-        for names, values in implementations.combinations.items():
-            print(fmt % ("/".join(names), "matches" if len(values) == 1 else "differ"))
-        print()
+        if implementations.combinations:
+            combinations = ["/".join(x) for x in implementations.combinations]
+            fmt = "-- %%%ss %%s" % max(len(s) for s in combinations)
+            for names, values in implementations.combinations.items():
+                print(fmt % ("/".join(names), "matches" if len(values) == 1 else "differ"))
+            print()
 
 
 @main.command()
