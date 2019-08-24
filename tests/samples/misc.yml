@@ -1,6 +1,7 @@
+!!map
 &someconfig some.config:
 #  enabled: false
-- &mymap
+- !!map &mymap
   type: docker
   enabled: true
   cmd: ["echo", "'[{}]'"]

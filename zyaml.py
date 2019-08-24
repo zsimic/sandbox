@@ -177,7 +177,7 @@ class TagToken(Token):
         self.marshaller = Marshallers.get_marshaller(text)
 
     def consume_token(self, root):
-        root.set_tag_token(self)
+        root.decoration.set_tag_token(self)
 
     def marshalled(self, value):
         try:
@@ -197,7 +197,7 @@ class AnchorToken(Token):
         return "&%s" % self.value
 
     def consume_token(self, root):
-        root.set_anchor_token(self)
+        root.decoration.set_anchor_token(self)
 
 
 class AliasToken(Token):
@@ -210,9 +210,6 @@ class AliasToken(Token):
     def resolved_value(self, root):
         return root.anchors.get(self.value)
 
-    def set_tag_token(self, token):
-        raise ParseError("Tag not allowed on aliases")
-
     def consume_token(self, root):
         if self.value not in root.anchors:
             raise ParseError("Undefined anchor &%s" % self.value)
@@ -223,6 +220,7 @@ class ScalarToken(Token):
     def __init__(self, line_number, indent, text, style=None):
         super(ScalarToken, self).__init__(line_number, indent, text)
         self.style = style
+        self.anchor_token = None
         self.tag_token = None
 
     def represented_value(self):
@@ -238,11 +236,6 @@ class ScalarToken(Token):
         if self.tag_token is None:
             return default_marshal(self.value)
         return self.tag_token.marshalled(self.value)
-
-    def set_tag_token(self, token):
-        if self.tag_token is not None:
-            raise ParseError("2 consecutive tags on scalar")
-        self.tag_token = token
 
     def set_raw_lines(self, lines):
         self.set_raw_text(" ".join(lines))
@@ -358,79 +351,135 @@ class MapNode(ParseNode):
 
 
 class Decoration:
-    def __init__(self):
+    def __init__(self, root):
+        self.root = root
+        self.line_number = 0
+        self.indent = 0
         self.anchor_token = None
         self.tag_token = None
+        self.secondary_anchor_token = None
+        self.secondary_tag_token = None
 
-    def pop(self):
-        pass
+    def __repr__(self):
+        result = "[%s,%s] " % (self.line_number, self.indent)
+        result += "" if self.anchor_token is None else "&1 "
+        result += "" if self.tag_token is None else "!1 "
+        result += "" if self.secondary_anchor_token is None else "&2 "
+        result += "" if self.secondary_tag_token is None else "!2 "
+        return result
+
+    def track(self, token):
+        if token.line_number != self.line_number:
+            self.root.wrap_up()
+            self.line_number = token.line_number
+            self.indent = token.indent
+            self.slide_anchor_token()
+            self.slide_tag_token()
+
+    def slide_anchor_token(self):
+        if self.anchor_token is not None:
+            if self.secondary_anchor_token is not None:
+                raise ParseError("Too many anchor tokens", self.anchor_token)
+            self.secondary_anchor_token = self.anchor_token
+            self.anchor_token = None
+
+    def slide_tag_token(self):
+        if self.tag_token is not None:
+            if self.secondary_tag_token is not None:
+                raise ParseError("Too many tag tokens", self.tag_token)
+            self.secondary_tag_token = self.tag_token
+            self.tag_token = None
+
+    def set_anchor_token(self, token):
+        self.track(token)
+        if self.anchor_token is not None:
+            self.slide_anchor_token()
+        self.anchor_token = token
+
+    def set_tag_token(self, token):
+        self.track(token)
+        if self.tag_token is not None:
+            self.slide_tag_token()
+        self.tag_token = token
+
+    def decorate_token(self, token):
+        self.track(token)
+        anchor_token, tag_token = self.pop_tokens(allow_secondary=False)
+        self.decorate(token, anchor_token, tag_token)
+
+    def decorate_node(self, node):
+        anchor_token, tag_token = self.pop_tokens(allow_secondary=True)
+        self.decorate(node, anchor_token, tag_token)
+
+    def pop_tokens(self, allow_secondary=False):
+        anchor_token = tag_token = None
+        if self.anchor_token is not None:
+            anchor_token = self.anchor_token
+            self.anchor_token = None
+        elif allow_secondary:
+            anchor_token = self.secondary_anchor_token
+            self.secondary_anchor_token = None
+        if self.tag_token is not None:
+            tag_token = self.tag_token
+            self.tag_token = None
+        elif allow_secondary:
+            tag_token = self.secondary_tag_token
+            self.secondary_tag_token = None
+        return anchor_token, tag_token
+
+    def decorate(self, target, anchor_token, tag_token):
+        if anchor_token is not None:
+            if not hasattr(target, "anchor_token"):
+                raise ParseError("Anchors not allowed on %s" % target.__class__.__name__)
+            target.anchor_token = anchor_token
+        if tag_token is not None:
+            if not hasattr(target, "tag_token"):
+                raise ParseError("Tags not allowed on %s" % type(target))
+            target.tag_token = tag_token
+
+    @staticmethod
+    def resolved_value(root, target):
+        if target is None:
+            return None
+        value = target.resolved_value(root)
+        anchor = getattr(target, "anchor_token", None)
+        if anchor is not None:
+            root.anchors[anchor.value] = value
+        return value
 
 
 class RootNode(object):
     def __init__(self):
         self.docs = []
         self.head = None  # type: ParseNode | None
-        self._head_token = None
-        self.anchor_token = None
-        self.tag_token = None
+        self.decoration = Decoration(self)
         self.scalar_token = None
         self.anchors = {}
 
     def __repr__(self):
-        result = ""
-        result += "" if self._head_token is None else str(self._head_token.indent)
+        result = str(self.decoration)
         result += "*" if isinstance(self.scalar_token, AliasToken) else ""
-        result += "&" if self.anchor_token else ""
-        result += "!" if self.tag_token else ""
         result += "$" if self.scalar_token else ""
         result = "[%s]" % result
         if self.head is None:
             return "%s /" % result
         return "%s %s" % (result, self.head.full_representation())
 
-    def update_head_token(self, token):
-        if self._head_token is None or self._head_token.line_number != token.line_number:
-            self.wrap_up()
-            self._head_token = token
-
-    def set_anchor_token(self, token):
-        self.update_head_token(token)
-        if self.anchor_token is not None:
-            raise ParseError("2 consecutive anchors given")
-        self.anchor_token = token
-
-    def set_tag_token(self, token):
-        self.update_head_token(token)
-        if self.tag_token is not None:
-            raise ParseError("2 consecutive tags given")
-        self.tag_token = token
-
     def set_scalar_token(self, token):
-        self.update_head_token(token)
-        if self.tag_token is not None:
-            token.tag_token = self.tag_token
-            self.tag_token = None
+        self.decoration.decorate_token(token)
         if self.scalar_token is not None:
             raise ParseError("2 consecutive scalars given")
         self.scalar_token = token
 
     def wrap_up(self):
         if self.scalar_token is not None:
-            value = self.popped_scalar_value()
+            value = self.decoration.resolved_value(self, self.scalar_token)
+            self.scalar_token = None
             if self.head is None:
-                self.push(ParseNode(self._head_token.indent))
+                self.push(ParseNode(self.decoration.indent))
             self.head.set_value(value)
             if self.head.is_temp:
                 self.pop()
-
-    def popped_scalar_value(self):
-        if self.scalar_token is not None:
-            value = self.scalar_token.resolved_value(self)
-            if self.anchor_token is not None:
-                self.anchors[self.anchor_token.value] = value
-                self.anchor_token = None
-            self.scalar_token = None
-            return value
 
     def needs_new_node(self, indent, node_type):
         if self.head is None or self.head.__class__ is not node_type:
@@ -456,16 +505,14 @@ class RootNode(object):
             self.push(node_type(indent))
 
     def push_key(self, key_token):
-        self.update_head_token(key_token)
-        key = self.popped_scalar_value()
-        self.ensure_node(self._head_token.indent, MapNode)
+        self.decoration.track(key_token)
+        key = self.decoration.resolved_value(self, self.scalar_token)
+        self.scalar_token = None
+        self.ensure_node(self.decoration.indent, MapNode)
         self.head.push_key(key)
 
     def push(self, node):
-        node.anchor_token = self.anchor_token
-        self.anchor_token = None
-        node.tag_token = self.tag_token
-        self.tag_token = None
+        self.decoration.decorate_node(node)
         if self.head is not None:
             if self.head.indent is None:
                 node.is_temp = node.indent is not None
@@ -480,7 +527,7 @@ class RootNode(object):
         popped = self.head
         if popped is not None:
             self.head = popped.prev
-            value = popped.resolved_value(self)
+            value = self.decoration.resolved_value(self, popped)
             if self.head is None:
                 self.docs.append(value)
             else:
