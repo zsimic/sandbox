@@ -413,7 +413,7 @@ def refresh(stacktrace, implementations, samples):
                     os.unlink(jpath)
 
     for sample in samples:
-        sample.refresh(impl=implementations[0], stacktrace=stacktrace)
+        sample.refresh(impl=implementations.selected[0], stacktrace=stacktrace)
 
 
 @main.command()
