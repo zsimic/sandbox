@@ -79,8 +79,6 @@ def vanilla_samples():
 def json_sanitized(value, stringify=zyaml.decode):
     if value is None:
         return None
-    if hasattr(value, "value"):
-        return json_sanitized(value.value)
     if isinstance(value, set):
         return [json_sanitized(v, stringify=stringify) for v in sorted(value)]
     if isinstance(value, (tuple, list)):
@@ -608,10 +606,27 @@ class ZyamlImplementation(YmlImplementation):
         return zyaml.Scanner(stream)
 
 
+def ruamel_passthrough_tags(loader, tag, node):
+    name = node.__class__.__name__
+    if "Seq" in name:
+        result = []
+        for v in node.value:
+            result.append(ruamel_passthrough_tags(loader, tag, v))
+        return result
+    if "Map" in name:
+        result = {}
+        for k, v in node.value:
+            k = ruamel_passthrough_tags(loader, tag, k)
+            v = ruamel_passthrough_tags(loader, tag, v)
+            result[k] = v
+        return result
+    return zyaml.default_marshal(node.value)
+
+
 class RuamelImplementation(YmlImplementation):
     def _load(self, stream):
         y = ruamel.yaml.YAML(typ="safe")
-        ruamel.yaml.add_multi_constructor('', lambda l, t, n: n.value, Loader=ruamel.yaml.SafeLoader)
+        ruamel.yaml.add_multi_constructor('', ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
         y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
         return y.load_all(stream)
 

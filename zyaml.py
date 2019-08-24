@@ -44,7 +44,7 @@ else:
             return float(text)
 
     def base64_decode(value):
-        return _checked_scalar(value)
+        return _checked_scalar(value).decode('base64')
 
 
 def default_marshal(text):
