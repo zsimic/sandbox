@@ -596,7 +596,7 @@ class RawImplementation(YmlImplementation):
 
 class ZyamlImplementation(YmlImplementation):
     def _load(self, stream):
-        return zyaml.load_string(stream.read())
+        return zyaml.load(stream)
 
     def _tokens(self, stream):
         return zyaml.Scanner(stream)

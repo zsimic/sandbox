@@ -1,12 +1,13 @@
 import codecs
 import collections
 import re
+import sys
 
 
 NULL = ("null", "~")
 FALSE = "false"
 TRUE = "true"
-RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$", re.IGNORECASE)
+RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9_]*\.?[0-9_]+([eE][-+]?[0-9_]+)?)$", re.IGNORECASE)
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
 RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
 RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
@@ -20,6 +21,22 @@ def first_line_split_match(match):
         if s >= 0:
             return s, match.group(g)
     return 0, None
+
+
+if (sys.version_info > (3, 0)):
+    def to_number(text):
+        try:
+            return int(text)
+        except ValueError:
+            return float(text)
+
+else:
+    def to_number(text):
+        try:
+            text = text.replace("_", "")
+            return int(text)
+        except ValueError:
+            return float(text)
 
 
 def default_marshal(value):
@@ -39,12 +56,9 @@ def default_marshal(value):
     if text == TRUE:
         return True
     try:
-        return int(text)
+        return to_number(text)
     except ValueError:
-        try:
-            return float(text)
-        except ValueError:
-            return text
+        return text
 
 
 def decode(value):
@@ -666,8 +680,9 @@ class Marshallers(object):
 class Scanner(object):
     def __init__(self, buffer):
         if hasattr(buffer, "read"):
-            buffer = buffer.read()
-        self.generator = enumerate(buffer.splitlines(), start=1)
+            self.generator = enumerate(buffer.read().splitlines(), start=1)
+        else:
+            self.generator = enumerate(buffer.splitlines(), start=1)
         self.line_regex = RE_BLOCK_SEP
         self.flow_ender = None
         self.leaders = {
@@ -982,9 +997,8 @@ def load(stream):
     """
     :param str|file stream: Stream or contents to load
     """
-    if hasattr(stream, "read"):
-        stream = stream.read()
-    return load_string(stream)
+    scanner = Scanner(stream)
+    return RootNode().deserialized(scanner)
 
 
 def load_string(contents):
