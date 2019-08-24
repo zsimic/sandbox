@@ -8,8 +8,8 @@ FALSE = "false"
 TRUE = "true"
 RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)$", re.IGNORECASE)
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|[!&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
-RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|[!&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
+RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
+RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 
@@ -233,7 +233,9 @@ class ScalarToken(Token):
 
     def resolved_value(self):
         if self.tag_token is None:
-            return default_marshal(self.value)
+            if self.style is None:
+                return default_marshal(self.value)
+            return self.value
         return self.tag_token.marshalled(self.value)
 
     def set_raw_lines(self, lines):
@@ -590,7 +592,13 @@ def _checked_scalar(value):
 class DefaultMarshaller:
     @staticmethod
     def get_marshaller(name):
+        if not name:
+            return DefaultMarshaller.non_specific
         return getattr(DefaultMarshaller, name, None)
+
+    @staticmethod
+    def non_specific(value):
+        return value
 
     @staticmethod
     def map(value):
