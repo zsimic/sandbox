@@ -27,10 +27,10 @@ def default_marshal(value):
         return None
     text = value.strip()
     if not text:
-        return value
+        return text
     m = RE_TYPED.match(text)
     if m is None:
-        return value
+        return text
     text = text.lower()
     if text in NULL:
         return None
@@ -44,7 +44,7 @@ def default_marshal(value):
         try:
             return float(text)
         except ValueError:
-            return value
+            return text
 
 
 def decode(value):
@@ -291,7 +291,7 @@ class ParseNode(object):
 
     def resolved_value(self):
         if self.tag_token is None:
-            return default_marshal(self.target)
+            return self.target
         return self.tag_token.marshalled(self.target)
 
     def push_key(self, value):
@@ -310,11 +310,6 @@ class ParseNode(object):
 class ListNode(ParseNode):
     def _new_target(self):
         return []
-
-    def resolved_value(self):
-        if self.tag_token is None:
-            return self.target
-        return self.tag_token.marshalled(self.target)
 
     def set_value(self, value):
         self.target.append(value)
@@ -645,7 +640,7 @@ class DefaultMarshaller:
 
     @staticmethod
     def bool(value):
-        text = str(_checked_scalar(value)).lower()
+        text = str(_checked_scalar(value)).strip().lower()
         if text in (FALSE, "n", "no", "off"):
             return False
         if text in (TRUE, "y", "yes", "on"):
