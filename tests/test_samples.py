@@ -1,4 +1,4 @@
-from .conftest import ZyamlImplementation
+from .conftest import json_sanitized, ZyamlImplementation
 
 
 def test_samples(vanilla_samples):
@@ -7,6 +7,7 @@ def test_samples(vanilla_samples):
     for sample in vanilla_samples:
         result = impl.load(sample, stacktrace=False)
         payload = result.json_payload()
+        payload = json_sanitized(payload)
         expected = sample.expected
         if expected is None:
             skipped += 1
