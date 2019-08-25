@@ -1,58 +1,112 @@
 import codecs
 import collections
 import datetime
+import dateutil
 import re
 import sys
-from dateutil import tz
 
 
 PY2 = sys.version_info < (3, 0)
-NULL = ("null", "~")
-FALSE = "false"
-TRUE = "true"
-RE_SIMPLE_SCALAR = re.compile(r"^(false|true|null|[-+]?[0-9_]*\.?[0-9_]+([eE][-+]?[0-9_]+)?)$", re.IGNORECASE)
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
 RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
 RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 
-RE_DT = re.compile(
-    r"([0-9]{4})-([0-9][0-9]?)-([0-9][0-9]?)" 
+RE_SIMPLE_SCALAR = re.compile(
+    r"^("
+    r"(false|true|null|~)|"
+    r"([-+]?([0-9_]*\.?[0-9_]*([eE][-+]?[0-9_]+)?|\.?inf|\.?nan|0o[0-7]+|0x[0-9a-f]+))|"
+    r"(([0-9]{4})-([0-9][0-9]?)-([0-9][0-9]?)" 
     r"([Tt \t]([0-9][0-9]?):([0-9][0-9]?):([0-9][0-9]?)(\.[0-9]*)?"
-    r"([ \t]*(Z|[+-][0-9][0-9]?(:([0-9][0-9]?))?))?)?"
+    r"([ \t]*(Z|[+-][0-9][0-9]?(:([0-9][0-9]?))?))?)?)"
+    r")$",
+    re.IGNORECASE
 )
+
+UTC = dateutil.tz.tzoffset("UTC", 0)
+CONSTANTS = {
+    "null": None,
+    "~": None,
+    "false": False,
+    "n": False,
+    "no": False,
+    "off": False,
+    "true": True,
+    "y": True,
+    "yes": True,
+    "on": True,
+}
+
+
+if PY2:
+    def cleaned_number(text):
+        return text.replace("_", "")
+
+    def base64_decode(value):
+        return _checked_scalar(value).decode('base64')
+
+else:
+    import base64
+
+    def cleaned_number(text):
+        return text
+
+    def base64_decode(value):
+        return base64.decodebytes(_checked_scalar(value).encode("ascii"))
+
+
+def to_number(text):
+    try:
+        return int(text)
+    except ValueError:
+        try:
+            return float(text)
+        except ValueError:
+            if len(text) >= 3:
+                if text[0] == "0":
+                    if text[1] == "o":
+                        return int(text, base=8)
+                    if text[1] == "x":
+                        return int(text, base=16)
+                return float(text.replace(".", ""))  # Edge case: "-.inf"
+            raise
 
 
 def get_tzinfo(text):
     if text is None:
         return None
     if text == "Z":
-        return datetime.timezone.utc
+        return UTC
     hours, _, minutes = text.partition(":")
     minutes = int(minutes) if minutes else 0
-    return tz.tzoffset(text, int(hours) * 3600 + minutes * 60)
+    offset = int(hours) * 3600 + minutes * 60
+    return UTC if offset == 0 else dateutil.tz.tzoffset(text, offset)
 
 
-def extracted_date(match):
-    year, month, day, _, hour, minute, second, fraction, _, tzone, _, _ = match.groups()
-    year = int(year)
-    month = int(month)
-    day = int(day)
-    if hour is None:
-        return datetime.date(year, month, day)
-    hour = int(hour)
-    minute = int(minute)
-    second = int(second)
-    fraction = int(round(float(fraction or 0) * 1000000))
-    return datetime.datetime(year, month, day, hour, minute, second, fraction, get_tzinfo(tzone))
-
-
-def to_date(value):
-    match = RE_DT.match(value)
+def default_marshal(text):
+    if not text:
+        return text
+    match = RE_SIMPLE_SCALAR.match(text)
     if match is None:
-        return None
-    return extracted_date(match)
+        return text
+    _, constant, number, _, _, _, y, m, d, _, hh, mm, ss, sf, _, tz, _, _ = match.groups()
+    if constant is not None:
+        return CONSTANTS[constant.lower()]
+    if number is not None:
+        return to_number(cleaned_number(number))
+    if y is not None:
+        y = int(y)
+        m = int(m)
+        d = int(d)
+        if hh is None:
+            return datetime.date(y, m, d)
+        hh = int(hh)
+        mm = int(mm)
+        ss = int(ss)
+        sf = int(round(float(sf or 0) * 1000000))
+        return datetime.datetime(y, m, d, hh, mm, ss, sf, get_tzinfo(tz))
+    return text
 
 
 def first_line_split_match(match):
@@ -61,55 +115,6 @@ def first_line_split_match(match):
         if s >= 0:
             return s, match.group(g)
     return 0, None
-
-if PY2:
-    def to_number(text):
-        try:
-            text = text.replace("_", "")
-            return int(text)
-        except ValueError:
-            return float(text)
-
-    def base64_decode(value):
-        return _checked_scalar(value).decode('base64')
-
-else:
-    import base64
-
-    def to_number(text):
-        try:
-            return int(text)
-        except ValueError:
-            return float(text)
-
-    def base64_decode(value):
-        return base64.decodebytes(_checked_scalar(value).encode("ascii"))
-
-
-def extracted_scalar(text):
-    text = text.lower()
-    if text in NULL:
-        return None
-    if text == FALSE:
-        return False
-    if text == TRUE:
-        return True
-    try:
-        return to_number(text)
-    except ValueError:
-        return text
-
-
-def default_marshal(text):
-    if not text:
-        return text
-    m = RE_SIMPLE_SCALAR.match(text)
-    if m is not None:
-        return extracted_scalar(text)
-    m = RE_DT.match(text)
-    if m is not None:
-        return extracted_date(m)
-    return text
 
 
 def decode(value):
@@ -669,31 +674,19 @@ class DefaultMarshaller:
     def map(value):
         if isinstance(value, dict):
             return value
-        if isinstance(value, list):
-            if all(isinstance(x, dict) for x in value):
-                result = {}
-                for x in value:
-                    result.update(x)
-                return result
         raise ParseError("not a map")
 
     @staticmethod
     def seq(value):
         if isinstance(value, list):
             return value
-        if isinstance(value, dict):
-            result = []
-            for k, v in value.items():
-                result.append(k)
-                result.append(v)
-            return result
-        raise ParseError("not a list or map")
+        raise ParseError("not a list")
 
     @staticmethod
     def set(value):
-        if isinstance(value, dict):
-            return set(value.keys())
-        raise ParseError("not a map, !!set applies to maps")
+        if isinstance(value, list):
+            return value
+        raise ParseError("not a list")
 
     @staticmethod
     def str(value):
@@ -710,16 +703,14 @@ class DefaultMarshaller:
 
     @staticmethod
     def bool(value):
-        text = str(_checked_scalar(value)).lower()
-        if text in (FALSE, "n", "no", "off"):
-            return False
-        if text in (TRUE, "y", "yes", "on"):
-            return True
+        value = CONSTANTS.get(_checked_scalar(value).lower())
+        if isinstance(value, bool):
+            return value
         raise ParseError("'%s' is not a boolean" % value)
 
     @staticmethod
     def binary(value):
-        return base64_decode(value)
+        return base64_decode(_checked_scalar(value))
 
 
 class Marshallers(object):
@@ -833,11 +824,17 @@ class Scanner(object):
     def consume_comma(line_number, start, _):
         return FlowEntryToken(line_number, start)
 
-    def _multiline(self, line_number, start, line_text, style):
+    def _multiline(self, line_number, start, line_size, line_text, style):
         regex = RE_DOUBLE_QUOTE_END if style == '"' else RE_SINGLE_QUOTE_END
         token = ScalarToken(line_number, start, None, style=style)
         try:
             start = start + 1
+            if start < line_size and line_text[start] == style:
+                token.value = ""
+                start = start + 1
+                if start >= line_size:
+                    line_text = None
+                return line_number, start, line_size, line_text, token
             lines = None
             m = None
             while m is None:
@@ -1004,7 +1001,9 @@ class Scanner(object):
                             continue
                         if pending is None:
                             if text[0] in "\"'":
-                                line_number, start, line_size, upcoming, token = self._multiline(line_number, start, current_line, text[0])
+                                line_number, start, line_size, upcoming, token = self._multiline(
+                                    line_number, start, line_size, current_line, text[0]
+                                )
                                 break
                             if text[0] in '|>':
                                 line_number, start, line_size, upcoming, token = self._consume_literal(line_number, start, current_line)

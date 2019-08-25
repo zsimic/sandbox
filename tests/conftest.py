@@ -68,7 +68,13 @@ def scan_samples(sample_name):
 
 
 def get_samples(sample_name):
-    return sorted(scan_samples(sample_name), key=lambda x: x.key)
+    result = []
+    if isinstance(sample_name, (list, tuple)):
+        for name in sample_name:
+            result.extend(scan_samples(name))
+    else:
+        result.extend(scan_samples(sample_name))
+    return sorted(result, key=lambda x: x.key)
 
 
 @pytest.fixture
@@ -239,7 +245,7 @@ def plural(count):
 
 def samples_arg(option=False, default="vanilla", count=None, **kwargs):
     def _callback(_ctx, _param, value):
-        if count == 1 and value and not value.endswith("."):
+        if count == 1 and hasattr(value, "endswith") and not value.endswith("."):
             value += "."
 
         s = get_samples(value)
@@ -293,13 +299,15 @@ def simplified_date(value):
 
 @main.command()
 @stacktrace_option()
-@click.option("--compact", "-1", is_flag=True, help="Do not show diff text")
+@click.option("--compact/--no-compact", "-1", is_flag=True, default=None, help="Do not show diff text")
 @click.option("--untyped", "-u", is_flag=True, help="Parse everything as strings")
 @implementations_option(count=2)
-@samples_arg()
+@samples_arg(nargs=-1, default=None)
 def diff(stacktrace, compact, untyped, implementations, samples):
     """Compare deserialization of 2 implementations"""
     stringify = str if untyped else zyaml.decode
+    if compact is None:
+        compact = len(samples) > 1
     with runez.TempFolder():
         generated_files = []
         for sample in samples:
@@ -311,12 +319,13 @@ def diff(stacktrace, compact, untyped, implementations, samples):
                     result.data = json_sanitized(result.data, stringify=stringify, dt=simplified_date)
                 fname = "%s-%s.json" % (impl.name, sample.basename)
                 generated_files[-1].extend([fname, result])
+                result.json = "error" if result.error else impl.json_representation(result, stringify=stringify)
                 if not compact:
                     with open(fname, "w") as fh:
                         if result.error:
                             fh.write("%s\n" % result.error)
                         else:
-                            fh.write(impl.json_representation(result, stringify=stringify))
+                            fh.write(result.json)
 
         matches = 0
         failed = 0
@@ -326,7 +335,7 @@ def diff(stacktrace, compact, untyped, implementations, samples):
                 matches += 1
                 failed += 1
                 print("%s: both failed" % sample)
-            elif r1.data == r2.data:
+            elif r1.json == r2.json:
                 matches += 1
                 print("%s: OK" % sample)
             else:
@@ -336,7 +345,7 @@ def diff(stacktrace, compact, untyped, implementations, samples):
 
         if not compact:
             for sample, n1, r1, n2, r2 in generated_files:
-                if r1.data != r2.data:
+                if r1.json != r2.json:
                     output = runez.run("diff", "-br", "-U1", n1, n2, fatal=None, include_error=True)
                     print("========  %s  ========" % sample)
                     print(output)
@@ -369,6 +378,9 @@ def move(source, dest, basename, extension, subfolder=None):
 def mv(samples, category):
     """Move a sample to a given category"""
     sample = samples[0]
+    if sample.category == category:
+        print("%s is already in %s" % (sample, category))
+        sys.exit(0)
     dest = os.path.join(SAMPLE_FOLDER, category)
     if not os.path.isdir(dest):
         sys.exit("No folder %s" % relative_sample_path(dest, base=PROJECT_FOLDER))

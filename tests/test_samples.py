@@ -7,8 +7,9 @@ def test_samples(vanilla_samples):
     for sample in vanilla_samples:
         result = impl.load(sample, stacktrace=False)
         payload = result.json_payload()
-        payload = json_sanitized(payload)
         expected = sample.expected
+        payload = json_sanitized(payload)
+        expected = json_sanitized(expected)
         if expected is None:
             skipped += 1
         else:
