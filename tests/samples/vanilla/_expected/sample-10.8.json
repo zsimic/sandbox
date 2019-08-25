@@ -1,0 +1,26 @@
+{
+  "A null": null,
+  "Booleans": [
+    true,
+    false
+  ],
+  "Floats": [
+    0.0,
+    -0.0,
+    12000.0,
+    -200000.0
+  ],
+  "Integers": [
+    0,
+    0,
+    3,
+    -19
+  ],
+  "Invalid": [
+    true,
+    null,
+    7,
+    58,
+    12.3
+  ]
+}
