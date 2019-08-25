@@ -7,6 +7,7 @@ import sys
 
 
 PY2 = sys.version_info < (3, 0)
+RESERVED = "@`"
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
 RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
 RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
@@ -327,24 +328,13 @@ class ScalarToken(Token):
             return value
         return self.tag_token.marshalled(value)
 
-    def set_raw_lines(self, lines):
-        self.set_raw_text(" ".join(lines))
-
-    def set_raw_text(self, text):
-        if self.style == "'":
-            text = text.replace("''", "'")
-        elif self.style == '"':
-            text = codecs.decode(text, "unicode_escape")
-        self.value = text
-
-    def append_newline(self):
-        self.value = "%s\n" % (self.value or "")
-
     def append_text(self, text):
         if not self.value:
             self.value = text
         elif self.value[-1] in " \n":
             self.value = "%s%s" % (self.value, text.lstrip())
+        elif not text:
+            self.value = "%s\n" % self.value
         else:
             self.value = "%s %s" % (self.value, text.lstrip())
 
@@ -881,11 +871,15 @@ class Scanner(object):
                     text = line_text[start:end]
                     text = text[:-1] if text.endswith(style) else text[:-2]
                     line_size = len(line_text)
-                    if lines is None:
-                        token.set_raw_text(text)
-                    else:
+                    if lines is not None:
                         lines.append(text)
-                        token.set_raw_lines(lines)
+                        for line in lines:
+                            token.append_text(line)
+                        text = token.value
+                    if style == "'":
+                        token.value = text.replace("''", "'")
+                    else:
+                        token.value = codecs.decode(text, "unicode_escape")
                     if end >= line_size:
                         line_text = None
                     return line_number, end, line_size, line_text, token
@@ -1023,7 +1017,7 @@ class Scanner(object):
                     pending = None
                 if start == line_size:
                     if pending is not None:
-                        pending.append_newline()
+                        pending.append_text("")
                     upcoming = None
                     continue
                 current_line = upcoming
@@ -1047,7 +1041,6 @@ class Scanner(object):
                                 break
                         tokenizer = self.tokenizer_map.get(text[0])
                         if tokenizer is None:
-                            RESERVED = "@`"
                             if text[0] in RESERVED:
                                 raise ParseError("Character '%s' is reserved" % text[0], line_number, start)
                             simple_key = ScalarToken(line_number, start, text)

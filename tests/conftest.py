@@ -63,7 +63,7 @@ def scan_samples(sample_name):
         for fname in files:
             if fname.endswith(".yml"):
                 sample = Sample(os.path.join(root, fname))
-                if sample_name == "all" or sample_name in sample.name:
+                if sample.is_match(sample_name):
                     yield sample
 
 
@@ -245,9 +245,6 @@ def plural(count):
 
 def samples_arg(option=False, default="vanilla", count=None, **kwargs):
     def _callback(_ctx, _param, value):
-        if count == 1 and hasattr(value, "endswith") and not value.endswith("."):
-            value += "."
-
         s = get_samples(value)
         if not s:
             raise click.BadParameter("No samples match %s" % value)
@@ -502,6 +499,14 @@ class Sample(object):
             except (OSError, IOError):
                 return None
         return self._expected
+
+    def is_match(self, name):
+        if name == "all":
+            return True
+        if self.category.startswith(name):
+            return True
+        if self.basename.startswith(name) or self.basename.endswith(name):
+            return True
 
     def refresh(self, impl, stacktrace=None):
         """
