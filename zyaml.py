@@ -8,8 +8,8 @@ import sys
 
 PY2 = sys.version_info < (3, 0)
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
-RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
+RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
+RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 
@@ -667,6 +667,12 @@ def _checked_scalar(value):
     return value
 
 
+def _checked_type(value, expected_type):
+    if not isinstance(value, expected_type):
+        raise ParseError("Expecting %s, got %s" % (expected_type.__name__, type(value).__name__))
+    return value
+
+
 class DefaultMarshaller:
     @staticmethod
     def get_marshaller(name):
@@ -680,21 +686,26 @@ class DefaultMarshaller:
 
     @staticmethod
     def map(value):
+        return _checked_type(value, dict)
+
+    @staticmethod
+    def omap(value):
         if isinstance(value, dict):
             return value
-        raise ParseError("not a map")
+        if isinstance(value, list):
+            result = {}
+            for item in value:
+                result.update(item)
+            return result
+        raise ParseError("Can't transform %s to an ordered map" % type(value).__name__)
 
     @staticmethod
     def seq(value):
-        if isinstance(value, list):
-            return value
-        raise ParseError("not a list")
+        return _checked_type(value, list)
 
     @staticmethod
     def set(value):
-        if isinstance(value, list):
-            return value
-        raise ParseError("not a list")
+        return _checked_type(value, list)
 
     @staticmethod
     def str(value):
@@ -1029,6 +1040,9 @@ class Scanner(object):
                                 break
                         tokenizer = self.tokenizer_map.get(text[0])
                         if tokenizer is None:
+                            RESERVED = "@`"
+                            if text[0] in RESERVED:
+                                raise ParseError("Character '%s' is reserved" % text[0], line_number, start)
                             simple_key = ScalarToken(line_number, start, text)
                         else:
                             if pending is not None:
