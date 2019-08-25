@@ -568,11 +568,14 @@ class YmlImplementation(object):
     def _tokens(self, contents):
         raise Exception("not implemented")
 
+    def _simplified(self, value):
+        return zyaml.simplified(value)
+
     def load_stream(self, contents):
         data = self._load(contents)
         if data is not None and inspect.isgenerator(data):
             data = list(data)
-        return zyaml.simplified(data)
+        return self._simplified(data)
 
     def load_path(self, path):
         with open(path) as fh:
@@ -620,6 +623,9 @@ class ZyamlImplementation(YmlImplementation):
 
     def _tokens(self, stream):
         return zyaml.Scanner(stream)
+
+    def _simplified(self, value):
+        return value
 
 
 def ruamel_passthrough_tags(loader, tag, node):

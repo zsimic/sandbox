@@ -8,8 +8,8 @@ import sys
 
 PY2 = sys.version_info < (3, 0)
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
-RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
+RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
+RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 
@@ -240,6 +240,11 @@ class DirectiveToken(Token):
 
     def represented_value(self):
         return "%s %s" % (self.name, self.value)
+
+    def consume_token(self, root):
+        if root.directive is not None:
+            raise ParseError("Duplicate directive")
+        root.directive = self
 
 
 class KeyToken(Token):
@@ -532,6 +537,7 @@ class Decoration:
 class RootNode(object):
     def __init__(self):
         self.docs = []
+        self.directive = None
         self.head = None  # type: ParseNode | None
         self.decoration = Decoration(self)
         self.scalar_token = None
@@ -614,13 +620,14 @@ class RootNode(object):
                 self.head.set_value(value)
 
     def pop_doc(self, closing=False):
-        if self.head is None:
-            self.wrap_up()
+        # if self.head is None:
+        self.wrap_up()
         if closing and self.head is None:
             self.docs.append("")
         while self.head is not None:
             self.pop()
         self.anchors = {}
+        self.directive = None
 
     def deserialized(self, tokens):
         token = None
