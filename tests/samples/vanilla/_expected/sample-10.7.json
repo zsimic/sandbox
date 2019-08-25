@@ -1,0 +1,7 @@
+{
+  "infinity": Infinity,
+  "negative": -1.0,
+  "not a number": NaN,
+  "positive": 23000.0,
+  "zero": 0.0
+}

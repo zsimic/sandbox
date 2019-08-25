@@ -56,21 +56,25 @@ else:
         return base64.decodebytes(_checked_scalar(value).encode("ascii"))
 
 
+def to_float(text):
+    try:
+        return float(text)
+    except ValueError:
+        if len(text) >= 3:
+            if text[0] == "0":
+                if text[1] == "o":
+                    return int(text, base=8)
+                if text[1] == "x":
+                    return int(text, base=16)
+            return float(text.replace(".", ""))  # Edge case: "-.inf"
+        raise
+
+
 def to_number(text):
     try:
         return int(text)
     except ValueError:
-        try:
-            return float(text)
-        except ValueError:
-            if len(text) >= 3:
-                if text[0] == "0":
-                    if text[1] == "o":
-                        return int(text, base=8)
-                    if text[1] == "x":
-                        return int(text, base=16)
-                return float(text.replace(".", ""))  # Edge case: "-.inf"
-            raise
+        return to_float(text)
 
 
 def get_tzinfo(text):
@@ -722,6 +726,10 @@ class DefaultMarshaller:
         if isinstance(value, datetime.datetime) or isinstance(value, datetime.date):
             return value
         raise ParseError("'%s' is not a date" % value)
+
+    @staticmethod
+    def float(value):
+        return to_float(_checked_scalar(value))
 
 
 class Marshallers(object):
