@@ -92,9 +92,13 @@ def default_marshal(text):
         return text
     _, constant, number, _, _, _, y, m, d, _, hh, mm, ss, sf, _, tz, _, _ = match.groups()
     if constant is not None:
-        return CONSTANTS[constant.lower()]
+        return CONSTANTS.get(constant.lower(), text)
     if number is not None:
-        return to_number(cleaned_number(number))
+        try:
+            cleaned = cleaned_number(number)
+            return to_number(cleaned)
+        except ValueError:
+            return text
     if y is not None:
         y = int(y)
         m = int(m)
@@ -711,6 +715,13 @@ class DefaultMarshaller:
     @staticmethod
     def binary(value):
         return base64_decode(_checked_scalar(value))
+
+    @staticmethod
+    def date(value):
+        value = default_marshal(_checked_scalar(value))
+        if isinstance(value, datetime.datetime) or isinstance(value, datetime.date):
+            return value
+        raise ParseError("'%s' is not a date" % value)
 
 
 class Marshallers(object):
