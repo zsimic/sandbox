@@ -181,17 +181,27 @@ class StreamStartToken(Token):
 
 class StreamEndToken(Token):
     def consume_token(self, root):
+        tag_token = root.decoration.tag_token
+        if tag_token and root.scalar_token is None:
+            root.set_scalar_token(ScalarToken(tag_token.line_number, tag_token.indent, ""))
+        root.wrap_up()
         root.pop_doc()
 
 
 class DocumentStartToken(Token):
     def consume_token(self, root):
+        if root.head is None:
+            root.wrap_up()
         root.pop_doc()
 
 
 class DocumentEndToken(Token):
     def consume_token(self, root):
-        root.pop_doc(closing=True)
+        if root.head is None:
+            root.wrap_up()
+        if root.head is None:
+            root.docs.append("")
+        root.pop_doc()
 
 
 class FlowMappingStartToken(Token):
@@ -251,7 +261,13 @@ class DirectiveToken(Token):
 class KeyToken(Token):
     def consume_token(self, root):
         if root.scalar_token is None:
-            root.set_scalar_token(ScalarToken(self.line_number, self.indent, ""))
+            if root.last_popped is not None:
+                if getattr(root.last_popped.target, "__hash__", None) is None:
+                    raise ParseError("%s is not hashable" % type(root.last_popped.target).__name__)
+                text = str(root.last_popped.target)
+            else:
+                text = ""
+            root.set_scalar_token(ScalarToken(self.line_number, self.indent, text))
         root.push_key(self)
 
 
@@ -532,6 +548,7 @@ class RootNode(object):
         self.decoration = Decoration(self)
         self.scalar_token = None
         self.anchors = {}
+        self.last_popped = None
 
     def __repr__(self):
         result = str(self.decoration)
@@ -550,10 +567,10 @@ class RootNode(object):
     def wrap_up(self):
         if self.scalar_token is not None:
             value = self.decoration.resolved_value(self, self.scalar_token)
-            self.scalar_token = None
             if self.head is None:
                 self.push(ParseNode(self.decoration.indent))
             self.head.set_value(value)
+            self.scalar_token = None
             if self.head.is_temp:
                 self.pop()
 
@@ -604,27 +621,26 @@ class RootNode(object):
         if popped is not None:
             self.head = popped.prev
             value = self.decoration.resolved_value(self, popped)
+            self.last_popped = popped
             if self.head is None:
                 self.docs.append(value)
             else:
                 self.head.set_value(value)
 
-    def pop_doc(self, closing=False):
-        # if self.head is None:
-        self.wrap_up()
-        if closing and self.head is None:
-            self.docs.append("")
+    def pop_doc(self):
         while self.head is not None:
             self.pop()
         self.anchors = {}
         self.directive = None
 
-    def deserialized(self, tokens):
+    def deserialized(self, tokens, simplified=True):
         token = None
         try:
             for token in tokens:
                 token.consume_token(self)
-            return simplified(self.docs)
+            if simplified:
+                return simplified_docs(self.docs)
+            return self.docs
         except ParseError as error:
             error.auto_complete(token)
             raise
@@ -1104,31 +1120,34 @@ def should_ignore(matched, start, line_text):
         return line_text[start - 1] not in "'\""
 
 
-def load(stream):
+def load(stream, simplified=True):
     """
     :param str|file stream: Stream or contents to load
+    :param bool simplified: If True, return document itself when there was only one document (instead of list with 1 item)
     """
     scanner = Scanner(stream)
-    return RootNode().deserialized(scanner)
+    return RootNode().deserialized(scanner, simplified=simplified)
 
 
-def load_string(contents):
+def load_string(contents, simplified=True):
     """
     :param str contents: Yaml to deserialize
+    :param bool simplified: If True, return document itself when there was only one document (instead of list with 1 item)
     """
     scanner = Scanner(contents)
-    return RootNode().deserialized(scanner)
+    return RootNode().deserialized(scanner, simplified=simplified)
 
 
-def load_path(path):
+def load_path(path, simplified=True):
     """
     :param str path: Path to file to deserialize
+    :param bool simplified: If True, return document itself when there was only one document (instead of list with 1 item)
     """
     with open(path) as fh:
-        return load_string(fh.read())
+        return load_string(fh.read(), simplified=simplified)
 
 
-def simplified(docs):
+def simplified_docs(docs):
     if isinstance(docs, list) and len(docs) == 1:
         return docs[0]
     return docs

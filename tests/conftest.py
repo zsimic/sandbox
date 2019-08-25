@@ -574,7 +574,7 @@ class YmlImplementation(object):
         raise Exception("not implemented")
 
     def _simplified(self, value):
-        return zyaml.simplified(value)
+        return zyaml.simplified_docs(value)
 
     def load_stream(self, contents):
         data = self._load(contents)
