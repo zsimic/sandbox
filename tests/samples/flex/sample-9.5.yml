@@ -6,4 +6,5 @@
 ---
 # Empty
 ...
-!!omap { a: b }
+!!map
+{ !str a: !!date 2019-01-01, b: !!omap { x: y }, c: !!set [1, 2] }
