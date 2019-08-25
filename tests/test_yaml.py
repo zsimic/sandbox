@@ -70,6 +70,11 @@ def test_tokens():
 def test_decoration():
     root = zyaml.RootNode()
     assert str(root) == "[0,0]  /"
+    root.push(zyaml.MapNode(0))
+    root.push(zyaml.ListNode(2))
+    root.set_scalar_token(zyaml.ScalarToken(2, 4, "foo"))
+    root.wrap_up()
+    assert str(root) == "[2,4]  L2 / M0"
 
 
 def test_errors():

@@ -104,18 +104,16 @@ def default_marshal(text):
             return to_number(cleaned)
         except ValueError:
             return text
-    if y is not None:
-        y = int(y)
-        m = int(m)
-        d = int(d)
-        if hh is None:
-            return datetime.date(y, m, d)
-        hh = int(hh)
-        mm = int(mm)
-        ss = int(ss)
-        sf = int(round(float(sf or 0) * 1000000))
-        return datetime.datetime(y, m, d, hh, mm, ss, sf, get_tzinfo(tz))
-    return text
+    y = int(y)
+    m = int(m)
+    d = int(d)
+    if hh is None:
+        return datetime.date(y, m, d)
+    hh = int(hh)
+    mm = int(mm)
+    ss = int(ss)
+    sf = int(round(float(sf or 0) * 1000000))
+    return datetime.datetime(y, m, d, hh, mm, ss, sf, get_tzinfo(tz))
 
 
 def first_line_split_match(match):
@@ -472,6 +470,8 @@ class Decoration:
     def set_anchor_token(self, token):
         self.track(token)
         if self.anchor_token is not None:
+            if self.anchor_token.line_number == token.line_number:
+                raise ParseError("Too many anchor tokens", self.anchor_token)
             self.slide_anchor_token()
         self.anchor_token = token
 
@@ -514,7 +514,7 @@ class Decoration:
             target.anchor_token = anchor_token
         if tag_token is not None:
             if not hasattr(target, "tag_token"):
-                raise ParseError("Tags not allowed on %s" % type(target))
+                raise ParseError("Tags not allowed on %s" % target.__class__.__name__)
             target.tag_token = tag_token
 
     @staticmethod
