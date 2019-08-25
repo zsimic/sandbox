@@ -83,9 +83,12 @@ def get_samples(sample_name):
     return sorted(result, key=lambda x: x.key)
 
 
+TESTED_SAMPLES = "flex,minor,valid"
+
+
 @pytest.fixture
-def valid_samples():
-    return get_samples("valid")
+def all_samples():
+    return get_samples(TESTED_SAMPLES)
 
 
 def json_sanitized(value, stringify=zyaml.decode, dt=str):
@@ -417,7 +420,7 @@ def quick_bench(iterations, size):
 @main.command()
 @stacktrace_option()
 @implementations_option(count=1, default="zyaml")
-@samples_arg(default="valid,minor")
+@samples_arg(default=TESTED_SAMPLES)
 def refresh(stacktrace, implementations, samples):
     """Refresh expected json for each sample"""
     for root, dirs, files in os.walk(SAMPLE_FOLDER):
