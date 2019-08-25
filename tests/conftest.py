@@ -83,7 +83,7 @@ def get_samples(sample_name):
     return sorted(result, key=lambda x: x.key)
 
 
-TESTED_SAMPLES = "flex,minor,valid"
+TESTED_SAMPLES = "flex,invalid,minor,valid"
 
 
 @pytest.fixture
