@@ -1,3 +1,5 @@
+import json
+
 from .conftest import json_sanitized, ZyamlImplementation
 
 
@@ -12,6 +14,10 @@ def test_samples(vanilla_samples):
         expected = json_sanitized(expected)
         if expected is None:
             skipped += 1
-        else:
-            assert payload == expected, "Failed sample %s" % sample
+            continue
+        # jsonify to avoid diffs on inf/nan floats
+        jpayload = json.dumps(payload, sort_keys=True, indent=2)
+        jexpected = json.dumps(expected, sort_keys=True, indent=2)
+        assert jpayload == jexpected, "Failed sample %s" % sample
+
     assert skipped == 0, "Skipped %s tests, please refresh" % skipped
