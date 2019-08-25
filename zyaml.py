@@ -974,6 +974,18 @@ class Scanner(object):
                 if matched in "!&*{[":
                     yield prev_start, de_commented(line_text[prev_start:])
                     return
+                while matched == "#" and line_text[start - 1] != " " \
+                    or (self.flow_ender is not None and should_ignore(matched, start, line_text)):
+                    start = start + 1
+                    if start > line_size:
+                        yield prev_start, line_text[prev_start:]
+                        return
+                    m = self.line_regex.search(line_text, start)
+                    if m is None:
+                        yield prev_start, line_text[prev_start:]
+                        return
+                    start, end = m.span(2)
+                    matched = line_text[start]
                 yield prev_start, line_text[prev_start:start]
             if matched == "#":
                 return
@@ -1081,6 +1093,15 @@ class Scanner(object):
         except ParseError as error:
             error.auto_complete(line_number, start)
             raise
+
+
+def should_ignore(matched, start, line_text):
+    """Yaml has so many weird edge cases... this one is to support sample 7.18"""
+    try:
+        if matched == ":" and line_text[start + 1] != " ":
+            return line_text[start - 1] not in "'\""
+    except IndexError:
+        return line_text[start - 1] not in "'\""
 
 
 def load(stream):
