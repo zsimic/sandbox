@@ -391,17 +391,8 @@ class ParseNode(object):
             return self.target
         return self.tag_token.marshalled(self.target)
 
-    def push_key(self, value):
-        raise ParseError("Key not allowed here")
-
     def set_value(self, value):
-        if self.target is None:
-            self.target = value
-        elif value is not None:
-            self.target = "%s %s" % (self.target, value)
-
-    def wrap_up(self):
-        """Nothing to do for lists and scalars"""
+        self.target = value
 
 
 class ListNode(ParseNode):
@@ -436,11 +427,6 @@ class MapNode(ParseNode):
         if self.last_key is not None:
             self.target[self.last_key] = None
         self.last_key = value
-
-    def wrap_up(self):
-        if self.last_key is not None:
-            self.target[self.last_key] = None
-            self.last_key = None
 
 
 class Decoration:
@@ -533,8 +519,6 @@ class Decoration:
 
     @staticmethod
     def resolved_value(root, target):
-        if target is None:
-            return None
         value = target.resolved_value()
         anchor = getattr(target, "anchor_token", None)
         if anchor is not None:
@@ -579,8 +563,6 @@ class RootNode(object):
     def needs_new_node(self, indent, node_type):
         if self.head is None or self.head.__class__ is not node_type:
             return True
-        if indent is None:
-            return self.head.indent is not None
         if self.head.indent is None:
             return False
         return indent > self.head.indent
@@ -825,8 +807,6 @@ class Scanner(object):
                 return line_number, get_indent(line_text), len(line_text), line_text, comments, None
             end = m.span(0)[1]
             start, leader = first_line_split_match(m)
-            if leader is None:
-                return line_number, start, end, line_text, comments, None
             if leader != "#":
                 start, token = self.leaders.get(leader)(line_number, start, line_text)
                 return line_number, start, end, line_text, comments, token
@@ -934,13 +914,7 @@ class Scanner(object):
             indent = int(indent)
             if indent < 1:
                 raise ParseError("Indent must be between 1 and 9", line_number, start)
-        if style == ">":
-            folded = True
-        elif style == "|":
-            folded = False
-        else:
-            raise ParseError("Internal error, invalid style '%s'" % original, line_number, start)
-        return folded, keep, indent, ScalarToken(line_number, indent, None, style=original)
+        return style == ">", keep, indent, ScalarToken(line_number, indent, None, style=original)
 
     @staticmethod
     def _accumulate_literal(folded, lines, value):
