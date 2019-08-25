@@ -1,2 +1,3 @@
 - &a a
 - &b *a
+# Anchor can't apply to alias
