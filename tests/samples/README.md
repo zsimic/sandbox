@@ -6,11 +6,11 @@ Most samples come from [the official yaml spec](https://yaml.org/spec), as well 
 collection of those examples.
 
 Samples are organized in folders:
-- [flexible](./flexible): samples that are correct, but require a bit of flexibility from the parsing lib to be usable
+- [flex](./flex): samples that are correct, but require a bit of flexibility from the parsing lib to be usable
 - [invalid](./invalid): effectively invalid yaml
 - [js](./js): from the javascript world
 - [redundant](./redundant): duplicates from yamllint
-- [vanilla](./vanilla): those work in [ruamel](https://pypi.org/project/ruamel.yaml/) as well, and deserialize correctly
+- [valid](./valid): those work in [ruamel](https://pypi.org/project/ruamel.yaml/) as well, and deserialize correctly
 
 
 # Testing
@@ -40,7 +40,7 @@ Verify that the new outcome is correct with `git diff`.
 
 - Run all unit tests: `tox`
 - See diff on all samples: `./run diff all`
-- See diff on vanilla samples: `./run diff vanilla`
+- See diff on valid samples: `./run diff valid`
 - See diff on sample 2.24 only: `./run diff 2.24`
 - See how sample 2.24 is rendered by zyaml and ruamel: `./run show 2.24 -i zyaml,ruamel`
 - See how sample 2.24 is rendered by zyaml and pyaml: `./run show 2.24 -i zyaml,pyyaml_base`

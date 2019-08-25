@@ -3,10 +3,10 @@ import json
 from .conftest import json_sanitized, ZyamlImplementation
 
 
-def test_samples(vanilla_samples):
+def test_samples(valid_samples):
     skipped = 0
     impl = ZyamlImplementation()
-    for sample in vanilla_samples:
+    for sample in valid_samples:
         result = impl.load(sample, stacktrace=False)
         payload = result.json_payload()
         expected = sample.expected

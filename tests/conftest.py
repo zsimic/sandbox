@@ -78,8 +78,8 @@ def get_samples(sample_name):
 
 
 @pytest.fixture
-def vanilla_samples():
-    return get_samples("vanilla")
+def valid_samples():
+    return get_samples("valid")
 
 
 def json_sanitized(value, stringify=zyaml.decode, dt=str):
@@ -243,7 +243,7 @@ def plural(count):
     return "s" if count != 1 else ""
 
 
-def samples_arg(option=False, default="vanilla", count=None, **kwargs):
+def samples_arg(option=False, default=None, count=None, **kwargs):
     def _callback(_ctx, _param, value):
         s = get_samples(value)
         if not s:
@@ -274,7 +274,7 @@ def main(debug, log):
 @main.command()
 @stacktrace_option()
 @implementations_option()
-@samples_arg()
+@samples_arg(default="bench")
 def benchmark(stacktrace, implementations, samples):
     """Run parsing benchmarks"""
     for sample in samples:
@@ -299,7 +299,7 @@ def simplified_date(value):
 @click.option("--compact/--no-compact", "-1", is_flag=True, default=None, help="Do not show diff text")
 @click.option("--untyped", "-u", is_flag=True, help="Parse everything as strings")
 @implementations_option(count=2)
-@samples_arg(nargs=-1, default=None)
+@samples_arg(nargs=-1)
 def diff(stacktrace, compact, untyped, implementations, samples):
     """Compare deserialization of 2 implementations"""
     stringify = str if untyped else zyaml.decode
@@ -411,7 +411,7 @@ def quick_bench(iterations, size):
 @main.command()
 @stacktrace_option()
 @implementations_option(count=1, default="zyaml")
-@samples_arg()
+@samples_arg(default="valid")
 def refresh(stacktrace, implementations, samples):
     """Refresh expected json for each sample"""
     for root, dirs, files in os.walk(SAMPLE_FOLDER):
@@ -432,7 +432,7 @@ def refresh(stacktrace, implementations, samples):
 @main.command()
 @stacktrace_option()
 @implementations_option(default="raw,zyaml,ruamel")
-@samples_arg(default="misc.yml")
+@samples_arg(default="misc")
 def show(stacktrace, implementations, samples):
     """Show deserialized yaml objects as json"""
     for sample in samples:
@@ -460,7 +460,7 @@ def show(stacktrace, implementations, samples):
 @main.command()
 @stacktrace_option()
 @implementations_option(default="zyaml,pyyaml_base")
-@samples_arg(default="misc.yml")
+@samples_arg(default="misc")
 def tokens(stacktrace, implementations, samples):
     """Refresh expected json for each sample"""
     for sample in samples:
