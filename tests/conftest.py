@@ -48,6 +48,9 @@ def get_descendants(ancestor, adjust=None, _result=None):
 
 
 def scan_samples(sample_name):
+    sample_name = sample_name.strip()
+    if not sample_name:
+        return
     if os.path.isfile(sample_name) or os.path.isabs(sample_name):
         yield Sample(sample_name)
         return
@@ -71,6 +74,9 @@ def get_samples(sample_name):
     result = []
     if isinstance(sample_name, (list, tuple)):
         for name in sample_name:
+            result.extend(scan_samples(name))
+    elif "," in sample_name:
+        for name in sample_name.split(","):
             result.extend(scan_samples(name))
     else:
         result.extend(scan_samples(sample_name))
@@ -411,7 +417,7 @@ def quick_bench(iterations, size):
 @main.command()
 @stacktrace_option()
 @implementations_option(count=1, default="zyaml")
-@samples_arg(default="valid")
+@samples_arg(default="valid,minor")
 def refresh(stacktrace, implementations, samples):
     """Refresh expected json for each sample"""
     for root, dirs, files in os.walk(SAMPLE_FOLDER):

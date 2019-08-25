@@ -345,7 +345,9 @@ class ScalarToken(Token):
         return self.tag_token.marshalled(value)
 
     def append_text(self, text):
-        if not self.value:
+        if self.value is None:
+            self.value = text
+        elif not self.value:
             self.value = text
         elif self.value[-1] in " \n":
             self.value = "%s%s" % (self.value, text.lstrip())
@@ -869,7 +871,7 @@ class Scanner(object):
 
     def _multiline(self, line_number, start, line_size, line_text, style):
         regex = RE_DOUBLE_QUOTE_END if style == '"' else RE_SINGLE_QUOTE_END
-        token = ScalarToken(line_number, start, None, style=style)
+        token = ScalarToken(line_number, start, "", style=style)
         try:
             start = start + 1
             if start < line_size and line_text[start] == style:
@@ -940,6 +942,18 @@ class Scanner(object):
             raise ParseError("Internal error, invalid style '%s'" % original, line_number, start)
         return folded, keep, indent, ScalarToken(line_number, indent, None, style=original)
 
+    @staticmethod
+    def _accumulate_literal(folded, lines, value):
+        if not folded or not lines or not value:
+            lines.append(value)
+        elif (len(lines) > 1 or lines[0]) and not value.startswith(" ") and not lines[-1].startswith(" "):
+            if lines[-1]:
+                lines[-1] = "%s %s" % (lines[-1], value)
+            else:
+                lines[-1] = value
+        else:
+            lines.append(value)
+
     def _consume_literal(self, line_number, start, line_text):
         folded, keep, indent, token = self._get_literal_styled_token(line_number, start, de_commented(line_text[start:]))
         lines = []
@@ -948,7 +962,7 @@ class Scanner(object):
                 line_number, line_text = next(self.generator)
                 line_size = len(line_text)
                 if line_size == 0:
-                    lines.append(line_text)
+                    self._accumulate_literal(folded, lines, line_text)
                     continue
             except StopIteration:
                 line_number += 1
@@ -968,14 +982,7 @@ class Scanner(object):
                 if i >= line_size:
                     line_text = None
                 return line_number, 0, line_size, line_text, token
-            value = line_text[indent:]
-            if folded and lines and not value.startswith(" ") and not lines[-1].startswith(" "):
-                if lines[-1]:
-                    lines[-1] = "%s %s" % (lines[-1], value)
-                else:
-                    lines[-1] = value
-            else:
-                lines.append(value)
+            self._accumulate_literal(folded, lines, line_text[indent:])
 
     def next_match(self, start, line_size, line_text):
         while start < line_size:
