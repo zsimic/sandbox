@@ -1,16 +1,16 @@
 [
   {
-    "Time": "2001-11-23 15:01:42 -5",
+    "Time": "2001-11-23 15:01:42-05:00",
     "User": "ed",
     "Warning": "This is an error message for the log file"
   },
   {
-    "Time": "2001-11-23 15:02:31 -5",
+    "Time": "2001-11-23 15:02:31-05:00",
     "User": "ed",
     "Warning": "A slightly different error message."
   },
   {
-    "Date": "2001-11-23 15:03:17 -5",
+    "Date": "2001-11-23 15:03:17-05:00",
     "Fatal": "Unknown variable \"bar\"",
     "Stack": [
       {

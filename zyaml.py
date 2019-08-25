@@ -1,18 +1,58 @@
 import codecs
 import collections
+import datetime
 import re
 import sys
+from dateutil import tz
 
 
+PY2 = sys.version_info < (3, 0)
 NULL = ("null", "~")
 FALSE = "false"
 TRUE = "true"
-RE_TYPED = re.compile(r"^(false|true|null|[-+]?[0-9_]*\.?[0-9_]+([eE][-+]?[0-9_]+)?)$", re.IGNORECASE)
+RE_SIMPLE_SCALAR = re.compile(r"^(false|true|null|[-+]?[0-9_]*\.?[0-9_]+([eE][-+]?[0-9_]+)?)$", re.IGNORECASE)
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
 RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
 RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s:,\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
+
+RE_DT = re.compile(
+    r"([0-9]{4})-([0-9][0-9]?)-([0-9][0-9]?)" 
+    r"([Tt \t]([0-9][0-9]?):([0-9][0-9]?):([0-9][0-9]?)(\.[0-9]*)?"
+    r"([ \t]*(Z|[+-][0-9][0-9]?(:([0-9][0-9]?))?))?)?"
+)
+
+
+def get_tzinfo(text):
+    if text is None:
+        return None
+    if text == "Z":
+        return datetime.timezone.utc
+    hours, _, minutes = text.partition(":")
+    minutes = int(minutes) if minutes else 0
+    return tz.tzoffset(text, int(hours) * 3600 + minutes * 60)
+
+
+def extracted_date(match):
+    year, month, day, _, hour, minute, second, fraction, _, tzone, _, _ = match.groups()
+    year = int(year)
+    month = int(month)
+    day = int(day)
+    if hour is None:
+        return datetime.date(year, month, day)
+    hour = int(hour)
+    minute = int(minute)
+    second = int(second)
+    fraction = int(round(float(fraction or 0) * 1000000))
+    return datetime.datetime(year, month, day, hour, minute, second, fraction, get_tzinfo(tzone))
+
+
+def to_date(value):
+    match = RE_DT.match(value)
+    if match is None:
+        return None
+    return extracted_date(match)
 
 
 def first_line_split_match(match):
@@ -22,8 +62,18 @@ def first_line_split_match(match):
             return s, match.group(g)
     return 0, None
 
+if PY2:
+    def to_number(text):
+        try:
+            text = text.replace("_", "")
+            return int(text)
+        except ValueError:
+            return float(text)
 
-if (sys.version_info > (3, 0)):
+    def base64_decode(value):
+        return _checked_scalar(value).decode('base64')
+
+else:
     import base64
 
     def to_number(text):
@@ -35,26 +85,8 @@ if (sys.version_info > (3, 0)):
     def base64_decode(value):
         return base64.decodebytes(_checked_scalar(value).encode("ascii"))
 
-else:
-    def to_number(text):
-        try:
-            text = text.replace("_", "")
-            return int(text)
-        except ValueError:
-            return float(text)
 
-    def base64_decode(value):
-        return _checked_scalar(value).decode('base64')
-
-
-def default_marshal(text):
-    if text is None:
-        return None
-    if not text:
-        return text
-    m = RE_TYPED.match(text)
-    if m is None:
-        return text
+def extracted_scalar(text):
     text = text.lower()
     if text in NULL:
         return None
@@ -66,6 +98,18 @@ def default_marshal(text):
         return to_number(text)
     except ValueError:
         return text
+
+
+def default_marshal(text):
+    if not text:
+        return text
+    m = RE_SIMPLE_SCALAR.match(text)
+    if m is not None:
+        return extracted_scalar(text)
+    m = RE_DT.match(text)
+    if m is not None:
+        return extracted_date(m)
+    return text
 
 
 def decode(value):

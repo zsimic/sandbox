@@ -76,19 +76,19 @@ def vanilla_samples():
     return get_samples("vanilla")
 
 
-def json_sanitized(value, stringify=zyaml.decode):
+def json_sanitized(value, stringify=zyaml.decode, dt=str):
     if value is None:
         return None
     if isinstance(value, set):
-        return [json_sanitized(v, stringify=stringify) for v in sorted(value)]
+        return [json_sanitized(v, stringify=stringify, dt=dt) for v in sorted(value)]
     if isinstance(value, (tuple, list)):
-        return [json_sanitized(v, stringify=stringify) for v in value]
+        return [json_sanitized(v, stringify=stringify, dt=dt) for v in value]
     if isinstance(value, dict):
-        return dict((str(k), json_sanitized(v, stringify=stringify)) for k, v in value.items())
+        return dict((str(k), json_sanitized(v, stringify=stringify, dt=dt)) for k, v in value.items())
     if isinstance(value, datetime.date):
-        return str(value)
+        return dt(value)
     if isinstance(value, strictyaml.representation.YAML):
-        return str(value)
+        return dt(value)
     if stringify is None:
         return value
     if not isinstance(value, (int, str, float)):
@@ -282,6 +282,15 @@ def benchmark(stacktrace, implementations, samples):
             print(bench.report())
 
 
+def simplified_date(value):
+    if isinstance(value, datetime.datetime):
+        if value.tzinfo is not None:
+            if value.tzinfo != datetime.timezone.utc:  # Get back to ruamel-like flawed time-zoning
+                value = value.astimezone(datetime.timezone.utc)
+            value = value.replace(tzinfo=None)
+    return str(value)
+
+
 @main.command()
 @stacktrace_option()
 @click.option("--compact", "-1", is_flag=True, help="Do not show diff text")
@@ -298,6 +307,8 @@ def diff(stacktrace, compact, untyped, implementations, samples):
             for impl in implementations:
                 assert isinstance(impl, YmlImplementation)
                 result = impl.load(sample, stacktrace=stacktrace)
+                if result.data is not None:
+                    result.data = json_sanitized(result.data, stringify=stringify, dt=simplified_date)
                 fname = "%s-%s.json" % (impl.name, sample.basename)
                 generated_files[-1].extend([fname, result])
                 if not compact:
@@ -366,18 +377,11 @@ def mv(samples, category):
 
 
 def _bench1(size):
-    s = "a"
-    for _ in range(size):
-        s += "b"
-        s = s[:-1]
+    return "%s" % size
 
 
 def _bench2(size):
-    s = zyaml.collections.deque()
-    s.append("a")
-    for _ in range(size):
-        s.append("b")
-        s.pop()
+    return "{}".format(size)
 
 
 @main.command()
@@ -627,7 +631,7 @@ class RuamelImplementation(YmlImplementation):
     def _load(self, stream):
         y = ruamel.yaml.YAML(typ="safe")
         ruamel.yaml.add_multi_constructor('', ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
-        y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
+        # y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
         return y.load_all(stream)
 
 
