@@ -47,8 +47,8 @@ def test_tokens():
 
     assert str(zyaml.Token(0, 0).represented_value()) == "None"
 
-    key = zyaml.KeyToken(1, 2)
-    assert str(key) == "KeyToken[1,3]"
+    key = zyaml.ColonToken(1, 2)
+    assert str(key) == "ColonToken[1,3]"
     assert key.represented_value() == "None"
 
     s = zyaml.Scanner("")
@@ -65,16 +65,6 @@ def test_tokens():
     s.write("--")
     s.seek(0)
     assert zyaml.load(s) == "--"
-
-
-def test_decoration():
-    root = zyaml.RootNode()
-    assert str(root) == "[0,0]  /"
-    root.push(zyaml.MapNode(0))
-    root.push(zyaml.ListNode(2))
-    root.set_scalar_token(zyaml.ScalarToken(2, 4, "foo"))
-    root.wrap_up()
-    assert str(root) == "[2,4]  L2 / M0"
 
 
 def test_errors():

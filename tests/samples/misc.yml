@@ -1,3 +1,6 @@
+- a
+- b
+---
 !!map
 &someconfig some.config:
 #  enabled: false
