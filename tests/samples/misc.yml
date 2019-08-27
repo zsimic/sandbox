@@ -2,7 +2,7 @@
 - b
 ---
 !!map
-&someconfig some.config:
+&someconfig !!str some.config:
 #  enabled: false
 - !!map &mymap
   type: docker

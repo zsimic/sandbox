@@ -508,8 +508,12 @@ class Sample(object):
     def is_match(self, name):
         if name == "all":
             return True
-        if name.endswith("."):
-            return name[:-1] == self.basename
+        if name.endswith("."):  # Special case when looking for exactly 1 sample
+            if name[:-1] == self.basename:
+                return True
+            if self.basename.endswith(name[:-1]) and len(self.basename) > len(name):
+                return self.basename[-len(name)] == "-"
+            return False
         if self.category.startswith(name):
             return True
         if self.basename.startswith(name) or self.basename.endswith(name):

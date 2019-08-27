@@ -83,3 +83,14 @@ def test_comments():
     assert zyaml.de_commented("foo#bar") == "foo#bar"
     assert zyaml.de_commented("foo#bar   #baz") == "foo#bar"
     assert zyaml.de_commented("foo#bar   #baz #baz") == "foo#bar"
+
+
+def test_stack():
+    root = zyaml.ScannerStack()
+    assert str(root) == "E0 []"
+    root.head.push(zyaml.StackedScalar(root, 1))
+    assert str(root) == "S1 / E0 []"
+    root.set_tag_token(zyaml.TagToken(1, 1, "foo"))
+    assert str(root) == "S1 / E0 [!]"
+    root.pop()
+    assert str(root) == "E0 [!]"

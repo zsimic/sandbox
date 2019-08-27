@@ -152,6 +152,18 @@ def _todo():
     raise Exception("TODO")
 
 
+def _dbg_repr(value):
+    if isinstance(value, tuple):
+        if value[1] is None or value[1] is False:
+            return ""
+        return value[0]
+    return str(value)
+
+
+def dbg(*args):
+    return "".join(_dbg_repr(s) for s in args if s is not None)
+
+
 class StackedElement(object):
     def __init__(self, root, indent):
         self.root = root  # type: ScannerStack
@@ -163,10 +175,10 @@ class StackedElement(object):
         self.tag_token = None  # type: TagToken
 
     def __repr__(self):
-        return "%s%s%s" % (self.__class__.__name__[7], "" if self.indent is None else self.indent, self.represented_decoration())
+        return dbg(self.__class__.__name__[7], self.indent, self.represented_decoration())
 
     def represented_decoration(self):
-        return "%s%s%s" % ("&" if self.anchor_token else "", "!" if self.tag_token else "", "<tmp>" if self.is_temp else "")
+        return dbg(("&", self.anchor_token), ("!", self.tag_token), ("<tmp>", self.is_temp))
 
     def resolved_value(self):
         value = self.value
@@ -199,10 +211,6 @@ class StackedElement(object):
 
 
 class StackedScalar(StackedElement):
-    def __init__(self, root, token):
-        super(StackedScalar, self).__init__(root, token.indent)
-        _todo()
-
     def consume_dash(self, indent):
         _todo()
 
@@ -223,7 +231,7 @@ class StackedMap(StackedElement):
         self.last_key = None
 
     def represented_decoration(self):
-        return "%s%s" % (super(StackedMap, self).represented_decoration(), "" if self.last_key is None else ":")
+        return dbg(super(StackedMap, self).represented_decoration(), (":",  self.last_key))
 
     def wrap_up(self, value):
         if self.last_key is None:
@@ -248,6 +256,16 @@ class StackedMap(StackedElement):
             self.push(smap)
 
 
+def slid_tokens(target, line_number, tag1, tag2):
+    if tag1 is not None and (line_number is None or line_number == tag1.line_number):
+        target.anchor_token = tag1
+        if line_number is not None:
+            target.indent = min(target.indent, tag1.indent)
+        tag1 = tag2
+        tag2 = None
+    return tag1, tag2
+
+
 class ScannerStack(object):
     def __init__(self):
         super(ScannerStack, self).__init__()
@@ -255,9 +273,11 @@ class ScannerStack(object):
         self.directive = None
         self.head = StackedElement(self, 0)  # type: StackedElement
         self.anchors = {}
+        self.last_scalar = None
         self.anchor_token = None
         self.tag_token = None
-        self.last_scalar = None
+        self.secondary_anchor_token = None
+        self.secondary_tag_token = None
 
     def __repr__(self):
         stack = []
@@ -268,29 +288,40 @@ class ScannerStack(object):
         return "%s [%s]" % (" / ".join(stack), self.represented_decoration())
 
     def represented_decoration(self):
-        return "%s%s%s" % ("&" if self.anchor_token else "", "!" if self.tag_token else "", "" if self.last_scalar is None else "$")
+        return dbg(
+            ("&", self.anchor_token),
+            ("&", self.secondary_anchor_token),
+            ("!", self.tag_token),
+            ("!", self.secondary_tag_token),
+            ("$", self.last_scalar),
+        )
+
+    def _decorate(self, target, line_number, name, secondary_name):
+        tag = getattr(self, name)
+        if tag is not None and (line_number is None or line_number == tag.line_number):
+            setattr(target, name, tag)
+            if line_number is not None:
+                target.indent = min(target.indent, tag.indent)
+            setattr(self, name, getattr(self, secondary_name))
+            setattr(self, secondary_name, None)
 
     def decorate(self, target, line_number=None):
-        if self.anchor_token is not None and (line_number is None or line_number == self.anchor_token.line_number):
-            target.anchor_token = self.anchor_token
-            if line_number is not None:
-                target.indent = min(target.indent, self.anchor_token.indent)
-            self.anchor_token = None
-        if self.tag_token is not None and (line_number is None or line_number == self.tag_token.line_number):
-            target.tag_token = self.tag_token
-            if line_number is not None:
-                target.indent = min(target.indent, self.tag_token.indent)
-            self.tag_token = None
+        self._decorate(target, line_number, "anchor_token", "secondary_anchor_token")
+        self._decorate(target, line_number, "tag_token", "secondary_tag_token")
+
+    def _set_decoration(self, token, name, secondary_name):
+        tag = getattr(self, name)
+        if tag is not None:
+            if getattr(self, secondary_name) is not None:
+                raise ParseError("Too many anchor tokens", token)
+            setattr(self, secondary_name, tag)
+        setattr(self, name, token)
 
     def set_anchor_token(self, token):
-        if self.anchor_token is not None:
-            raise ParseError("Too many anchor tokens")
-        self.anchor_token = token
+        self._set_decoration(token, "anchor_token", "secondary_anchor_token")
 
     def set_tag_token(self, token):
-        if self.tag_token is not None:
-            raise ParseError("Too many tag tokens")
-        self.tag_token = token
+        self._set_decoration(token, "tag_token", "secondary_tag_token")
 
     def consume_dash(self, indent):
         self.auto_wrap_up()
