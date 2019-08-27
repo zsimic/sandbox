@@ -176,6 +176,9 @@ class StackedElement(object):
             self.root.anchors[self.anchor_token.value] = value
         return value
 
+    def wrap_up(self, value):
+        self.push_value(value)
+
     def push_value(self, value):
         self.value = value
 
@@ -222,6 +225,13 @@ class StackedMap(StackedElement):
     def represented_decoration(self):
         return "%s%s" % (super(StackedMap, self).represented_decoration(), "" if self.last_key is None else ":")
 
+    def wrap_up(self, value):
+        if self.last_key is None:
+            self.value[value] = None
+        else:
+            self.value[self.last_key] = value
+            self.last_key = None
+
     def push_value(self, value):
         self.value[self.last_key] = value
         self.last_key = None
@@ -233,7 +243,9 @@ class StackedMap(StackedElement):
         if self.indent is None or token.indent == self.indent:
             self.last_key = token.resolved_value(self.root)
         else:
-            super(StackedMap, self).consume_colon(token)
+            smap = StackedMap(self.root, token.indent)
+            smap.consume_colon(token)
+            self.push(smap)
 
 
 class ScannerStack(object):
@@ -270,18 +282,6 @@ class ScannerStack(object):
                 target.indent = min(target.indent, self.tag_token.indent)
             self.tag_token = None
 
-    def pop_last_scalar(self):
-        value = self.last_scalar
-        self.last_scalar = None
-        return value
-
-    def wrap_up(self):
-        if self.last_scalar is not None:
-            value = self.pop_last_scalar().resolved_value(self)
-            self.head.push_value(value)
-        while self.head.is_temp:
-            self.pop()
-
     def set_anchor_token(self, token):
         if self.anchor_token is not None:
             raise ParseError("Too many anchor tokens")
@@ -293,7 +293,7 @@ class ScannerStack(object):
         self.tag_token = token
 
     def consume_dash(self, indent):
-        self.wrap_up()
+        self.auto_wrap_up()
         self.pop_until(indent)
         if self.head.indent is None:
             raise ParseError("Block sequence not allowed in flow")
@@ -302,30 +302,44 @@ class ScannerStack(object):
         self.head.consume_dash(indent)
 
     def consume_comma(self):
-        if self.head.indent is not None and not self.head.is_temp:
-            _todo()
-        self.wrap_up()
+        assert self.head.indent is None or self.head.is_temp
+        self.pop_temp()
 
-    def consume_colon(self):
+    def pop_temp(self):
+        while self.head.is_temp:
+            self.pop()
+        self.auto_wrap_up()
+
+    def consume_colon(self, token):
         if self.last_scalar is None:
-            _todo()
-        self.head.consume_colon(self.pop_last_scalar())
+            token.value = ""
+        else:
+            token = self.last_scalar
+            self.last_scalar = None
+        self.pop_until(token.indent)
+        self.head.consume_colon(token)
+
+    def auto_wrap_up(self):
+        if self.last_scalar is not None:
+            token = self.last_scalar
+            value = token.resolved_value(self)
+            self.last_scalar = None
+            self.head.wrap_up(value)
 
     def push_scalar(self, token):
+        self.decorate(token, line_number=token.line_number)
         if self.last_scalar is not None:
-            if self.head.indent is None:
+            if self.head.indent is None or self.last_scalar.line_number == token.line_number:
                 raise ParseError("2 consecutive scalars given")
             else:
-                self.wrap_up()
-        self.pop_until(token.indent)
-        self.decorate(token, line_number=token.line_number)
+                self.auto_wrap_up()
         self.last_scalar = token
 
     def pop(self):
+        self.auto_wrap_up()
         popped = self.head
-        if popped.prev is None:
-            _todo()
         self.head = popped.prev
+        assert isinstance(popped, StackedElement)
         self.head.push_value(popped.resolved_value())
 
     def pop_until(self, indent):
@@ -333,7 +347,9 @@ class ScannerStack(object):
             self.pop()
 
     def pop_doc(self):
-        self.wrap_up()
+        if self.last_scalar is None and (self.anchor_token is not None or self.tag_token is not None):
+            pass
+        self.auto_wrap_up()
         while self.head.prev is not None:
             self.pop()
         if self.head.value is not None:
@@ -421,7 +437,7 @@ class FlowSeqToken(Token):
 
 class FlowEndToken(Token):
     def consume_token(self, root):
-        root.wrap_up()
+        root.pop_temp()
         assert root.head.indent is None
         root.pop()
 
@@ -438,7 +454,7 @@ class DashToken(Token):
 
 class ColonToken(Token):
     def consume_token(self, root):
-        root.consume_colon()
+        root.consume_colon(self)
 
 
 class TagToken(Token):

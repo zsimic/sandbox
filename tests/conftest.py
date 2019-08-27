@@ -634,7 +634,7 @@ class ZyamlImplementation(YmlImplementation):
         return zyaml.load(stream)
 
     def _tokens(self, stream):
-        return zyaml.Scanner(stream)
+        return zyaml.Scanner(stream).tokens()
 
     def _simplified(self, value):
         return value

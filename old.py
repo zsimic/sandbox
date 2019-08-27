@@ -1,6 +1,14 @@
 from zyaml import AliasToken, ParseError, simplified_docs, Token, ScalarToken
 
 
+def wrap_up(self):
+    token = self.pop_last_scalar()
+    value = None if token is None else token.resolved_value(self)
+    self.head.wrap_up(value)
+    while self.head.is_temp:
+        self.pop()
+
+
 class StreamEndToken(Token):
     def consume_token(self, root):
         tag_token = root.decoration.tag_token
