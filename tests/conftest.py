@@ -72,14 +72,8 @@ def scan_samples(sample_name):
 
 def get_samples(sample_name):
     result = []
-    if isinstance(sample_name, (list, tuple)):
-        for name in sample_name:
-            result.extend(scan_samples(name))
-    elif "," in sample_name:
-        for name in sample_name.split(","):
-            result.extend(scan_samples(name))
-    else:
-        result.extend(scan_samples(sample_name))
+    for name in runez.flattened([sample_name], split=","):
+        result.extend(scan_samples(name))
     return sorted(result, key=lambda x: x.key)
 
 
@@ -254,6 +248,8 @@ def plural(count):
 
 def samples_arg(option=False, default=None, count=None, **kwargs):
     def _callback(_ctx, _param, value):
+        if count == 1 and hasattr(value, "endswith") and not value.endswith("."):
+            value += "."
         s = get_samples(value)
         if not s:
             raise click.BadParameter("No samples match %s" % value)
@@ -512,6 +508,8 @@ class Sample(object):
     def is_match(self, name):
         if name == "all":
             return True
+        if name.endswith("."):
+            return name[:-1] == self.basename
         if self.category.startswith(name):
             return True
         if self.basename.startswith(name) or self.basename.endswith(name):
