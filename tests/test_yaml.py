@@ -53,8 +53,8 @@ def test_tokens():
 
     s = zyaml.Scanner("")
     assert str(s) == "block mode"
-    assert len(list(s)) == 2
-    tokens = list(zyaml.Scanner("--"))
+    assert len(list(s.tokens())) == 2
+    tokens = list(zyaml.Scanner("--").tokens())
     assert len(tokens) == 3
     assert str(tokens[1]) == "ScalarToken[1,1] --"
 
@@ -87,10 +87,10 @@ def test_comments():
 
 def test_stack():
     root = zyaml.ScannerStack()
-    assert str(root) == "E0 []"
-    root.head.push(zyaml.StackedScalar(root, 1))
-    assert str(root) == "S1 / E0 []"
+    assert str(root) == "D"
+    root.push(zyaml.StackedScalar(zyaml.ScalarToken(1, 0, "foo")))
+    assert str(root) == "S0 / D"
     root.set_tag_token(zyaml.TagToken(1, 1, "foo"))
-    assert str(root) == "S1 / E0 [!]"
+    assert str(root) == "S0 / D [!]"
     root.pop()
-    assert str(root) == "E0 [!]"
+    assert str(root) == "D [!]"

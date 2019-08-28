@@ -202,6 +202,9 @@ class StackedDocument(object):
     def represented_decoration(self):
         return dbg(("&", self.anchor_token), ("!", self.tag_token), (":",  self.is_key))
 
+    def needs_new_list(self, indent):
+        return True
+
     def resolved_value(self):
         value = self.value
         if self.tag_token is not None:
@@ -230,6 +233,9 @@ class StackedScalar(StackedDocument):
         self.line_number = token.line_number
         self.token = token
 
+    def needs_new_list(self, indent):
+        _todo()
+
     def attach(self, root):
         self.root = root
         self.value = self.token.resolved_value(self.anchor_token is None and self.tag_token is None)
@@ -256,6 +262,16 @@ class StackedList(StackedDocument):
         self.indent = indent
         self.value = []
 
+    def needs_new_list(self, indent):
+        i = self.indent
+        if i is None:
+            raise ParseError("Block not allowed in flow")
+        if i == indent:
+            return False
+        if i < indent:
+            return True
+        raise ParseError("Bad sequence entry indentation")
+
     def take_value(self, element):
         self.value.append(element.resolved_value())
 
@@ -270,6 +286,14 @@ class StackedMap(StackedDocument):
 
     def represented_decoration(self):
         return dbg(super(StackedMap, self).represented_decoration(), ("*",  self.last_key))
+
+    def needs_new_list(self, indent):
+        i = self.indent
+        if i is None:
+            raise ParseError("Block not allowed in flow")
+        if i >= indent:
+            raise ParseError("Bad sequence entry indentation")
+        return True
 
     def resolved_value(self):
         if self.has_key:
@@ -403,12 +427,14 @@ class Token(object):
         self.value = value
 
     def __repr__(self):
-        name = self.__class__.__name__
-        if self.indent is not None:
-            name = "%s[%s,%s]" % (name, self.line_number, self.indent + 1)
-        if self.value is None:
-            return name
-        return "%s %s" % (name, self.represented_value())
+        result= "%s[%s,%s]" % (self.__class__.__name__, self.line_number, self.column)
+        if self.value is not None:
+            result = "%s %s" % (result, self.represented_value())
+        return result
+
+    @property
+    def column(self):
+        return self.indent + 1
 
     def represented_value(self):
         return str(self.value)
@@ -487,9 +513,13 @@ class CommaToken(Token):
 
 
 class DashToken(Token):
+    @property
+    def column(self):
+        return self.indent
+
     def consume_token(self, root):
         root.pop_until(self.indent)
-        if root.head.indent is None or root.head.indent != self.indent:
+        if root.head.needs_new_list(self.indent):
             root.push(StackedList(self.indent))
 
 
@@ -593,26 +623,31 @@ class ParseError(Exception):
     def __init__(self, message, *context):
         self.message = message
         self.line_number = None
-        self.indent = None
+        self.column = None
         self.auto_complete(*context)
 
     def __str__(self):
-        if self.indent is None:
-            return self.message
-        return "%s, line %s column %s" % (self.message, self.line_number, self.indent + 1)
+        coords = ""
+        if self.line_number is not None:
+            coords += " line %s" % self.line_number
+        if self.column is not None:
+            coords += " column %s" % self.column
+        if coords:
+            coords = ",%s" % coords
+        return "%s%s" % (self.message, coords)
 
-    def complete_coordinates(self, line_number, indent):
+    def complete_coordinates(self, line_number, column):
         if self.line_number is None:
             self.line_number = line_number
-        if self.indent is None:
-            self.indent = indent
+        if self.column is None:
+            self.column = column
 
     def auto_complete(self, *context):
         if context:
             if isinstance(context[0], Token):
-                self.complete_coordinates(context[0].line_number, context[0].indent)
+                self.complete_coordinates(context[0].line_number, context[0].column)
             elif len(context) == 2:
-                self.complete_coordinates(*context)
+                self.complete_coordinates(context[0], context[1] + 1)
 
 
 def _checked_scalar(value):
