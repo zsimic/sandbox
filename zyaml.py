@@ -192,11 +192,6 @@ class StackedDocument(object):
     def attach(self, root):
         self.root = root
 
-    def should_auto_pop(self, indent):
-        if self.indent is None or indent is None:
-            return False
-        return self.indent < indent
-
     def underranks(self, indent):
         if indent is None:
             return self.indent is not None
@@ -205,7 +200,7 @@ class StackedDocument(object):
         return self.indent > indent
 
     def represented_decoration(self):
-        return dbg(("&", self.anchor_token), ("!", self.tag_token))
+        return dbg(("&", self.anchor_token), ("!", self.tag_token), (":",  self.is_key))
 
     def resolved_value(self):
         value = self.value
@@ -238,9 +233,6 @@ class StackedScalar(StackedDocument):
     def attach(self, root):
         self.root = root
         self.value = self.token.resolved_value(self.tag_token is None)
-
-    def should_auto_pop(self, indent):
-        return False
 
     def underranks(self, indent):
         return True
@@ -277,18 +269,25 @@ class StackedMap(StackedDocument):
         super(StackedMap, self).__init__()
         self.indent = indent
         self.value = {}
-        self.has_key = False
         self.last_key = None
+        self.has_key = False
 
     def represented_decoration(self):
-        return dbg(super(StackedMap, self).represented_decoration(), (":",  self.last_key))
+        return dbg(super(StackedMap, self).represented_decoration(), ("*",  self.last_key))
+
+    def resolved_value(self):
+        if self.has_key:
+            self.value[self.last_key] = None
+            self.last_key = None
+            self.has_key = False
+        return super(StackedMap, self).resolved_value()
 
     def take_key(self, element):
         if self.indent is not None and element.indent is not None and element.indent != self.indent:
             return super(StackedMap, self).take_key(element)
-        self.has_key = True
         key = element.resolved_value()
         self.last_key = key
+        self.has_key = True
 
     def take_value(self, element):
         if self.has_key:
@@ -296,8 +295,8 @@ class StackedMap(StackedDocument):
         else:
             key = element.resolved_value()
             self.value[key] = None
-        self.has_key = False
         self.last_key = None
+        self.has_key = False
 
     def consume_scalar(self, token):
         self.root.push(StackedScalar(token))
@@ -336,7 +335,7 @@ class ScannerStack(object):
             ("!", self.secondary_tag_token),
         )
 
-    def _decorate(self, target, name, secondary_name):
+    def decorate(self, target, name, secondary_name):
         line_number = getattr(target, "line_number", None)
         tag = getattr(self, name)
         if tag is not None and (line_number is None or line_number == tag.line_number):
@@ -346,9 +345,9 @@ class ScannerStack(object):
             setattr(self, name, getattr(self, secondary_name))
             setattr(self, secondary_name, None)
 
-    def decorate(self, target):
-        self._decorate(target, "anchor_token", "secondary_anchor_token")
-        self._decorate(target, "tag_token", "secondary_tag_token")
+    def attach(self, target):
+        self.decorate(target, "anchor_token", "secondary_anchor_token")
+        self.decorate(target, "tag_token", "secondary_tag_token")
         target.attach(self)
 
     def _set_decoration(self, token, name, secondary_name):
@@ -369,12 +368,9 @@ class ScannerStack(object):
         """
         :param StackedDocument element:
         """
-        # while element.should_auto_pop(self.head.indent):
-        #     self.pop()
-        self.decorate(element)
+        self.attach(element)
         element.prev = self.head
         self.head = element
-        trace("root: {}", self)
 
     def pop(self):
         popped = self.head
@@ -1054,6 +1050,7 @@ class Scanner(object):
             root = ScannerStack()
             for token in self.tokens():
                 token.consume_token(root)
+                trace("{}: {}", token, root)
             if simplified:
                 return simplified_docs(root.docs)
             return root.docs
