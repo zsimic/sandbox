@@ -164,21 +164,33 @@ def dbg(*args):
     return "".join(_dbg_repr(s) for s in args if s is not None)
 
 
-class StackedElement(object):
-    def __init__(self, indent):
-        self.indent = indent
-        self.is_temp = False
+class StackedDocument(object):
+    def __init__(self):
+        self.indent = None
         self.root = None  # type: ScannerStack
-        self.prev = None  # type: StackedElement
+        self.prev = None  # type: StackedDocument
         self.value = None
         self.anchor_token = None  # type: AnchorToken
         self.tag_token = None  # type: TagToken
+        self.is_key = False
 
     def __repr__(self):
         return dbg(self.__class__.__name__[7], self.indent, self.represented_decoration())
 
+    def should_auto_pop(self, indent):
+        if self.indent is None or indent is None:
+            return False
+        return self.indent < indent
+
+    def underranks(self, indent):
+        if indent is None:
+            return self.indent is not None
+        elif self.indent is None:
+            return False
+        return self.indent > indent
+
     def represented_decoration(self):
-        return dbg(("&", self.anchor_token), ("!", self.tag_token), ("T", self.is_temp))
+        return dbg(("&", self.anchor_token), ("!", self.tag_token))
 
     def resolved_value(self):
         value = self.value
@@ -188,114 +200,83 @@ class StackedElement(object):
             self.root.anchors[self.anchor_token.value] = value
         return value
 
-    def push(self, element):
-        element.root = self.root
-        if self.indent is None:
-            element.is_temp = element.indent is not None
-        self.root.decorate(element)
-        element.prev = self
-        self.root.head = element
+    def take_key(self, element):
+        self.root.push(StackedMap(element.indent))
+        self.root.head.take_key(element)
 
-    def pop(self):
-        prev = self.prev
-        assert prev is not None
-        self.root.head = prev
-        prev.add_value(self.resolved_value())
+    def take_value(self, element):
+        self.value = element.resolved_value()
 
-    def pop_until(self, indent):
-        if self.indent is None:
-            _todo()
-            return
-        if self.indent > indent:
-            self.pop()
-            self.prev.pop_until(indent)
-
-    def add_value(self, value):
-        self.value = value
-
-    def consume_comma(self):
-        _todo()
-
-    def consume_dash(self, indent):
-        self.push(StackedList(indent))
-
-    def consume_colon(self, token):
-        _todo()
-
-    def push_scalar(self, token):
-        self.push(StackedScalar(token))
+    def consume_scalar(self, token):
+        self.root.push(StackedScalar(token))
 
 
-class StackedScalar(StackedElement):
+class StackedScalar(StackedDocument):
     def __init__(self, token):
-        super(StackedScalar, self).__init__(token.indent)
+        super(StackedScalar, self).__init__()
+        self.indent = token.indent
+        self.value = token.value
         self.line_number = token.line_number
         self.token = token
 
-    def consume_comma(self):
+    def should_auto_pop(self, indent):
+        return False
+
+    def underranks(self, indent):
+        return True
+
+    def take_key(self, element):
         _todo()
 
-    def consume_dash(self, indent):
+    def take_value(self, element):
         _todo()
 
-    def consume_colon(self, token):
-        smap = StackedMap(self.indent)
-        self.push(smap)
-        smap.push_key(self.resolved_value())
+    def consume_scalar(self, token):
+        if self.indent is None:
+            _todo()
+        else:
+            self.root.pop()
+            self.root.push(StackedScalar(token))
 
-    def push_scalar(self, token):
-        raise ParseError("2 consecutive scalars given")
 
-
-class StackedList(StackedElement):
+class StackedList(StackedDocument):
     def __init__(self, indent):
-        super(StackedList, self).__init__(indent)
+        super(StackedList, self).__init__()
+        self.indent = indent
         self.value = []
 
-    def add_value(self, value):
-        self.value.append(value)
+    def take_value(self, element):
+        self.value.append(element.resolved_value())
 
-    def consume_comma(self):
-        _todo()
-
-    def consume_dash(self, indent):
-        if indent != self.indent:
-            _todo()
-
-    def consume_colon(self, token):
-        _todo()
-
-    def push_scalar(self, token):
-        self.value.append(token.value)
+    def consume_scalar(self, token):
+        self.root.push(StackedScalar(token))
 
 
-class StackedMap(StackedElement):
+class StackedMap(StackedDocument):
     def __init__(self, indent):
-        super(StackedMap, self).__init__(indent)
+        super(StackedMap, self).__init__()
+        self.indent = indent
         self.value = {}
+        self.has_key = False
         self.last_key = None
 
     def represented_decoration(self):
         return dbg(super(StackedMap, self).represented_decoration(), (":",  self.last_key))
 
-    def add_value(self, value):
-        self.value[self.last_key] = value
+    def take_key(self, element):
+        self.has_key = True
+        self.last_key = element.resolved_value()
+
+    def take_value(self, element):
+        if self.has_key:
+            self.value[self.last_key] = element.resolved_value()
+        else:
+            self.value[element.resolved_value()] = None
+        self.has_key = False
         self.last_key = None
 
-    def consume_comma(self):
-        _todo()
-
-    def consume_dash(self, indent):
-        _todo()
-
-    def consume_colon(self, token):
-        _todo()
-
-    def push_scalar(self, token):
-        _todo()
-
-    def push_key(self, value):
-        self.last_key = value
+    def consume_scalar(self, token):
+        self.root.push(StackedScalar(token))
 
 
 class ScannerStack(object):
@@ -303,7 +284,7 @@ class ScannerStack(object):
         super(ScannerStack, self).__init__()
         self.docs = []
         self.directive = None
-        self.head = StackedElement(0)  # type: StackedElement
+        self.head = StackedDocument()  # type: StackedDocument
         self.head.root = self
         self.anchors = {}
         self.anchor_token = None
@@ -338,6 +319,7 @@ class ScannerStack(object):
             setattr(self, secondary_name, None)
 
     def decorate(self, target):
+        target.root = self
         self._decorate(target, "anchor_token", "secondary_anchor_token")
         self._decorate(target, "tag_token", "secondary_tag_token")
 
@@ -355,17 +337,33 @@ class ScannerStack(object):
     def set_tag_token(self, token):
         self._set_decoration(token, "tag_token", "secondary_tag_token")
 
-    def pop_temp(self):
-        while self.head.is_temp:
-            self.head.pop()
+    def push(self, element):
+        """
+        :param StackedDocument element:
+        """
+        while element.should_auto_pop(self.head.indent):
+            self.pop()
+        self.decorate(element)
+        element.prev = self.head
+        self.head = element
+
+    def pop(self):
+        popped = self.head
+        if popped.prev is None:
+            _todo()
+        self.head = popped.prev
+        if popped.is_key:
+            self.head.take_key(popped)
+        else:
+            self.head.take_value(popped)
 
     def pop_until(self, indent):
-        while self.head.indent is not None and self.head.indent > indent:
-            self.head.pop()
+        while self.head.underranks(indent):
+            self.pop()
 
     def pop_doc(self):
         while self.head.prev is not None:
-            self.head.pop()
+            self.pop()
         if self.head.value is not None:
             self.docs.append(self.head.value)
             self.head.value = None
@@ -441,34 +439,36 @@ class DirectiveToken(Token):
 
 class FlowMapToken(Token):
     def consume_token(self, root):
-        root.head.push(StackedMap(None))
+        root.push(StackedMap(None))
 
 
 class FlowSeqToken(Token):
     def consume_token(self, root):
-        root.head.push(StackedList(None))
+        root.push(StackedList(None))
 
 
 class FlowEndToken(Token):
     def consume_token(self, root):
-        root.pop_temp()
-        assert root.head.indent is None
-        root.head.pop()
+        root.pop_until(None)
+        root.pop()
 
 
 class CommaToken(Token):
     def consume_token(self, root):
-        root.head.consume_comma()
+        root.pop_until(None)
 
 
 class DashToken(Token):
     def consume_token(self, root):
-        root.head.consume_dash(self.indent)
+        root.pop_until(self.indent)
+        if root.head.indent is None or root.head.indent != self.indent:
+            root.push(StackedList(self.indent))
 
 
 class ColonToken(Token):
     def consume_token(self, root):
-        root.head.consume_colon(self)
+        root.head.is_key = True
+        root.pop()
 
 
 class TagToken(Token):
@@ -519,7 +519,7 @@ class AliasToken(Token):
         if root.tag_token is not None:
             raise ParseError("Tags not allowed on aliases")
         self.value = root.anchors.get(self.anchor)
-        root.head.push_scalar(self)
+        root.head.consume_scalar(self)
 
 
 class ScalarToken(Token):
@@ -563,7 +563,7 @@ class ScalarToken(Token):
             self.value = "%s %s" % (self.value, text.lstrip())
 
     def consume_token(self, root):
-        root.head.push_scalar(self)
+        root.head.consume_scalar(self)
 
 
 class ParseError(Exception):
