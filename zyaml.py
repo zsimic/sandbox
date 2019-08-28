@@ -4,9 +4,11 @@ import datetime
 import dateutil
 import re
 import sys
+import os
 
 
 PY2 = sys.version_info < (3, 0)
+DEBUG = os.environ.get("TRACE_YAML")
 RESERVED = "@`"
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
 RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
@@ -38,6 +40,16 @@ CONSTANTS = {
     "yes": True,
     "on": True,
 }
+
+
+def trace(message, *args):
+    """Output 'message' if tracing is on"""
+    if not DEBUG:
+        return
+    if args:
+        message = message.format(*args)
+    sys.stderr.write(":: %s\n" % message)
+    sys.stderr.flush()
 
 
 if PY2:
@@ -177,6 +189,9 @@ class StackedDocument(object):
     def __repr__(self):
         return dbg(self.__class__.__name__[7], self.indent, self.represented_decoration())
 
+    def attach(self, root):
+        self.root = root
+
     def should_auto_pop(self, indent):
         if self.indent is None or indent is None:
             return False
@@ -217,9 +232,12 @@ class StackedScalar(StackedDocument):
     def __init__(self, token):
         super(StackedScalar, self).__init__()
         self.indent = token.indent
-        self.value = token.value
         self.line_number = token.line_number
         self.token = token
+
+    def attach(self, root):
+        self.root = root
+        self.value = self.token.resolved_value(self.tag_token is None)
 
     def should_auto_pop(self, indent):
         return False
@@ -266,7 +284,7 @@ class StackedMap(StackedDocument):
         return dbg(super(StackedMap, self).represented_decoration(), (":",  self.last_key))
 
     def take_key(self, element):
-        if element.indent != self.indent:
+        if self.indent is not None and element.indent is not None and element.indent != self.indent:
             return super(StackedMap, self).take_key(element)
         self.has_key = True
         key = element.resolved_value()
@@ -304,7 +322,11 @@ class ScannerStack(object):
         while head is not None:
             stack.append(str(head))
             head = head.prev
-        return "%s [%s]" % (" / ".join(stack), self.represented_decoration())
+        result = " / ".join(stack)
+        deco = self.represented_decoration()
+        if deco:
+            result = "%s [%s]" % (result, deco)
+        return result
 
     def represented_decoration(self):
         return dbg(
@@ -325,9 +347,9 @@ class ScannerStack(object):
             setattr(self, secondary_name, None)
 
     def decorate(self, target):
-        target.root = self
         self._decorate(target, "anchor_token", "secondary_anchor_token")
         self._decorate(target, "tag_token", "secondary_tag_token")
+        target.attach(self)
 
     def _set_decoration(self, token, name, secondary_name):
         tag = getattr(self, name)
@@ -352,6 +374,7 @@ class ScannerStack(object):
         self.decorate(element)
         element.prev = self.head
         self.head = element
+        trace("root: {}", self)
 
     def pop(self):
         popped = self.head
@@ -372,6 +395,7 @@ class ScannerStack(object):
             self.pop()
         if self.head.value is not None:
             self.docs.append(self.head.value)
+            trace("---\n{}\n---", self.head.value)
             self.head.value = None
         self.anchors = {}
         self.directive = None
@@ -445,13 +469,11 @@ class DirectiveToken(Token):
 
 class FlowMapToken(Token):
     def consume_token(self, root):
-        root.pop_until(None)
         root.push(StackedMap(None))
 
 
 class FlowSeqToken(Token):
     def consume_token(self, root):
-        root.pop_until(None)
         root.push(StackedList(None))
 
 
@@ -516,16 +538,12 @@ class AliasToken(Token):
     def represented_value(self):
         return "*%s" % self.anchor
 
-    def resolved_value(self, root):
+    def resolved_value(self, apply_marshal):
         return self.value
 
     def consume_token(self, root):
         if self.anchor not in root.anchors:
             raise ParseError("Undefined anchor &%s" % self.anchor)
-        if root.anchor_token is not None:
-            raise ParseError("Anchors not allowed on aliases")
-        if root.tag_token is not None:
-            raise ParseError("Tags not allowed on aliases")
         self.value = root.anchors.get(self.anchor)
         root.head.consume_scalar(self)
 
@@ -534,8 +552,6 @@ class ScalarToken(Token):
     def __init__(self, line_number, indent, text, style=None):
         super(ScalarToken, self).__init__(line_number, indent, text)
         self.style = style
-        self.anchor_token = None
-        self.tag_token = None
 
     def represented_value(self):
         if self.style is None:
@@ -546,16 +562,12 @@ class ScalarToken(Token):
             return "'%s'" % self.value.replace("'", "''")
         return "%s %s" % (self.style, self.value)
 
-    def resolved_value(self, root):
+    def resolved_value(self, apply_marshal):
         value = self.value
         if self.style is None and value is not None:
             value = value.strip()
-        if self.tag_token is not None:
-            value = self.tag_token.marshalled(value)
-        elif self.style is None:
+        if apply_marshal and self.style is None:
             value = default_marshal(value)
-        if self.anchor_token:
-            root.anchors[self.anchor_token.value] = value
         return value
 
     def append_text(self, text):
