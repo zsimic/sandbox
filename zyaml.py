@@ -232,7 +232,7 @@ class StackedScalar(StackedDocument):
 
     def attach(self, root):
         self.root = root
-        self.value = self.token.resolved_value(self.tag_token is None)
+        self.value = self.token.resolved_value(self.anchor_token is None and self.tag_token is None)
 
     def underranks(self, indent):
         return True
@@ -244,11 +244,10 @@ class StackedScalar(StackedDocument):
         _todo()
 
     def consume_scalar(self, token):
-        if self.indent is None:
-            _todo()
-        else:
-            self.root.pop()
-            self.root.push(StackedScalar(token))
+        if self.prev.indent is None:
+            raise ParseError("Missing comma between flow collection entries")
+        self.root.pop()
+        self.root.push(StackedScalar(token))
 
 
 class StackedList(StackedDocument):
@@ -259,9 +258,6 @@ class StackedList(StackedDocument):
 
     def take_value(self, element):
         self.value.append(element.resolved_value())
-
-    def consume_scalar(self, token):
-        self.root.push(StackedScalar(token))
 
 
 class StackedMap(StackedDocument):
@@ -285,6 +281,10 @@ class StackedMap(StackedDocument):
     def take_key(self, element):
         if self.indent is not None and element.indent is not None and element.indent != self.indent:
             return super(StackedMap, self).take_key(element)
+        if self.has_key and element.indent == self.indent:
+            self.value[self.last_key] = None
+            self.last_key = None
+            self.has_key = False
         key = element.resolved_value()
         self.last_key = key
         self.has_key = True
@@ -297,9 +297,6 @@ class StackedMap(StackedDocument):
             self.value[key] = None
         self.last_key = None
         self.has_key = False
-
-    def consume_scalar(self, token):
-        self.root.push(StackedScalar(token))
 
 
 class ScannerStack(object):
@@ -416,6 +413,9 @@ class Token(object):
     def represented_value(self):
         return str(self.value)
 
+    def new_tacked_scalar(self, text=""):
+        return StackedScalar(ScalarToken(self.line_number, self.indent, text))
+
     def consume_token(self, root):
         """
         :param ScannerStack root: Process this token on given 'root' node
@@ -438,6 +438,8 @@ class DocumentStartToken(Token):
 
 class DocumentEndToken(Token):
     def consume_token(self, root):
+        if root.head.prev is None and root.head.value is None:
+            root.push(self.new_tacked_scalar())
         root.pop_doc()
 
 
@@ -493,8 +495,11 @@ class DashToken(Token):
 
 class ColonToken(Token):
     def consume_token(self, root):
-        root.head.is_key = True
-        root.pop()
+        if root.head.indent is None:
+            root.push(self.new_tacked_scalar())  # Edge case sample-7.10: key is "::vector"
+        else:
+            root.head.is_key = True
+            root.pop()
 
 
 class TagToken(Token):
@@ -534,7 +539,9 @@ class AliasToken(Token):
     def represented_value(self):
         return "*%s" % self.anchor
 
-    def resolved_value(self, apply_marshal):
+    def resolved_value(self, clean):
+        if not clean:
+            raise ParseError("Alias node should not have any properties")
         return self.value
 
     def consume_token(self, root):
@@ -558,11 +565,11 @@ class ScalarToken(Token):
             return "'%s'" % self.value.replace("'", "''")
         return "%s %s" % (self.style, self.value)
 
-    def resolved_value(self, apply_marshal):
+    def resolved_value(self, clean):
         value = self.value
         if self.style is None and value is not None:
             value = value.strip()
-        if apply_marshal and self.style is None:
+        if clean and self.style is None:
             value = default_marshal(value)
         return value
 
@@ -818,8 +825,11 @@ class Scanner(object):
                 m = regex.search(line_text, start)
                 if m is not None:
                     end = m.span(1)[1]
-                    text = line_text[start:end]
-                    text = text[:-1] if text.endswith(style) else text[:-2]
+                    quote_pos = end - 1
+                    if line_text[quote_pos] != style:
+                        end = end - 1
+                        quote_pos = quote_pos - 1
+                    text = line_text[start:quote_pos]
                     line_size = len(line_text)
                     if lines is not None:
                         lines.append(text)
