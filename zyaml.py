@@ -201,7 +201,9 @@ class StackedDocument(object):
         return value
 
     def take_key(self, element):
-        self.root.push(StackedMap(element.indent))
+        self.root.pop_until(element.indent)
+        if self.root.head.indent != element.indent:
+            self.root.push(StackedMap(element.indent))
         self.root.head.take_key(element)
 
     def take_value(self, element):
@@ -264,14 +266,18 @@ class StackedMap(StackedDocument):
         return dbg(super(StackedMap, self).represented_decoration(), (":",  self.last_key))
 
     def take_key(self, element):
+        if element.indent != self.indent:
+            return super(StackedMap, self).take_key(element)
         self.has_key = True
-        self.last_key = element.resolved_value()
+        key = element.resolved_value()
+        self.last_key = key
 
     def take_value(self, element):
         if self.has_key:
             self.value[self.last_key] = element.resolved_value()
         else:
-            self.value[element.resolved_value()] = None
+            key = element.resolved_value()
+            self.value[key] = None
         self.has_key = False
         self.last_key = None
 
@@ -341,8 +347,8 @@ class ScannerStack(object):
         """
         :param StackedDocument element:
         """
-        while element.should_auto_pop(self.head.indent):
-            self.pop()
+        # while element.should_auto_pop(self.head.indent):
+        #     self.pop()
         self.decorate(element)
         element.prev = self.head
         self.head = element
@@ -439,11 +445,13 @@ class DirectiveToken(Token):
 
 class FlowMapToken(Token):
     def consume_token(self, root):
+        root.pop_until(None)
         root.push(StackedMap(None))
 
 
 class FlowSeqToken(Token):
     def consume_token(self, root):
+        root.pop_until(None)
         root.push(StackedList(None))
 
 
@@ -920,7 +928,7 @@ class Scanner(object):
                         return
                     start, end = m.span(2)
                     matched = line_text[start]
-                yield prev_start, line_text[prev_start:start]
+                yield prev_start, line_text[prev_start:start].strip()
             if matched == "#":
                 return
             if matched == ":":
