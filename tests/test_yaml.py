@@ -70,8 +70,13 @@ def test_tokens():
 def test_errors():
     e = zyaml.ParseError("testing")
     assert str(e) == "testing"
-    e.indent = 1
-    assert str(e) == "testing, line None column 2"
+    e.column = 1
+    assert str(e) == "testing, column 1"
+    e.auto_complete(1, 2)
+    assert str(e) == "testing, line 1 column 1"
+    e.column = None
+    e.auto_complete(1, 2)
+    assert str(e) == "testing, line 1 column 3"
 
 
 def test_comments():
