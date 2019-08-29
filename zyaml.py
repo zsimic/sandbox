@@ -69,6 +69,13 @@ else:
         return base64.decodebytes(_checked_scalar(value).encode("ascii"))
 
 
+def shortened(text, size=100):
+    text = str(text)
+    if not text or len(text) < size:
+        return text
+    return "%s..." % text[:size]
+
+
 def to_float(text):
     try:
         return float(text)
@@ -84,6 +91,7 @@ def to_float(text):
 
 
 def to_number(text):
+    text = cleaned_number(text)
     try:
         return int(text)
     except ValueError:
@@ -112,8 +120,7 @@ def default_marshal(text):
         return CONSTANTS.get(constant.lower(), text)
     if number is not None:
         try:
-            cleaned = cleaned_number(number)
-            return to_number(cleaned)
+            return to_number(number)
         except ValueError:
             return text
     y = int(y)
@@ -571,6 +578,11 @@ class TagToken(Token):
     def consume_token(self, root):
         root.set_tag_token(self)
 
+    def type_name(self):
+        if not self.value or self.value == "!":
+            return "default constructor"
+        return self.value
+
     def marshalled(self, value):
         if self.marshaller is None:
             return value
@@ -579,6 +591,10 @@ class TagToken(Token):
         except ParseError as e:
             e.auto_complete(self)
             raise
+        except ValueError:
+            raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.type_name()), self)
+        except Exception as e:
+            raise ParseError("Invalid %s: %s" % (self.type_name(), e), self)
 
 
 class AnchorToken(Token):
@@ -754,7 +770,7 @@ class DefaultMarshaller:
         value = CONSTANTS.get(_checked_scalar(value).lower())
         if isinstance(value, bool):
             return value
-        raise ParseError("'%s' is not a boolean" % value)
+        raise ValueError()
 
     @staticmethod
     def binary(value):
@@ -765,11 +781,11 @@ class DefaultMarshaller:
         value = default_marshal(_checked_scalar(value))
         if isinstance(value, datetime.datetime) or isinstance(value, datetime.date):
             return value
-        raise ParseError("'%s' is not a date" % value)
+        raise ValueError()
 
     @staticmethod
     def float(value):
-        return to_float(_checked_scalar(value))
+        return to_float(cleaned_number(_checked_scalar(value)))
 
 
 class Marshallers(object):
