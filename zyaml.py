@@ -11,7 +11,7 @@ PY2 = sys.version_info < (3, 0)
 DEBUG = os.environ.get("TRACE_YAML")
 RESERVED = "@`"
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}:,]\s*)""")
+RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{},]\s*|:([^:|$]))""")
 RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
@@ -532,11 +532,8 @@ class DashToken(Token):
 
 class ColonToken(Token):
     def consume_token(self, root):
-        if root.head.indent is None:
-            root.push(self.new_tacked_scalar())  # Edge case sample-7.10: key is "::vector"
-        else:
-            root.head.is_key = True
-            root.pop()
+        root.head.is_key = True
+        root.pop()
 
 
 class TagToken(Token):
@@ -992,6 +989,8 @@ class Scanner(object):
             if matched == "#":
                 return
             if matched == ":":
+                if self.flow_ender is not None and line_text[end] != " ":
+                    end = end - 1
                 yield start, matched
             else:
                 yield start, line_text[start:end].strip()

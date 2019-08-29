@@ -5,9 +5,7 @@
   -123,
   "http://example.com/foo#bar",
   [
-    {
-      "": "vector"
-    },
+    "::vector",
     ": - ()",
     "Up, up and away!",
     -123,
