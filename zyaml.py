@@ -284,6 +284,11 @@ class StackedList(StackedDocument):
             return True
         raise ParseError("Bad sequence entry indentation")
 
+    def mark_as_key(self, token):
+        scalar = token.new_tacked_scalar()
+        scalar.is_key = True
+        self.root.push(scalar)
+
     def take_value(self, element):
         if self.indent is None and self.closed < len(self.value):
             raise ParseError("Missing comma in list")
@@ -419,7 +424,8 @@ class ScannerStack(object):
 
     def pop(self):
         popped = self.head
-        assert popped.prev is not None
+        if popped.prev is None:
+            raise ParseError("Premature end of document")
         self.head = popped.prev
         if popped.is_key:
             self.head.take_key(popped)
@@ -668,11 +674,18 @@ class ParseError(Exception):
             self.column = column
 
     def auto_complete(self, *context):
-        if context:
-            if isinstance(context[0], Token):
-                self.complete_coordinates(context[0].line_number, context[0].column)
-            elif len(context) == 2:
-                self.complete_coordinates(context[0], context[1] + 1)
+        if not context:
+            return
+        if len(context) == 2 and isinstance(context[0], int) and isinstance(context[1], int):
+            self.complete_coordinates(context[0], context[1] + 1)
+            return
+        for c in context:
+            column = getattr(c, "column", None)
+            if column is None:
+                column = getattr(c, "indent", None)
+                if column is not None:
+                    column = column + 1
+            self.complete_coordinates(getattr(c, "line_number"), column)
 
 
 def _checked_scalar(value):
