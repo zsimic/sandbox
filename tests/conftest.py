@@ -143,7 +143,15 @@ class BenchmarkRunner(object):
 
         for name, seconds in self.seconds.items():
             info = "" if seconds == self.fastest else " [x %.1f]" % (seconds / self.fastest)
-            self.outcome[name] = "%.3fs%s" % (seconds, info)
+            unit = "μ"
+            x = seconds / self.iterations * 1000000
+            if x >= 999:
+                x = x / 1000
+                unit = "m"
+            if x >= 999:
+                x = x / 1000
+                unit = "s"
+            self.outcome[name] = "%.3f %ss/i%s" % (x, unit, info)
 
     def report(self):
         result = []
@@ -285,7 +293,7 @@ def benchmark(stacktrace, implementations, samples):
     for sample in samples:
         impls = dict((i.name, partial(i.load, sample)) for i in implementations)
         with runez.Anchored(SAMPLE_FOLDER):
-            bench = BenchmarkRunner(impls, target_name=sample.name, iterations=200)
+            bench = BenchmarkRunner(impls, target_name=sample.name, iterations=100)
             bench.run(stacktrace)
             print(bench.report())
 

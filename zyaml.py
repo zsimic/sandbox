@@ -220,6 +220,8 @@ class StackedDocument(object):
         self.root.head.take_key(element)
 
     def take_value(self, element):
+        if self.value is not None:
+            raise ParseError("Document separator expected", element.line_number, element.indent)
         self.value = element.resolved_value()
 
     def consume_scalar(self, token):
@@ -247,11 +249,13 @@ class StackedScalar(StackedDocument):
         _todo()
 
     def take_value(self, element):
-        _todo()
+        if element.indent is None:
+            raise ParseError("Missing comma between scalar and entry in flow", self.token)
+        raise ParseError("2 consecutive scalars")
 
     def consume_scalar(self, token):
-        if self.prev.indent is None:
-            raise ParseError("Missing comma between flow collection entries")
+        if self.prev.indent is None and self.prev.prev is not None:
+            raise ParseError("Missing comma between scalars in flow", self.token)
         self.root.pop()
         self.root.push(StackedScalar(token))
 
@@ -966,7 +970,7 @@ class Scanner(object):
             start, end = m.span(2)
             matched = line_text[start]
             if prev_start is not None:
-                if matched in "!&*{[":
+                if self.flow_ender is None and matched in "!&*{[":
                     yield prev_start, de_commented(line_text[prev_start:])
                     return
                 while matched == "#" and line_text[start - 1] != " " \
