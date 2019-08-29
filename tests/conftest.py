@@ -1,4 +1,5 @@
 # -*- encoding: utf-8 -*-
+import codecs
 import datetime
 import inspect
 import json
@@ -236,17 +237,19 @@ def implementations_option(option=True, default="zyaml,ruamel", count=None, **kw
             if count == 1:
                 raise click.BadParameter("Need exactly 1 implementation")
             raise click.BadParameter("Need exactly %s implementations" % count)
+        if count == 1:
+            return implementations.selected[0]
         return implementations
 
     if option:
-        if count:
-            hlp = "%s implementation%s to use" % (count, plural(count))
+        if count and count > 1:
+            hlp = "%s implementations to use" % count
         else:
-            hlp = "Implementations to use"
+            hlp = "Implementation%s to use" % plural(count)
         kwargs.setdefault("help", hlp)
         kwargs.setdefault("show_default", True)
-        kwargs.setdefault("metavar", "CSV")
-        return click.option("--implementations", "-i", callback=_callback, **kwargs)
+        kwargs.setdefault("metavar", "IMPL" if count == 1 else "CSV")
+        return click.option("--implementation%s" % plural(count), "-i", callback=_callback, **kwargs)
 
     return click.argument("implementations", callback=_callback, **kwargs)
 
@@ -399,6 +402,30 @@ def mv(samples, category):
     move(sample.expected_path, dest, sample.basename, ".json", subfolder="_expected")
 
 
+@main.command(name="print")
+@stacktrace_option()
+@implementations_option(count=1, default="zyaml")
+@click.argument("text", nargs=-1)
+def print_(stacktrace, implementation, text):
+    """Deserialize given argument as yaml"""
+    assert isinstance(implementation, YmlImplementation)
+    text = " ".join(text)
+    text = codecs.decode(text, "unicode_escape")
+    if stacktrace:
+        data = implementation.load_stream(text)
+    else:
+        try:
+            data = implementation.load_stream(text)
+        except Exception as e:
+            print(runez.short(str(e) or e.__class__.__name__))
+            sys.exit(1)
+    if data is None:
+        print("returned None")
+        return
+    j = implementation.json_representation(ParseResult(implementation, None, data=data))
+    print(j[:-1])
+
+
 def _bench1(size):
     return "%s" % size
 
@@ -426,7 +453,7 @@ def quick_bench(iterations, size):
 @stacktrace_option()
 @implementations_option(count=1, default="zyaml")
 @samples_arg(default=TESTED_SAMPLES)
-def refresh(stacktrace, implementations, samples):
+def refresh(stacktrace, implementation, samples):
     """Refresh expected json for each sample"""
     for root, dirs, files in os.walk(SAMPLE_FOLDER):
         if root.endswith("_expected"):
@@ -440,7 +467,7 @@ def refresh(stacktrace, implementations, samples):
                     os.unlink(jpath)
 
     for sample in samples:
-        sample.refresh(impl=implementations.selected[0], stacktrace=stacktrace)
+        sample.refresh(impl=implementation, stacktrace=stacktrace)
 
 
 @main.command()
@@ -596,7 +623,9 @@ class YmlImplementation(object):
         raise Exception("not implemented")
 
     def _simplified(self, value):
-        return zyaml.simplified_docs(value)
+        if isinstance(value, list) and len(value) == 1:
+            return value[0]
+        return value
 
     def load_stream(self, contents):
         data = self._load(contents)

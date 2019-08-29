@@ -1153,7 +1153,10 @@ class Scanner(object):
                 token.consume_token(root)
                 trace("{}: {}", token, root)
             if simplified:
-                return simplified_docs(root.docs)
+                if not root.docs:
+                    return None
+                if len(root.docs) == 1:
+                    return root.docs[0]
             return root.docs
         except ParseError as error:
             error.auto_complete(token)
@@ -1194,9 +1197,3 @@ def load_path(path, simplified=True):
     """
     with open(path) as fh:
         return load_string(fh.read(), simplified=simplified)
-
-
-def simplified_docs(docs):
-    if isinstance(docs, list) and len(docs) == 1:
-        return docs[0]
-    return docs

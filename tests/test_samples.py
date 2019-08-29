@@ -1,5 +1,7 @@
 import json
 
+import zyaml
+
 from .conftest import json_sanitized, ZyamlImplementation
 
 
@@ -21,3 +23,17 @@ def test_samples(all_samples):
         assert jpayload == jexpected, "Failed sample %s" % sample
 
     assert skipped == 0, "Skipped %s tests, please refresh" % skipped
+
+
+def check_invalid(text, expected):
+    try:
+        data = zyaml.load_string(text)
+        assert False, "Expected failure but got %s" % data
+    except zyaml.ParseError as e:
+        assert str(e) == expected
+
+
+def test_invalid():
+    check_invalid("!!float _", "'_' can't be converted using !!float, line 1 column 1")
+    check_invalid("!!date x", "'x' can't be converted using !!date, line 1 column 1")
+    check_invalid("a\n#\nb", "Document separator expected, line 3 column 1")
