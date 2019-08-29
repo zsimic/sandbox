@@ -178,7 +178,7 @@ def dbg(*args):
 
 class StackedDocument(object):
     def __init__(self):
-        self.indent = None
+        self.indent = -1
         self.root = None  # type: ScannerStack
         self.prev = None  # type: StackedDocument
         self.value = None
@@ -254,7 +254,7 @@ class StackedScalar(StackedDocument):
         raise ParseError("2 consecutive scalars")
 
     def consume_scalar(self, token):
-        if self.prev.indent is None and self.prev.prev is not None:
+        if self.prev.indent is None:
             raise ParseError("Missing comma between scalars in flow", self.token)
         self.root.pop()
         self.root.push(StackedScalar(token))
@@ -399,8 +399,7 @@ class ScannerStack(object):
 
     def pop(self):
         popped = self.head
-        if popped.prev is None:
-            _todo()
+        assert popped.prev is not None
         self.head = popped.prev
         if popped.is_key:
             self.head.take_key(popped)
