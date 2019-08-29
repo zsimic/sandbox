@@ -381,8 +381,8 @@ class ScannerStack(object):
     def _set_decoration(self, token, name, secondary_name):
         tag = getattr(self, name)
         if tag is not None:
-            if getattr(self, secondary_name) is not None:
-                raise ParseError("Too many anchor tokens", token)
+            if tag.line_number == token.line_number or getattr(self, secondary_name) is not None:
+                raise ParseError("Too many %ss" % name.replace("_", " "), token)
             setattr(self, secondary_name, tag)
         setattr(self, name, token)
 
@@ -575,7 +575,7 @@ class AliasToken(Token):
 
     def resolved_value(self, clean):
         if not clean:
-            raise ParseError("Alias node should not have any properties")
+            raise ParseError("Alias should not have any properties")
         return self.value
 
     def consume_token(self, root):
