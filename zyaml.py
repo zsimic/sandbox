@@ -215,6 +215,12 @@ class StackedDocument(object):
             self.root.anchors[self.anchor_token.value] = value
         return value
 
+    def wrap_up(self, token):
+        self.closed += 1
+
+    def mark_as_key(self, token):
+        self.is_key = True
+
     def take_key(self, element):
         self.root.pop_until(element.indent)
         if self.root.head.indent != element.indent:
@@ -307,6 +313,17 @@ class StackedMap(StackedDocument):
         if self.has_key:
             self.add_key_value(self.last_key, None)
         return super(StackedMap, self).resolved_value()
+
+    def wrap_up(self, token):
+        self.closed += 1
+        if self.has_key:
+            self.root.push(token.new_tacked_scalar())
+            self.root.pop()
+
+    def mark_as_key(self, token):
+        scalar = token.new_tacked_scalar()
+        scalar.is_key = True
+        self.root.push(scalar)
 
     def add_key_value(self, key, value):
         if self.indent is None and self.closed < len(self.value):
@@ -520,7 +537,7 @@ class FlowEndToken(Token):
 class CommaToken(Token):
     def consume_token(self, root):
         root.pop_until(None)
-        root.head.closed += 1
+        root.head.wrap_up(self)
 
 
 class DashToken(Token):
@@ -536,7 +553,7 @@ class DashToken(Token):
 
 class ColonToken(Token):
     def consume_token(self, root):
-        root.head.is_key = True
+        root.head.mark_as_key(self)
         root.pop()
 
 
