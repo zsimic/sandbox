@@ -557,6 +557,8 @@ class ParseResult(object):
     def set_exception(self, exc):
         self.exception = exc
         self.error = runez.shortened(runez.short(str(exc)), size=160)
+        if not self.error:
+            self.error = exc.__class__.__name__
 
     def json_payload(self):
         return {"_error": self.error} if self.error else self.data

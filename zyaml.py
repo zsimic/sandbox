@@ -185,9 +185,11 @@ class StackedDocument(object):
         self.anchor_token = None  # type: AnchorToken
         self.tag_token = None  # type: TagToken
         self.is_key = False
+        self.closed = 0
 
     def __repr__(self):
-        return dbg(self.__class__.__name__[7], self.indent, self.represented_decoration())
+        indent = self.indent if self.indent != -1 else None
+        return dbg(self.__class__.__name__[7], indent, self.represented_decoration())
 
     def attach(self, root):
         self.root = root
@@ -277,6 +279,8 @@ class StackedList(StackedDocument):
         raise ParseError("Bad sequence entry indentation")
 
     def take_value(self, element):
+        if self.indent is None and self.closed < len(self.value):
+            raise ParseError("Missing comma in list")
         self.value.append(element.resolved_value())
 
 
@@ -301,30 +305,29 @@ class StackedMap(StackedDocument):
 
     def resolved_value(self):
         if self.has_key:
-            self.value[self.last_key] = None
-            self.last_key = None
-            self.has_key = False
+            self.add_key_value(self.last_key, None)
         return super(StackedMap, self).resolved_value()
+
+    def add_key_value(self, key, value):
+        if self.indent is None and self.closed < len(self.value):
+            raise ParseError("Missing comma in map")
+        self.value[key] = value
+        self.last_key = None
+        self.has_key = False
 
     def take_key(self, element):
         if self.indent is not None and element.indent is not None and element.indent != self.indent:
             return super(StackedMap, self).take_key(element)
         if self.has_key and element.indent == self.indent:
-            self.value[self.last_key] = None
-            self.last_key = None
-            self.has_key = False
-        key = element.resolved_value()
-        self.last_key = key
+            self.add_key_value(self.last_key, None)
+        self.last_key = element.resolved_value()
         self.has_key = True
 
     def take_value(self, element):
         if self.has_key:
-            self.value[self.last_key] = element.resolved_value()
+            self.add_key_value(self.last_key, element.resolved_value())
         else:
-            key = element.resolved_value()
-            self.value[key] = None
-        self.last_key = None
-        self.has_key = False
+            self.add_key_value(element.resolved_value(), None)
 
 
 class ScannerStack(object):
@@ -513,6 +516,7 @@ class FlowEndToken(Token):
 class CommaToken(Token):
     def consume_token(self, root):
         root.pop_until(None)
+        root.head.closed += 1
 
 
 class DashToken(Token):
