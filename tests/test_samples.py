@@ -113,5 +113,14 @@ def test_edge_cases():
     # assert loaded("a\n\n \n b") == "a\n\n\nb"
 
 
-def test_q():
-    assert loaded("!!str") == ""
+def test_types():
+    assert loaded("!!set [a]") == {"a"}
+    assert loaded("!!set {a}") == {"a"}
+    assert loaded("!!set {a: b}") == {"a"}
+
+    assert loaded("!!bool yes") is True
+    assert loaded("!!bool no") is False
+
+
+# def test_q():
+#     assert loaded("!!str") == ""

@@ -589,11 +589,6 @@ class TagToken(Token):
     def consume_token(self, root):
         root.set_tag_token(self)
 
-    def type_name(self):
-        if not self.value or self.value == "!":
-            return "default constructor"
-        return self.value
-
     def marshalled(self, value):
         if self.marshaller is None:
             return value
@@ -603,9 +598,7 @@ class TagToken(Token):
             e.auto_complete(self)
             raise
         except ValueError:
-            raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.type_name()), self)
-        except Exception as e:
-            raise ParseError("Invalid %s: %s" % (self.type_name(), e), self)
+            raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.value), self)
 
 
 class AnchorToken(Token):
@@ -761,7 +754,9 @@ class DefaultMarshaller:
 
     @staticmethod
     def set(value):
-        return _checked_type(value, list)
+        if isinstance(value, dict):
+            value = list(value.keys())
+        return set(_checked_type(value, list))
 
     @staticmethod
     def str(value):
