@@ -109,7 +109,7 @@ def test_stack():
     assert str(root) == "D"
 
 
-def test_trace():
-    zyaml.DEBUG = True
-    zyaml.trace("{}", "testing")
-    zyaml.DEBUG = False
+# def test_trace():
+#     zyaml.DEBUG = True
+#     zyaml.trace("{}", "testing")
+#     zyaml.DEBUG = False

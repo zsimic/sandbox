@@ -42,13 +42,13 @@ CONSTANTS = {
 }
 
 
-def trace(message, *args):
-    """Output 'message' if tracing is on"""
-    if DEBUG:
-        if args:
-            message = message.format(*args)
-        sys.stderr.write(":: %s\n" % message)
-        sys.stderr.flush()
+# def trace(message, *args):
+#     """Output 'message' if tracing is on"""
+#     if DEBUG:
+#         if args:
+#             message = message.format(*args)
+#         sys.stderr.write(":: %s\n" % message)
+#         sys.stderr.flush()
 
 
 if PY2:
@@ -458,7 +458,7 @@ class ScannerStack(object):
             self.pop()
         if self.head.value is not None:
             self.docs.append(self.head.value)
-            trace("---\n{}\n---", self.head.value)
+            # trace("---\n{}\n---", self.head.value)
             self.head.value = None
         self.anchors = {}
         self.directive = None
@@ -1018,6 +1018,17 @@ class Scanner(object):
                 return line_number, 0, line_size, line_text, token
             self._accumulate_literal(folded, lines, line_text[indent:])
 
+    def should_ignore(self, matched, start, line_size, line_text):
+        """Yaml has so many weird edge cases... this one is to support sample 7.18"""
+        if matched == "#":
+            return line_text[start - 1] != " "
+        if self.flow_ender is not None:
+            if matched == ":":
+                if start == line_size - 1:
+                    return line_text[start - 1] == ":"
+                if line_text[start + 1] != " ":
+                    return line_text[start - 1] not in "'\""
+
     def next_match(self, start, line_size, line_text):
         while start < line_size:
             m = self.line_regex.search(line_text, start)
@@ -1029,10 +1040,9 @@ class Scanner(object):
             matched = line_text[start]
             if prev_start is not None:
                 if self.flow_ender is None and matched in "!&*{[]}":
-                    yield prev_start, de_commented(line_text[prev_start:])
+                    yield tight_text(prev_start, None, line_size, line_text)
                     return
-                while matched == "#" and line_text[start - 1] != " " \
-                    or (self.flow_ender is not None and should_ignore(matched, start, line_size, line_text)):
+                while self.should_ignore(matched, start, line_size, line_text):
                     start = start + 1
                     if start >= line_size:
                         yield tight_text(prev_start, None, line_size, line_text)
@@ -1153,7 +1163,7 @@ class Scanner(object):
             root = ScannerStack()
             for token in self.tokens():
                 token.consume_token(root)
-                trace("{}: {}", token, root)
+                # trace("{}: {}", token, root)
             if simplified:
                 if not root.docs:
                     return None
@@ -1169,19 +1179,10 @@ def tight_text(start, end, line_size, line_text):
     while start < line_size and line_text[start] == " ":
         start = start + 1
     if end is None:
-        return start, line_text[start:]
+        return start, de_commented(line_text[start:])
     while end > start and line_text[end - 1] == " ":
         end = end - 1
     return start, line_text[start:end]
-
-
-def should_ignore(matched, start, line_size, line_text):
-    """Yaml has so many weird edge cases... this one is to support sample 7.18"""
-    if matched == ":":
-        if start == line_size - 1:
-            return line_text[start - 1] == ":"
-        if line_text[start + 1] != " ":
-            return line_text[start - 1] not in "'\""
 
 
 def load(stream, simplified=True):
