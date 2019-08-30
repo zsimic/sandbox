@@ -25,15 +25,31 @@ def test_samples(all_samples):
     assert skipped == 0, "Skipped %s tests, please refresh" % skipped
 
 
-def check_invalid(text, expected):
+def loaded(text):
     try:
-        data = zyaml.load_string(text)
-        assert False, "Expected failure but got %s" % data
+        return zyaml.load_string(text)
     except zyaml.ParseError as e:
-        assert str(e) == expected
+        return str(e)
 
 
 def test_invalid():
-    check_invalid("!!float _", "'_' can't be converted using !!float, line 1 column 1")
-    check_invalid("!!date x", "'x' can't be converted using !!date, line 1 column 1")
-    check_invalid("a\n#\nb", "Document separator expected, line 3 column 1")
+    # Invalid type conversions
+    assert loaded("!!float _") == "'_' can't be converted using !!float, line 1 column 1"
+    assert loaded("!!date x") == "'x' can't be converted using !!date, line 1 column 1"
+
+    # Invalid docs
+    assert loaded("a\n#\nb") == "Document separator expected, line 3 column 1"
+
+    # Bad properties
+    assert loaded("- &a a\n- &b *a") == "Alias should not have any properties, line 2 column 6"
+    assert loaded("foo: *no-such-anchor") == "Undefined anchor &no-such-anchor, line 1 column 6"
+    assert loaded("- &a1 a: &b1 b\n- &c1 &c2 c") == "Too many anchor tokens, line 2 column 7"
+    assert loaded("- &a a\n- !!tag *a") == "Alias should not have any properties, line 2 column 9"
+    assert loaded("!!str !!str !!str a") == "Too many tag tokens, line 1 column 7"
+
+    # Malformed docs
+    assert loaded(" %YAML 1.2") == "Directive must not be indented, line 1 column 1"
+    assert loaded("{ foo: ]}") == "Expecting ']', but found '}', line 1 column 8"
+    assert loaded("foo: ]") == "']' without corresponding opener, line 1 column 6"
+
+    # assert loaded("") == ""
