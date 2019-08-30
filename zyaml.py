@@ -1022,28 +1022,28 @@ class Scanner(object):
         while start < line_size:
             m = self.line_regex.search(line_text, start)
             if m is None:
-                yield start, line_text[start:]
+                yield tight_text(start, None, line_size, line_text)
                 return
             prev_start = start if start < m.span(1)[0] else None  # span1: spaces, span2: match, span3: spaces following ':'
             start, end = m.span(2)
             matched = line_text[start]
             if prev_start is not None:
-                if self.flow_ender is None and matched in "!&*{[":
+                if self.flow_ender is None and matched in "!&*{[]}":
                     yield prev_start, de_commented(line_text[prev_start:])
                     return
                 while matched == "#" and line_text[start - 1] != " " \
                     or (self.flow_ender is not None and should_ignore(matched, start, line_size, line_text)):
                     start = start + 1
                     if start >= line_size:
-                        yield prev_start, line_text[prev_start:]
+                        yield tight_text(prev_start, None, line_size, line_text)
                         return
                     m = self.line_regex.search(line_text, start)
                     if m is None:
-                        yield prev_start, line_text[prev_start:]
+                        yield tight_text(prev_start, None, line_size, line_text)
                         return
                     start, end = m.span(2)
                     matched = line_text[start]
-                yield prev_start, line_text[prev_start:start].strip()
+                yield tight_text(prev_start, start, line_size, line_text)
             if matched == "#":
                 return
             if matched == ":":
@@ -1051,7 +1051,7 @@ class Scanner(object):
                     end = end - 1
                 yield start, matched
             else:
-                yield start, line_text[start:end].strip()
+                yield tight_text(start, end, line_size, line_text)
             start = end
 
     def tokens(self):
@@ -1163,6 +1163,16 @@ class Scanner(object):
         except ParseError as error:
             error.auto_complete(token)
             raise
+
+
+def tight_text(start, end, line_size, line_text):
+    while start < line_size and line_text[start] == " ":
+        start = start + 1
+    if end is None:
+        return start, line_text[start:]
+    while end > start and line_text[end - 1] == " ":
+        end = end - 1
+    return start, line_text[start:end]
 
 
 def should_ignore(matched, start, line_size, line_text):
