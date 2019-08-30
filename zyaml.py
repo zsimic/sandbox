@@ -502,11 +502,12 @@ class DocumentStartToken(Token):
 
 class DocumentEndToken(Token):
     def consume_token(self, root):
+        if root.tag_token and root.tag_token.line_number == self.line_number:  # last line finished with a tag (but no value)
+            root.push(self.new_tacked_scalar())
         if root.head.prev is None and root.head.value is None:  # doc was empty, no tokens
-            root.push(self.new_tacked_scalar())
-        elif root.tag_token and root.tag_token.line_number == self.line_number:  # last line finished with a tag (but no value)
-            root.push(self.new_tacked_scalar())
-        root.pop_doc()
+            root.docs.append(None)
+        else:
+            root.pop_doc()
 
 
 class DirectiveToken(Token):

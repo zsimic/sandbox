@@ -96,4 +96,4 @@ def test_edge_cases():
 
 
 def test_q():
-    assert loaded("") is None
+    assert loaded("! 12") == "12"
