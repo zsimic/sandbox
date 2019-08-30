@@ -997,6 +997,8 @@ class Scanner(object):
             if indent is None:
                 indent = i if i != 0 else 1
             if i < indent:
+                if not lines:
+                    raise ParseError("Bad literal indentation")
                 text = "\n".join(lines)
                 if keep is None:
                     token.value = "%s\n" % text.rstrip()

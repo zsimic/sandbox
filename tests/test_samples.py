@@ -62,6 +62,13 @@ def test_invalid():
     assert loaded("- &a a\n- !!tag *a") == "Alias should not have any properties, line 2 column 9"
     assert loaded("!!str !!str !!str a") == "Too many tag tokens, line 1 column 7"
 
+    # Invalid literals
+    assert loaded("a: >x") == "Invalid literal style '>x', line 1 column 4"
+    assert loaded("a: |+++") == "Invalid literal style '|+++', should be less than 3 chars, line 1 column 4"
+    assert loaded("a: >0") == "Indent must be between 1 and 9, line 1 column 4"
+    assert loaded("a: |+-") == "Ambiguous literal style '|+-', line 1 column 4"
+    assert loaded("a: |+-") == "Ambiguous literal style '|+-', line 1 column 4"
+    assert loaded("a: |2\n foo") == "Bad literal indentation, line 1 column 4"
     # assert loaded("") == ""
 
 
@@ -89,4 +96,4 @@ def test_edge_cases():
 
 
 def test_q():
-    assert loaded("[\na:\n]") == [{"a": None}]
+    assert loaded("") is None
