@@ -702,6 +702,13 @@ def ruamel_passthrough_tags(loader, tag, node):
 
 
 class RuamelImplementation(YmlImplementation):
+    def _simplified(self, value):
+        if not value:
+            return None
+        if len(value) == 1:
+            return value[0]
+        return value
+
     def _load(self, stream):
         y = ruamel.yaml.YAML(typ="safe")
         ruamel.yaml.add_multi_constructor('', ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
