@@ -44,12 +44,11 @@ CONSTANTS = {
 
 def trace(message, *args):
     """Output 'message' if tracing is on"""
-    if not DEBUG:
-        return
-    if args:
-        message = message.format(*args)
-    sys.stderr.write(":: %s\n" % message)
-    sys.stderr.flush()
+    if DEBUG:
+        if args:
+            message = message.format(*args)
+        sys.stderr.write(":: %s\n" % message)
+        sys.stderr.flush()
 
 
 if PY2:
@@ -69,7 +68,7 @@ else:
         return base64.decodebytes(_checked_scalar(value).encode("ascii"))
 
 
-def shortened(text, size=100):
+def shortened(text, size=32):
     text = str(text)
     if not text or len(text) < size:
         return text
@@ -140,7 +139,6 @@ def first_line_split_match(match):
         s = match.span(g)[0]
         if s >= 0:
             return s, match.group(g)
-    return 0, None
 
 
 def decode(value):
@@ -502,7 +500,7 @@ class DocumentStartToken(Token):
 
 class DocumentEndToken(Token):
     def consume_token(self, root):
-        if root.tag_token and root.tag_token.line_number == self.line_number:  # last line finished with a tag (but no value)
+        if root.tag_token and root.tag_token.line_number == self.line_number - 1:  # last line finished with a tag (but no value)
             root.push(self.new_tacked_scalar())
         if root.head.prev is None and root.head.value is None:  # doc was empty, no tokens
             root.docs.append(None)
@@ -1056,9 +1054,6 @@ class Scanner(object):
             yield StreamStartToken(1, 0)
             while True:
                 if token is not None:
-                    if pending is not None:
-                        yield pending
-                        pending = None
                     yield token
                     token = None
                 if upcoming is None:
@@ -1091,9 +1086,6 @@ class Scanner(object):
                 for start, text in self.next_match(start, line_size, current_line):
                     if simple_key is None:
                         if text == ":":
-                            if pending is not None:
-                                yield pending
-                                pending = None
                             yield ColonToken(line_number, start)
                             continue
                         if pending is None:

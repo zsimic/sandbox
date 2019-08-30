@@ -97,5 +97,19 @@ def test_stack():
     assert str(root) == "S0 / D"
     root.set_tag_token(zyaml.TagToken(1, 1, "foo"))
     assert str(root) == "S0 / D [!]"
+    root.head.mark_as_key(zyaml.ColonToken(1, 4))
+    assert str(root) == "S0: / D [!]"
     root.pop()
-    assert str(root) == "D [!]"
+    assert str(root) == "M0!* / D"
+    root.push(zyaml.StackedScalar(zyaml.ScalarToken(1, 5, "bar")))
+    assert str(root) == "S5 / M0!* / D"
+    root.pop()
+    assert str(root) == "M0! / D"
+    root.pop()
+    assert str(root) == "D"
+
+
+def test_trace():
+    zyaml.DEBUG = True
+    zyaml.trace("{}", "testing")
+    zyaml.DEBUG = False

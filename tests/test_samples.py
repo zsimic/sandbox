@@ -2,7 +2,7 @@ import json
 
 import zyaml
 
-from .conftest import json_sanitized, UNDEFINED, ZyamlImplementation
+from .conftest import get_samples, json_sanitized, UNDEFINED, ZyamlImplementation
 
 
 def test_samples(all_samples):
@@ -25,6 +25,15 @@ def test_samples(all_samples):
     assert skipped == 0, "Skipped %s tests, please refresh" % skipped
 
 
+def test_load():
+    for sample in get_samples("2.1"):
+        data = zyaml.load_path(sample.path)
+        data = json_sanitized(data)
+        expected = sample.expected
+        expected = json_sanitized(expected)
+        assert data == expected
+
+
 def loaded(text):
     try:
         return zyaml.load_string(text)
@@ -44,6 +53,9 @@ def test_invalid():
     assert loaded("!!omap foo") == "Can't transform str to an ordered map, line 1 column 1"
     assert loaded("!!bool foo") == "'foo' can't be converted using !!bool, line 1 column 1"
     assert loaded("!!int") == "'' can't be converted using !!int, line 1 column 1"
+
+    s = loaded("!!int some very long text we want to truncate")
+    assert s == "'some very long text we want to t...' can't be converted using !!int, line 1 column 1"
 
     # Malformed docs
     assert loaded("a\n#\nb") == "Document separator expected, line 3 column 1"
@@ -87,6 +99,8 @@ def test_edge_cases():
     assert loaded("[a::a]") == ["a::a"]
 
     assert loaded("!!str") == ""
+    assert loaded("!!str\n...") == ""
+    assert loaded("!!map\n!!str a: !!seq\n- !!str b") == {"a": ["b"]}
 
     assert loaded("foo # bar") == "foo"
     assert loaded("foo# bar") == "foo# bar"
