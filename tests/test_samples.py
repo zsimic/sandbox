@@ -64,8 +64,12 @@ def test_invalid():
     assert loaded("{ foo: ]}") == "Expecting ']', but found '}', line 1 column 8"
     assert loaded("foo: ]") == "']' without corresponding opener, line 1 column 6"
     assert loaded("[a {}]") == "Missing comma between scalar and entry in flow, line 1 column 2"
+    assert loaded("[{} a]") == "Missing comma in list, line 1 column 6"
+    assert loaded("{a: {} b}") == "Missing comma in map, line 1 column 9"
     assert loaded("[a\n- b]") == "Block not allowed in flow, line 2 column 1"
     assert loaded("{a\n- b}") == "Block not allowed in flow, line 2 column 1"
+    assert loaded("{{}: b}") == "Key '{}' is not hashable, line 1 column 3"
+    assert loaded("a: [b] c") == "Key 'c' is not indented properly, line 1 column 1"
 
     # Bad properties
     assert loaded("- &a a\n- &b *a") == "Alias should not have any properties, line 2 column 6"
@@ -110,4 +114,4 @@ def test_edge_cases():
 
 
 def test_q():
-    assert loaded("! 12") == "12"
+    assert loaded("!!str") == ""

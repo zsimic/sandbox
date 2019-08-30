@@ -190,7 +190,7 @@ class StackedDocument(object):
         self.anchor_token = None  # type: AnchorToken
         self.tag_token = None  # type: TagToken
         self.is_key = False
-        self.closed = 0
+        self.closed = False
 
     def __repr__(self):
         indent = self.indent if self.indent != -1 else None
@@ -220,8 +220,8 @@ class StackedDocument(object):
             self.root.anchors[self.anchor_token.value] = value
         return value
 
-    def wrap_up(self, token):
-        self.closed += 1
+    def mark_open(self, token):
+        self.closed = False
 
     def mark_as_key(self, token):
         self.is_key = True
@@ -234,7 +234,7 @@ class StackedDocument(object):
 
     def take_value(self, element):
         if self.value is not None:
-            raise ParseError("Document separator expected", element.line_number, element.indent)
+            raise ParseError("Document separator expected", element)
         self.value = element.resolved_value()
 
     def consume_scalar(self, token):
@@ -295,9 +295,10 @@ class StackedList(StackedDocument):
         self.root.push(scalar)
 
     def take_value(self, element):
-        if self.indent is None and self.closed < len(self.value):
+        if self.closed:
             raise ParseError("Missing comma in list")
         self.value.append(element.resolved_value())
+        self.closed = self.indent is None
 
 
 class StackedMap(StackedDocument):
@@ -324,11 +325,11 @@ class StackedMap(StackedDocument):
             self.add_key_value(self.last_key, None)
         return super(StackedMap, self).resolved_value()
 
-    def wrap_up(self, token):
-        self.closed += 1
+    def mark_open(self, token):
         if self.has_key:
             self.root.push(token.new_tacked_scalar())
             self.root.pop()
+        self.closed = False
 
     def mark_as_key(self, token):
         scalar = token.new_tacked_scalar()
@@ -336,17 +337,27 @@ class StackedMap(StackedDocument):
         self.root.push(scalar)
 
     def add_key_value(self, key, value):
-        if self.indent is None and self.closed < len(self.value):
+        if self.closed:
             raise ParseError("Missing comma in map")
-        self.value[key] = value
+        try:
+            self.value[key] = value
+        except TypeError:
+            raise ParseError("Key '%s' is not hashable" % shortened(str(key)))
+        self.closed = self.indent is None
         self.last_key = None
         self.has_key = False
 
+    def check_key(self, element):
+        if self.indent is not None and element.indent != self.indent:
+            raise ParseError("Key '%s' is not indented properly" % shortened(element.value))
+
     def take_key(self, element):
         if self.indent is not None and element.indent is not None and element.indent != self.indent:
+            # We're pushing a sub-mpa of the form "a:\n  b: ..."
             return super(StackedMap, self).take_key(element)
         if self.has_key and element.indent == self.indent:
             self.add_key_value(self.last_key, None)
+        self.check_key(element)
         self.last_key = element.resolved_value()
         self.has_key = True
 
@@ -354,6 +365,7 @@ class StackedMap(StackedDocument):
         if self.has_key:
             self.add_key_value(self.last_key, element.resolved_value())
         else:
+            self.check_key(element)
             self.add_key_value(element.resolved_value(), None)
 
 
@@ -549,7 +561,7 @@ class FlowEndToken(Token):
 class CommaToken(Token):
     def consume_token(self, root):
         root.pop_until(None)
-        root.head.wrap_up(self)
+        root.head.mark_open(self)
 
 
 class DashToken(Token):
