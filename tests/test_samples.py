@@ -51,5 +51,10 @@ def test_invalid():
     assert loaded(" %YAML 1.2") == "Directive must not be indented, line 1 column 1"
     assert loaded("{ foo: ]}") == "Expecting ']', but found '}', line 1 column 8"
     assert loaded("foo: ]") == "']' without corresponding opener, line 1 column 6"
+    assert loaded("[a {}]") == "Missing comma between scalar and entry in flow, line 1 column 2"
 
     # assert loaded("") == ""
+
+
+def test_edge_cases():
+    assert loaded("_") == "_"
