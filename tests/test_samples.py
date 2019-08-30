@@ -123,4 +123,4 @@ def test_types():
 
 
 # def test_q():
-#     assert loaded("!!str") == ""
+#     assert loaded('a-{}: ""') == {"a-{}": ""}
