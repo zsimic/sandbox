@@ -23,6 +23,7 @@ import zyaml
 TESTS_FOLDER = os.path.abspath(os.path.dirname(__file__))
 PROJECT_FOLDER = os.path.dirname(TESTS_FOLDER)
 SAMPLE_FOLDER = os.path.join(TESTS_FOLDER, "samples")
+UNDEFINED = object()
 
 
 def relative_sample_path(path, base=SAMPLE_FOLDER):
@@ -404,26 +405,28 @@ def mv(samples, category):
 
 @main.command(name="print")
 @stacktrace_option()
-@implementations_option(count=1, default="zyaml")
+@implementations_option(default="zyaml,ruamel")
 @click.argument("text", nargs=-1)
-def print_(stacktrace, implementation, text):
+def print_(stacktrace, implementations, text):
     """Deserialize given argument as yaml"""
-    assert isinstance(implementation, YmlImplementation)
     text = " ".join(text)
     text = codecs.decode(text, "unicode_escape")
-    if stacktrace:
-        data = implementation.load_stream(text)
-    else:
-        try:
-            data = implementation.load_stream(text)
-        except Exception as e:
-            print(runez.short(str(e) or e.__class__.__name__))
-            sys.exit(1)
-    if data is None:
-        print("returned None")
-        return
-    j = implementation.json_representation(ParseResult(implementation, None, data=data))
-    print(j[:-1])
+    for impl in implementations:
+        if stacktrace:
+            data = impl.load_stream(text)
+            rtype = data.__class__.__name__ if data is not None else "None"
+            result = impl.json_representation(ParseResult(impl, None, data=data))[:-1]
+        else:
+            try:
+                data = impl.load_stream(text)
+                rtype = data.__class__.__name__ if data is not None else "None"
+                result = impl.json_representation(ParseResult(impl, None, data=data))[:-1]
+            except Exception as e:
+                rtype = "error"
+                result = str(e).replace("\n", " ") or e.__class__.__name__
+                result = re.sub(r"\s+", " ", result)
+                result = runez.short(result)
+        print("---- %s: %s\n%s" % (impl, rtype, result))
 
 
 def _bench1(size):
@@ -538,7 +541,7 @@ class Sample(object):
                 with open(self.expected_path) as fh:
                     self._expected = json.load(fh)
             except (OSError, IOError):
-                return None
+                return UNDEFINED
         return self._expected
 
     def is_match(self, name):

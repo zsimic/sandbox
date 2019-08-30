@@ -11,7 +11,7 @@ PY2 = sys.version_info < (3, 0)
 DEBUG = os.environ.get("TRACE_YAML")
 RESERVED = "@`"
 RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{},]\s*|:([^:|$]))""")
+RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{},]\s*|:([^:]|$))""")
 RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
@@ -1024,9 +1024,9 @@ class Scanner(object):
                     yield prev_start, de_commented(line_text[prev_start:])
                     return
                 while matched == "#" and line_text[start - 1] != " " \
-                    or (self.flow_ender is not None and should_ignore(matched, start, line_text)):
+                    or (self.flow_ender is not None and should_ignore(matched, start, line_size, line_text)):
                     start = start + 1
-                    if start > line_size:
+                    if start >= line_size:
                         yield prev_start, line_text[prev_start:]
                         return
                     m = self.line_regex.search(line_text, start)
@@ -1039,7 +1039,7 @@ class Scanner(object):
             if matched == "#":
                 return
             if matched == ":":
-                if self.flow_ender is not None and line_text[end] != " ":
+                if self.flow_ender is not None and end < line_size and line_text[end] != " ":
                     end = end - 1
                 yield start, matched
             else:
@@ -1163,13 +1163,13 @@ class Scanner(object):
             raise
 
 
-def should_ignore(matched, start, line_text):
+def should_ignore(matched, start, line_size, line_text):
     """Yaml has so many weird edge cases... this one is to support sample 7.18"""
-    try:
-        if matched == ":" and line_text[start + 1] != " ":
+    if matched == ":":
+        if start == line_size - 1:
+            return line_text[start - 1] == ":"
+        if line_text[start + 1] != " ":
             return line_text[start - 1] not in "'\""
-    except IndexError:
-        return line_text[start - 1] not in "'\""
 
 
 def load(stream, simplified=True):

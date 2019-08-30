@@ -2,7 +2,7 @@ import json
 
 import zyaml
 
-from .conftest import json_sanitized, ZyamlImplementation
+from .conftest import json_sanitized, UNDEFINED, ZyamlImplementation
 
 
 def test_samples(all_samples):
@@ -14,7 +14,7 @@ def test_samples(all_samples):
         expected = sample.expected
         payload = json_sanitized(payload)
         expected = json_sanitized(expected)
-        if expected is None:
+        if expected is UNDEFINED:
             skipped += 1
             continue
         # jsonify to avoid diffs on inf/nan floats
@@ -36,9 +36,24 @@ def test_invalid():
     # Invalid type conversions
     assert loaded("!!float _") == "'_' can't be converted using !!float, line 1 column 1"
     assert loaded("!!date x") == "'x' can't be converted using !!date, line 1 column 1"
+    assert loaded("!!int []") == "scalar needed, got list instead, line 1 column 1"
+    assert loaded("!!float {}") == "scalar needed, got map instead, line 1 column 1"
+    assert loaded("!!map foo") == "Expecting dict, got str, line 1 column 1"
+    assert loaded("!!map []") == "Expecting dict, got list, line 1 column 1"
+    assert loaded("!!map") == "Expecting dict, got str, line 1 column 1"
+    assert loaded("!!omap foo") == "Can't transform str to an ordered map, line 1 column 1"
+    assert loaded("!!bool foo") == "'foo' can't be converted using !!bool, line 1 column 1"
+    assert loaded("!!int") == "'' can't be converted using !!int, line 1 column 1"
 
-    # Invalid docs
+    # Malformed docs
     assert loaded("a\n#\nb") == "Document separator expected, line 3 column 1"
+    assert loaded("[a\n#\nb]") == "Missing comma between scalars in flow, line 1 column 2"
+    assert loaded(" %YAML 1.2") == "Directive must not be indented, line 1 column 1"
+    assert loaded("{ foo: ]}") == "Expecting ']', but found '}', line 1 column 8"
+    assert loaded("foo: ]") == "']' without corresponding opener, line 1 column 6"
+    assert loaded("[a {}]") == "Missing comma between scalar and entry in flow, line 1 column 2"
+    assert loaded("[a\n- b]") == "Block not allowed in flow, line 2 column 1"
+    assert loaded("{a\n- b}") == "Block not allowed in flow, line 2 column 1"
 
     # Bad properties
     assert loaded("- &a a\n- &b *a") == "Alias should not have any properties, line 2 column 6"
@@ -47,14 +62,31 @@ def test_invalid():
     assert loaded("- &a a\n- !!tag *a") == "Alias should not have any properties, line 2 column 9"
     assert loaded("!!str !!str !!str a") == "Too many tag tokens, line 1 column 7"
 
-    # Malformed docs
-    assert loaded(" %YAML 1.2") == "Directive must not be indented, line 1 column 1"
-    assert loaded("{ foo: ]}") == "Expecting ']', but found '}', line 1 column 8"
-    assert loaded("foo: ]") == "']' without corresponding opener, line 1 column 6"
-    assert loaded("[a {}]") == "Missing comma between scalar and entry in flow, line 1 column 2"
-
     # assert loaded("") == ""
 
 
 def test_edge_cases():
+    assert loaded("") is None
+    assert loaded("#comment\\n\n") is None
     assert loaded("_") == "_"
+    assert loaded("[]\n---\n[]") == [[], []]
+
+    assert loaded("[\n:\n]") == [{"": None}]
+    assert loaded("[\na:\n]") == [{"a": None}]
+    assert loaded("[::]") == ["::"]
+    assert loaded("[\n::\n]") == ["::"]
+    assert loaded("[::a]") == ["::a"]
+    assert loaded("[a::]") == ["a::"]
+    assert loaded("[a::a]") == ["a::a"]
+
+    assert loaded("!!str") == ""
+
+    assert loaded("foo # bar") == "foo"
+    assert loaded("foo# bar") == "foo# bar"
+    assert loaded("a\nb") == "a b"
+    assert loaded("a\n\nb") == "a\nb"
+    # assert loaded("a\n\n \n b") == "a\n\n\nb"
+
+
+def test_q():
+    assert loaded("[\na:\n]") == [{"a": None}]
