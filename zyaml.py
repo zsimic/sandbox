@@ -4,17 +4,19 @@ import datetime
 import dateutil
 import re
 import sys
-import os
+# import os
 
 
 PY2 = sys.version_info < (3, 0)
-DEBUG = os.environ.get("TRACE_YAML")
+# DEBUG = os.environ.get("TRACE_YAML")
 RESERVED = "@`"
-RE_LINE_SPLIT = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{},]\s*|:([^:]|$))""")
-RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:(\s+|$))""")
-RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")')
+RE_LINE_SPLIT = re.compile(r"^\s*([%#]|-(--)?|\.\.\.)?\s*(.*?)\s*$")
+RE_FLOW_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{},])\s*(.*?)\s*$""")
+RE_BLOCK_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{}])\s*(.*?)\s*$""")
+RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")\s*(.*?)\s*$')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
+RE_CONTENT = re.compile(r"\s*(.*?)\s*$")
+
 
 RE_SIMPLE_SCALAR = re.compile(
     r"^("
@@ -134,13 +136,6 @@ def default_marshal(text):
     return datetime.datetime(y, m, d, hh, mm, ss, sf, get_tzinfo(tz))
 
 
-def first_line_split_match(match):
-    for g in (2, 4, 6):
-        s = match.span(g)[0]
-        if s >= 0:
-            return s, match.group(g)
-
-
 def decode(value):
     """Python 2/3 friendly decoding of output"""
     if isinstance(value, bytes):
@@ -154,15 +149,6 @@ def de_commented(text):
         return text[:i].rstrip()
     except ValueError:
         return text
-
-
-def get_indent(text):
-    count = 0
-    for c in text:
-        if c != " ":
-            return count
-        count += 1
-    return count
 
 
 def _todo():
@@ -659,7 +645,7 @@ class ScalarToken(Token):
             self.value = text
         elif not self.value:
             self.value = text
-        elif self.value[-1] in " \n":
+        elif self.value[-1].isspace():
             self.value = "%s%s" % (self.value, text.lstrip())
         elif not text:
             self.value = "%s\n" % self.value
@@ -815,12 +801,7 @@ class Scanner(object):
             self.generator = enumerate(buffer.splitlines(), start=1)
         self.line_regex = RE_BLOCK_SEP
         self.flow_ender = None
-        self.leaders = {
-            "%": self.consume_directive,
-            "-": self.consume_block_entry,
-            "---": self.consume_doc_start,
-            "...": self.consume_doc_end,
-        }
+        self.is_match_actionable = self.is_block_match_actionable
         self.tokenizer_map = {
             "!": TagToken,
             "&": AnchorToken,
@@ -835,42 +816,41 @@ class Scanner(object):
     def __repr__(self):
         return "block mode" if self.flow_ender is None else "flow mode"
 
-    @staticmethod
-    def consume_directive(line_number, start, text):
-        if start != 0:
-            raise ParseError("Directive must not be indented")
-        return len(text), DirectiveToken(line_number, 0, text)
-
-    @staticmethod
-    def consume_block_entry(line_number, start, _):
-        return start + 2, DashToken(line_number, start + 1)
-
-    @staticmethod
-    def consume_doc_start(line_number, start, _):
-        return 4, DocumentStartToken(line_number, start)
-
-    @staticmethod
-    def consume_doc_end(line_number, start, _):
-        return 4, DocumentEndToken(line_number, start)
-
     def next_actionable_line(self, line_number, line_text):
         comments = 0
         while True:
             m = RE_LINE_SPLIT.match(line_text)
-            if m is None:
-                return line_number, get_indent(line_text), len(line_text), line_text, comments, None
-            end = m.span(0)[1]
-            start, leader = first_line_split_match(m)
-            if leader != "#":
-                start, token = self.leaders.get(leader)(line_number, start, line_text)
-                return line_number, start, end, line_text, comments, token
-            comments += 1
-            line_number, line_text = next(self.generator)
+            leader_start, leader_end = m.span(1)
+            start, end = m.span(3)
+            if leader_start < 0:  # No special leading token
+                return line_number, start, end, line_text, comments, None
+            leader = line_text[leader_start]
+            if leader == "#":
+                comments = comments + 1
+                line_number, line_text = next(self.generator)
+                continue
+            if leader == "%":
+                if leader_start != 0:
+                    raise ParseError("Directive must not be indented")
+                return line_number, start, end, None, comments, DirectiveToken(line_number, 0, line_text[start:end])
+            token = None
+            if leader_end < end and line_text[leader_end] != " ":  # -, --- and ... need either a space after, or be at end of line
+                start = leader_start
+            elif leader_start + 1 == leader_end:  # '-' has no further constraints
+                token = DashToken(line_number, leader_start + 1)
+            elif leader_start != 0:  # --- and ... are tokens only if they start the line
+                start = leader_start
+            elif line_text[0] == "-":
+                token = DocumentStartToken(line_number, 0)
+            else:
+                token = DocumentEndToken(line_number, 0)
+            return line_number, start, end, line_text, comments, token
 
     def push_flow_ender(self, ender):
         if self.flow_ender is None:
             self.flow_ender = collections.deque()
             self.line_regex = RE_FLOW_SEP
+            self.is_match_actionable = self.is_flow_match_actionable
         self.flow_ender.append(ender)
 
     def pop_flow_ender(self, expected):
@@ -880,6 +860,7 @@ class Scanner(object):
         if not self.flow_ender:
             self.flow_ender = None
             self.line_regex = RE_BLOCK_SEP
+            self.is_match_actionable = self.is_block_match_actionable
         if popped != expected:
             raise ParseError("Expecting '%s', but found '%s'" % (expected, popped))
 
@@ -903,41 +884,30 @@ class Scanner(object):
     def consume_comma(line_number, start, _):
         return CommaToken(line_number, start)
 
-    def _multiline(self, line_number, start, line_size, line_text, style):
-        regex = RE_DOUBLE_QUOTE_END if style == '"' else RE_SINGLE_QUOTE_END
-        token = ScalarToken(line_number, start, "", style=style)
+    def _checked_string(self, line_number, start, end, line_text, token):
+        if start >= end:
+            line_text = None
+        return line_number, start, end, line_text, token
+
+    def _double_quoted(self, line_number, start, end, line_text):
+        token = ScalarToken(line_number, start, "", style='"')
         try:
-            start = start + 1
-            if start < line_size and line_text[start] == style:
-                token.value = ""
-                start = start + 1
-                if start >= line_size:
-                    line_text = None
-                return line_number, start, line_size, line_text, token
+            if start < end and line_text[start] == '"':  # Empty string
+                return self._checked_string(line_number, start + 1, end, line_text, token)
             lines = None
             m = None
             while m is None:
-                m = regex.search(line_text, start)
+                m = RE_DOUBLE_QUOTE_END.search(line_text, start)
                 if m is not None:
-                    end = m.span(1)[1]
-                    quote_pos = end - 1
-                    if line_text[quote_pos] != style:
-                        end = end - 1
-                        quote_pos = quote_pos - 1
-                    text = line_text[start:quote_pos]
-                    line_size = len(line_text)
+                    text = line_text[start:m.span(1)[1] - 1]
                     if lines is not None:
                         lines.append(text)
                         for line in lines:
                             token.append_text(line)
                         text = token.value
-                    if style == "'":
-                        token.value = text.replace("''", "'")
-                    else:
-                        token.value = codecs.decode(text, "unicode_escape")
-                    if end >= line_size:
-                        line_text = None
-                    return line_number, end, line_size, line_text, token
+                    token.value = codecs.decode(text, "unicode_escape")
+                    start, end = m.span(2)
+                    return self._checked_string(line_number, start, end, line_text, token)
                 if lines is None:
                     lines = [line_text[start:]]
                     start = 0
@@ -946,7 +916,40 @@ class Scanner(object):
                 line_number, line_text = next(self.generator)
                 line_text = line_text.strip()
         except StopIteration:
-            raise ParseError("Unexpected end, runaway string at line %s?" % token.line_number)
+            raise ParseError("Unexpected end, runaway double-quoted string at line %s?" % token.line_number)
+
+    def _single_quoted(self, line_number, start, end, line_text):
+        token = ScalarToken(line_number, start, "", style="'")
+        try:
+            if start < end and line_text[start] == "'":  # Empty string
+                return self._checked_string(line_number, start + 1, end, line_text, token)
+            lines = None
+            m = None
+            while m is None:
+                m = RE_SINGLE_QUOTE_END.search(line_text, start)
+                if m is not None:
+                    quote_pos = m.span(1)[0]
+                    if line_text[quote_pos] != "'":
+                        quote_pos = quote_pos + 1
+                    text = line_text[start:quote_pos]
+                    if lines is not None:
+                        lines.append(text)
+                        for line in lines:
+                            token.append_text(line)
+                        text = token.value
+                    token.value = text.replace("''", "'")
+                    m = RE_CONTENT.search(line_text, quote_pos + 1)
+                    start, end = m.span(1)
+                    return self._checked_string(line_number, start, end, line_text, token)
+                if lines is None:
+                    lines = [line_text[start:]]
+                    start = 0
+                else:
+                    lines.append(line_text)
+                line_number, line_text = next(self.generator)
+                line_text = line_text.strip()
+        except StopIteration:
+            raise ParseError("Unexpected end, runaway single-quoted string at line %s?" % token.line_number)
 
     @staticmethod
     def _get_literal_styled_token(line_number, start, style):
@@ -991,18 +994,18 @@ class Scanner(object):
         while True:
             try:
                 line_number, line_text = next(self.generator)
-                line_size = len(line_text)
-                if line_size == 0:
+                m = RE_CONTENT.match(line_text)
+                start, end = m.span(1)
+                if start == end:
                     self._accumulate_literal(folded, lines, line_text)
                     continue
             except StopIteration:
                 line_number += 1
                 line_text = ""
-                line_size = 0
-            i = get_indent(line_text)
+                start = end = 0
             if indent is None:
-                indent = i if i != 0 else 1
-            if i < indent:
+                token.indent = indent = start if start != 0 else 1
+            if start < indent:
                 if not lines:
                     raise ParseError("Bad literal indentation")
                 text = "\n".join(lines)
@@ -1012,60 +1015,54 @@ class Scanner(object):
                     token.value = text.rstrip()
                 else:
                     token.value = "%s\n" % text
-                if i >= line_size:
+                if start >= end:
                     line_text = None
-                token.indent = indent
-                return line_number, 0, line_size, line_text, token
+                return line_number, 0, end, line_text, token
             self._accumulate_literal(folded, lines, line_text[indent:])
 
-    def should_ignore(self, matched, start, line_size, line_text):
-        """Yaml has so many weird edge cases... this one is to support sample 7.18"""
-        if matched == "#":
-            return line_text[start - 1] != " "
-        if self.flow_ender is not None:
-            if matched == ":":
-                if start == line_size - 1:
-                    return line_text[start - 1] == ":"
-                if line_text[start + 1] != " ":
-                    return line_text[start - 1] not in "'\""
+    @staticmethod
+    def is_block_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text):
+        if matched == ":":  # ':' only applicable once, either at end of line or followed by a space
+            if seen_colon:
+                return True, False
+            if rstart == rend or line_text[mstart + 1].isspace():
+                return True, True
+            return False, False
+        return seen_colon, start == mstart  # All others are applicable only when not following a simple key
 
-    def next_match(self, start, line_size, line_text):
-        while start < line_size:
-            m = self.line_regex.search(line_text, start)
+    @staticmethod
+    def is_flow_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text):
+        if matched == ":":  # Applicable either followed by space or preceded by a " (for json-like flows)
+            return seen_colon, rstart == rend or line_text[mstart - 1] == '"' or line_text[mstart + 1].isspace()
+        return seen_colon, start == mstart or matched in "{}[],"
+
+    def next_match(self, start, end, line_text):
+        rstart = start
+        seen_colon = False
+        while start < end:
+            m = self.line_regex.search(line_text, rstart)
             if m is None:
-                yield tight_text(start, None, line_size, line_text)
-                return
-            prev_start = start if start < m.span(1)[0] else None  # span1: spaces, span2: match, span3: spaces following ':'
-            start, end = m.span(2)
-            matched = line_text[start]
-            if prev_start is not None:
-                if self.flow_ender is None and matched in "!&*{[]}":
-                    yield tight_text(prev_start, None, line_size, line_text)
-                    return
-                while self.should_ignore(matched, start, line_size, line_text):
-                    start = start + 1
-                    if start >= line_size:
-                        yield tight_text(prev_start, None, line_size, line_text)
-                        return
-                    m = self.line_regex.search(line_text, start)
-                    if m is None:
-                        yield tight_text(prev_start, None, line_size, line_text)
-                        return
-                    start, end = m.span(2)
-                    matched = line_text[start]
-                yield tight_text(prev_start, start, line_size, line_text)
+                break
+            mstart, mend = m.span(1)  # span1: what we just matched
+            rstart, rend = m.span(2)  # span2: the rest (without spaces)
+            matched = line_text[mstart]
             if matched == "#":
-                return
-            if matched == ":":
-                if self.flow_ender is not None and end < line_size and line_text[end] != " ":
-                    end = end - 1
-                yield start, matched
-            else:
-                yield tight_text(start, end, line_size, line_text)
-            start = end
+                if line_text[mstart - 1].isspace():
+                    if start < mstart:
+                        yield start, line_text[start:mstart].rstrip()
+                    return
+                continue
+            seen_colon, actionable = self.is_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text)
+            if actionable:
+                if start < mstart:
+                    yield start, line_text[start:mstart].rstrip()
+                yield mstart, line_text[mstart:mend]
+                start = rstart
+        if start < end:
+            yield start, line_text[start:end]
 
     def tokens(self):
-        start = line_number = line_size = comments = 0
+        line_number = start = end = comments = 0
         pending = simple_key = upcoming = token = None
         try:
             yield StreamStartToken(1, 0)
@@ -1077,7 +1074,9 @@ class Scanner(object):
                     line_number, upcoming = next(self.generator)
                     start = comments = 0
                 if start == 0:
-                    line_number, start, line_size, upcoming, comments, token = self.next_actionable_line(line_number, upcoming)
+                    line_number, start, end, upcoming, comments, token = self.next_actionable_line(line_number, upcoming)
+                    if upcoming is None:
+                        continue
                 if simple_key is not None:
                     if pending is None:
                         pending = simple_key
@@ -1093,26 +1092,28 @@ class Scanner(object):
                 if pending is not None and comments:
                     yield pending
                     pending = None
-                if start == line_size:
+                if start == end:
                     if pending is not None:
                         pending.append_text("")
                     upcoming = None
                     continue
                 current_line = upcoming
                 upcoming = None
-                for start, text in self.next_match(start, line_size, current_line):
+                for start, text in self.next_match(start, end, current_line):
                     if simple_key is None:
                         if text == ":":
                             yield ColonToken(line_number, start)
                             continue
                         if pending is None:
-                            if text[0] in "\"'":
-                                line_number, start, line_size, upcoming, token = self._multiline(
-                                    line_number, start, line_size, current_line, text[0]
-                                )
+                            first_char = text[0]
+                            if first_char == '"':
+                                line_number, start, end, upcoming, token = self._double_quoted(line_number, start + 1, end, current_line)
+                                break
+                            if first_char == "'":
+                                line_number, start, end, upcoming, token = self._single_quoted(line_number, start + 1, end, current_line)
                                 break
                             if text[0] in '|>':
-                                line_number, start, line_size, upcoming, token = self._consume_literal(line_number, start, current_line)
+                                line_number, start, end, upcoming, token = self._consume_literal(line_number, start, current_line)
                                 break
                         tokenizer = self.tokenizer_map.get(text[0])
                         if tokenizer is None:
@@ -1173,16 +1174,6 @@ class Scanner(object):
         except ParseError as error:
             error.auto_complete(token)
             raise
-
-
-def tight_text(start, end, line_size, line_text):
-    while start < line_size and line_text[start] == " ":
-        start = start + 1
-    if end is None:
-        return start, de_commented(line_text[start:])
-    while end > start and line_text[end - 1] == " ":
-        end = end - 1
-    return start, line_text[start:end]
 
 
 def load(stream, simplified=True):

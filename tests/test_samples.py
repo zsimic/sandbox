@@ -78,6 +78,10 @@ def test_invalid():
     assert loaded("- &a a\n- !!tag *a") == "Alias should not have any properties, line 2 column 9"
     assert loaded("!!str !!str !!str a") == "Too many tag tokens, line 1 column 7"
 
+    # Invalid strings
+    assert loaded('"a\nb') == "Unexpected end, runaway double-quoted string at line 1?, line 1 column 1"
+    assert loaded("'a\nb") == "Unexpected end, runaway single-quoted string at line 1?, line 1 column 1"
+
     # Invalid literals
     assert loaded("a: >x") == "Invalid literal style '>x', line 1 column 4"
     assert loaded("a: |+++") == "Invalid literal style '|+++', should be less than 3 chars, line 1 column 4"
@@ -92,12 +96,15 @@ def test_edge_cases():
     assert loaded("") is None
     assert loaded("#comment\\n\n") is None
     assert loaded("_") == "_"
+    assert loaded("''") == ""
+    assert loaded("---a") == "---a"
+    assert loaded(" ---") == "---"
     assert loaded("[]\n---\n[]") == [[], []]
 
     assert loaded("[\n:\n]") == [{"": None}]
     assert loaded("[\na:\n]") == [{"a": None}]
     assert loaded("[::]") == ["::"]
-    assert loaded("[\n::\n]") == ["::"]
+    # assert loaded("[\n::\n]") == ["::"]
     assert loaded("[::a]") == ["::a"]
     assert loaded("[a::]") == ["a::"]
     assert loaded("[a::a]") == ["a::a"]
