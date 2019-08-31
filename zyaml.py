@@ -645,7 +645,7 @@ class ScalarToken(Token):
             self.value = text
         elif not self.value:
             self.value = text
-        elif self.value[-1].isspace():
+        elif self.value[-1] in " \t\n":
             self.value = "%s%s" % (self.value, text.lstrip())
         elif not text:
             self.value = "%s\n" % self.value
@@ -834,7 +834,7 @@ class Scanner(object):
                     raise ParseError("Directive must not be indented")
                 return line_number, start, end, None, comments, DirectiveToken(line_number, 0, line_text[start:end])
             token = None
-            if leader_end < end and line_text[leader_end] != " ":  # -, --- and ... need either a space after, or be at end of line
+            if leader_end < end and line_text[leader_end] not in " \t":  # -, --- and ... need either a space after, or be at end of line
                 start = leader_start
             elif leader_start + 1 == leader_end:  # '-' has no further constraints
                 token = DashToken(line_number, leader_start + 1)
@@ -980,7 +980,7 @@ class Scanner(object):
     def _accumulate_literal(folded, lines, value):
         if not folded or not lines or not value:
             lines.append(value)
-        elif (len(lines) > 1 or lines[0]) and not value.startswith(" ") and not lines[-1].startswith(" "):
+        elif (len(lines) > 1 or lines[0]) and value[0] not in " " and not lines[-1].startswith(" "):
             if lines[-1]:
                 lines[-1] = "%s %s" % (lines[-1], value)
             else:
@@ -1025,7 +1025,7 @@ class Scanner(object):
         if matched == ":":  # ':' only applicable once, either at end of line or followed by a space
             if seen_colon:
                 return True, False
-            if rstart == rend or line_text[mstart + 1].isspace():
+            if rstart == rend or line_text[mstart + 1] in " \t":
                 return True, True
             return False, False
         return seen_colon, start == mstart  # All others are applicable only when not following a simple key
@@ -1033,7 +1033,7 @@ class Scanner(object):
     @staticmethod
     def is_flow_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text):
         if matched == ":":  # Applicable either followed by space or preceded by a " (for json-like flows)
-            return seen_colon, rstart == rend or line_text[mstart - 1] == '"' or line_text[mstart + 1].isspace()
+            return seen_colon, rstart == rend or line_text[mstart - 1] == '"' or line_text[mstart + 1] in " \t"
         return seen_colon, start == mstart or matched in "{}[],"
 
     def next_match(self, start, end, line_text):
@@ -1047,7 +1047,7 @@ class Scanner(object):
             rstart, rend = m.span(2)  # span2: the rest (without spaces)
             matched = line_text[mstart]
             if matched == "#":
-                if line_text[mstart - 1].isspace():
+                if line_text[mstart - 1] in " \t":
                     if start < mstart:
                         yield start, line_text[start:mstart].rstrip()
                     return
