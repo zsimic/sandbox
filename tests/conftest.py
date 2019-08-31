@@ -515,26 +515,28 @@ class ScannerMock:
                 token = line_text[leader_start:leader_end]
             return line_number, start, end, line_text, comments, token
 
-    def is_block_match_actionable(self, seen_colon, start, matched, mstart, rstart, rend, line_text):
+    @staticmethod
+    def is_block_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text):
         if matched == ":":  # ':' only applicable once, either at end of line or followed by a space
             if seen_colon:
                 return True, False
             if rstart == rend or line_text[mstart + 1] == " ":
-                if start == mstart:
+                if seen_colon is None and start == mstart:
                     raise zyaml.ParseError("Incomplete explicit mapping pair")
                 return True, True
             return False, False
-        return seen_colon, start == mstart  # All others are applicable only when not following a simple key
+        return bool(seen_colon), start == mstart  # All others are applicable only when not following a simple key
 
-    def is_flow_match_actionable(self, seen_colon, start, matched, mstart, rstart, rend, line_text):
+    @staticmethod
+    def is_flow_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text):
         # ! & * : [ ] { } ,
         if matched == ":":  # Applicable either followed by space or preceeded by a " (for json-like flows)
             return seen_colon, rstart == rend or line_text[mstart - 1] == '"' or line_text[mstart + 1] == " "
-        return seen_colon, True
+        return bool(seen_colon), start == mstart or matched in "{}[],"
 
     def next_match(self, start, end, line_text):
         rstart = start
-        seen_colon = False
+        seen_colon = None
         while start < end:
             m = self.line_regex.search(line_text, rstart)
             if m is None:
@@ -543,6 +545,8 @@ class ScannerMock:
             matched = line_text[mstart]
             if matched == "#":
                 if line_text[mstart - 1] == " ":
+                    if start < mstart:
+                        yield start, line_text[start:mstart].rstrip()
                     return
                 continue
             rstart, rend = m.span(2)
@@ -557,11 +561,7 @@ class ScannerMock:
 
     def print_matches(self, text):
         count = 0
-        try:
-            line_number, start, end, upcoming, comments, token = self.next_actionable_line(1, text)
-        except zyaml.ParseError as e:
-            print("error: %s" % e)
-            return
+        line_number, start, end, upcoming, comments, token = self.next_actionable_line(1, text)
         if token is not None:
             print("token: %s" % token)
         if line_number is None:
@@ -590,10 +590,13 @@ class ScannerMock:
 @click.argument("text", nargs=-1)
 def regex(text):
     """Troubleshoot token regexes"""
-    text = " ".join(text)
-    text = codecs.decode(text, "unicode_escape")
-    s = ScannerMock()
-    s.print_matches(text)
+    try:
+        text = " ".join(text)
+        text = codecs.decode(text, "unicode_escape")
+        s = ScannerMock()
+        s.print_matches(text)
+    except zyaml.ParseError as e:
+        print("error: %s" % e)
 
 
 @main.command()
