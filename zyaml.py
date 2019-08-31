@@ -11,8 +11,8 @@ PY2 = sys.version_info < (3, 0)
 # DEBUG = os.environ.get("TRACE_YAML")
 RESERVED = "@`"
 RE_LINE_SPLIT = re.compile(r"^\s*([%#]|-(--)?|\.\.\.)?\s*(.*?)\s*$")
-RE_FLOW_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{},])\s*(.*?)\s*$""")
-RE_BLOCK_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{}])\s*(.*?)\s*$""")
+RE_FLOW_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{},])\s*(\S?)""")
+RE_BLOCK_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{}])\s*(\S?)""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")\s*(.*?)\s*$')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 RE_CONTENT = re.compile(r"\s*(.*?)\s*$")
@@ -801,7 +801,6 @@ class Scanner(object):
             self.generator = enumerate(buffer.splitlines(), start=1)
         self.line_regex = RE_BLOCK_SEP
         self.flow_ender = None
-        self.is_match_actionable = self.is_block_match_actionable
         self.tokenizer_map = {
             "!": TagToken,
             "&": AnchorToken,
@@ -850,7 +849,6 @@ class Scanner(object):
         if self.flow_ender is None:
             self.flow_ender = collections.deque()
             self.line_regex = RE_FLOW_SEP
-            self.is_match_actionable = self.is_flow_match_actionable
         self.flow_ender.append(ender)
 
     def pop_flow_ender(self, expected):
@@ -860,7 +858,6 @@ class Scanner(object):
         if not self.flow_ender:
             self.flow_ender = None
             self.line_regex = RE_BLOCK_SEP
-            self.is_match_actionable = self.is_block_match_actionable
         if popped != expected:
             raise ParseError("Expecting '%s', but found '%s'" % (expected, popped))
 
@@ -1020,22 +1017,6 @@ class Scanner(object):
                 return line_number, 0, end, line_text, token
             self._accumulate_literal(folded, lines, line_text[indent:])
 
-    @staticmethod
-    def is_block_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text):
-        if matched == ":":  # ':' only applicable once, either at end of line or followed by a space
-            if seen_colon:
-                return True, False
-            if rstart == rend or line_text[mstart + 1] in " \t":
-                return True, True
-            return False, False
-        return seen_colon, start == mstart  # All others are applicable only when not following a simple key
-
-    @staticmethod
-    def is_flow_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text):
-        if matched == ":":  # Applicable either followed by space or preceded by a " (for json-like flows)
-            return seen_colon, rstart == rend or line_text[mstart - 1] == '"' or line_text[mstart + 1] in " \t"
-        return seen_colon, start == mstart or matched in "{}[],"
-
     def next_match(self, start, end, line_text):
         rstart = start
         seen_colon = False
@@ -1044,7 +1025,7 @@ class Scanner(object):
             if m is None:
                 break
             mstart, mend = m.span(1)  # span1: what we just matched
-            rstart, rend = m.span(2)  # span2: the rest (without spaces)
+            rstart = m.span(2)[0]  # span2: first non-rest for the rest of the string
             matched = line_text[mstart]
             if matched == "#":
                 if line_text[mstart - 1] in " \t":
@@ -1052,7 +1033,21 @@ class Scanner(object):
                         yield start, line_text[start:mstart].rstrip()
                     return
                 continue
-            seen_colon, actionable = self.is_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text)
+            if self.flow_ender is None:
+                if matched == ":":  # ':' only applicable once, either at end of line or followed by a space
+                    if seen_colon:
+                        actionable = False
+                    elif rstart == end or line_text[mstart + 1] in " \t":
+                        seen_colon = True
+                        actionable = True
+                    else:
+                        actionable = False
+                else:
+                    actionable = start == mstart
+            elif matched == ":":
+                actionable = rstart == end or line_text[mstart - 1] == '"' or line_text[mstart + 1] in " \t"
+            else:
+                actionable = start == mstart or matched in "{}[],"
             if actionable:
                 if start < mstart:
                     yield start, line_text[start:mstart].rstrip()

@@ -31,6 +31,8 @@ if not sys.exec_prefix.startswith(PROJECT_FOLDER):
 
 
 if TESTS_FOLDER not in sys.path:
+    venv = os.path.join(sys.base_prefix, "bin")
+    os.environ["PATH"] = "%s:%s" % (venv, os.environ["PATH"])
     sys.path.append(TESTS_FOLDER)
 
 

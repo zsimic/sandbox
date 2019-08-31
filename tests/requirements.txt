@@ -1,5 +1,6 @@
 click
 poyo
+pyprof2calltree
 pytest-cov
 PyYAML
 ruamel.yaml
