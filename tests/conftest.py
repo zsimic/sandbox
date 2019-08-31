@@ -473,18 +473,9 @@ def refresh(stacktrace, implementation, samples):
         sample.refresh(impl=implementation, stacktrace=stacktrace)
 
 
-RE_LINE_SPLIT0 = re.compile(r"^(\s*([%#]).*|(\s*(-)(\s.*)?)|(---|\.\.\.)(\s.*)?)$")
-RE_LINE_SPLIT = re.compile(r"^\s*([%#]|-(--)?|\.\.\.)?(\s*)(.*?)\s*$")
-RE_FLOW_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{},]\s*|:[^:]|:?$)""")
-RE_BLOCK_SEP = re.compile(r"""(\s*)(#.*|![^\s\[\]{}]*\s*|[&*][^\s:,\[\]{}]+\s*|[\[\]{}]\s*|:\s+|:?$)""")
-RE_NON_SPACE = re.compile(r"""\s*\S""")
-
-
-def get_indent(start, line_size, line_text):
-    m = RE_NON_SPACE.search(line_text, start)
-    if m is not None:
-        return m.span(0)[1] - 1
-    return line_size
+RE_LINE_SPLIT = re.compile(r"^\s*([%#]|-(--)?|\.\.\.)?\s*(.*?)\s*$")
+RE_FLOW_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{},])\s*(.*?)\s*$""")
+RE_BLOCK_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{}])\s*(.*?)\s*$""")
 
 
 class ScannerMock:
@@ -502,9 +493,8 @@ class ScannerMock:
         while True:
             m = RE_LINE_SPLIT.match(line_text)
             leader_start, leader_end = m.span(1)
-            start, end = m.span(4)
-            if leader_start < 0:
-                # No special leading token
+            start, end = m.span(3)
+            if leader_start < 0:  # No special leading token
                 return line_number, start, end, line_text, comments, None
             leader = line_text[leader_start]
             if leader == "#":
@@ -515,10 +505,9 @@ class ScannerMock:
                     raise zyaml.ParseError("Directive must not be indented")
                 return line_number, start, end, line_text, comments, line_text
             token = None
-            separator = m.span(3)
-            if start < end and separator[0] == separator[1]:  # -, --- and ... need either a space after, or be at end of line
+            if leader_end < end and line_text[leader_end] != " ":  # -, --- and ... need either a space after, or be at end of line
                 start = leader_start
-            elif leader_start == leader_end:  # '-' has no further constraints
+            elif leader_start + 1 == leader_end:  # '-' has no further constraints
                 token = "-"
             elif leader_start != 0:  # --- and ... are tokens only if they start the line
                 start = leader_start
@@ -526,44 +515,61 @@ class ScannerMock:
                 token = line_text[leader_start:leader_end]
             return line_number, start, end, line_text, comments, token
 
-    def is_block_match_actionable(self, matched, start, line_size, line_text):
-        return True
+    def is_block_match_actionable(self, seen_colon, start, matched, mstart, rstart, rend, line_text):
+        if matched == ":":  # ':' only applicable once, either at end of line or followed by a space
+            if seen_colon:
+                return True, False
+            if rstart == rend or line_text[mstart + 1] == " ":
+                if start == mstart:
+                    raise zyaml.ParseError("Incomplete explicit mapping pair")
+                return True, True
+            return False, False
+        return seen_colon, start == mstart  # All others are applicable only when not following a simple key
 
-    def is_flow_match_actionable(self, matched, start, line_size, line_text):
-        return True
+    def is_flow_match_actionable(self, seen_colon, start, matched, mstart, rstart, rend, line_text):
+        # ! & * : [ ] { } ,
+        if matched == ":":  # Applicable either followed by space or preceeded by a " (for json-like flows)
+            return seen_colon, rstart == rend or line_text[mstart - 1] == '"' or line_text[mstart + 1] == " "
+        return seen_colon, True
 
-    def next_match(self, start, line_size, line_text):
-        prev_start = start
-        m = self.line_regex.search(line_text, start)
-        start, end = m.span(2)  # span1: spaces, span2: match, span3: spaces following ':'
-        while start < line_size:
-            matched = line_text[start]
-            if start == 0:
-                if matched == "#":
+    def next_match(self, start, end, line_text):
+        rstart = start
+        seen_colon = False
+        while start < end:
+            m = self.line_regex.search(line_text, rstart)
+            if m is None:
+                break
+            mstart, mend = m.span(1)  # span1: what we just matched, span2: the rest (without spaces)
+            matched = line_text[mstart]
+            if matched == "#":
+                if line_text[mstart - 1] == " ":
                     return
-                yield start, matched
-                start = end
                 continue
-            if matched == "#" and line_text[start - 1] == " ":
-                return
-            if self.is_match_actionable(matched, start, line_size, line_text):
-                if prev_start < start:
-                    yield prev_start, line_text[prev_start:start]
-                yield start, matched
-                prev_start = end
-            m = self.line_regex.search(line_text, end)
-            start, end = m.span(2)  # span1: spaces, span2: match, span3: spaces following ':'
-        if prev_start < end:
-            yield prev_start, line_text[prev_start:end]
+            rstart, rend = m.span(2)
+            seen_colon, actionable = self.is_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text)
+            if actionable:
+                if start < mstart:
+                    yield start, line_text[start:mstart].rstrip()
+                yield mstart, line_text[mstart:mend]
+                start = rstart
+        if start < end:
+            yield start, line_text[start:end]
 
-    def print_marches(self, text):
+    def print_matches(self, text):
         count = 0
-        line_number, start, line_size, upcoming, comments, token = self.next_actionable_line(1, text)
+        try:
+            line_number, start, end, upcoming, comments, token = self.next_actionable_line(1, text)
+        except zyaml.ParseError as e:
+            print("error: %s" % e)
+            return
         if token is not None:
             print("token: %s" % token)
         if line_number is None:
             return
-        for start, text in self.next_match(start, line_size, text):
+        if start == end:
+            print("-- empty line --")
+            return
+        for start, text in self.next_match(start, end, text):
             print("%s %s: '%s'" % (self, start, text))
             if text in "[{":
                 self.flows += 1
@@ -587,7 +593,7 @@ def regex(text):
     text = " ".join(text)
     text = codecs.decode(text, "unicode_escape")
     s = ScannerMock()
-    s.print_marches(text)
+    s.print_matches(text)
 
 
 @main.command()
