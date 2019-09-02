@@ -261,18 +261,22 @@ def plural(count):
 
 
 def samples_arg(option=False, default=None, count=None, **kwargs):
+    metavar = "SAMPLE%s" % plural(count).upper()
+
     def _callback(_ctx, _param, value):
         if count == 1 and hasattr(value, "endswith") and not value.endswith("."):
             value += "."
+        if not value:
+            raise click.BadParameter("No filter provided for selecting %s" % metavar)
         s = get_samples(value)
-        if not s and count is not None:
+        if not s:
             raise click.BadParameter("No samples match %s" % value)
         if count is not None and count > 0 and len(s) != count:
             raise click.BadParameter("Need exactly %s sample%s, filter yielded %s" % (count, plural(count), len(s)))
         return s
 
     kwargs["default"] = default
-    kwargs.setdefault("metavar", "SAMPLE%s" % plural(count).upper())
+    kwargs.setdefault("metavar", metavar)
 
     if option:
         kwargs.setdefault("help", "Sample(s) to use")
@@ -322,8 +326,6 @@ def simplified_date(value):
 def diff(stacktrace, compact, untyped, implementations, samples):
     """Compare deserialization of 2 implementations"""
     stringify = str if untyped else zyaml.decode
-    if not samples:
-        samples = get_samples("valid")
     if compact is None:
         compact = len(samples) > 1
     with runez.TempFolder():
@@ -414,6 +416,7 @@ def print_(stacktrace, implementations, text):
     """Deserialize given argument as yaml"""
     text = " ".join(text)
     text = codecs.decode(text, "unicode_escape")
+    print("--- raw:\n%s" % text)
     for impl in implementations:
         if stacktrace:
             data = impl.load_stream(text)

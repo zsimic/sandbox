@@ -644,18 +644,6 @@ class ScalarToken(Token):
             value = default_marshal(value)
         return value
 
-    def append_text(self, text):
-        if self.value is None:
-            self.value = text
-        elif not self.value:
-            self.value = text
-        elif self.value[-1] in " \t\n":
-            self.value = "%s%s" % (self.value, text.lstrip())
-        elif not text:
-            self.value = "%s\n" % self.value
-        else:
-            self.value = "%s %s" % (self.value, text.lstrip())
-
     def consume_token(self, root):
         root.head.consume_scalar(self)
 
@@ -874,9 +862,7 @@ class Scanner(object):
                     text = line_text[start:m.span(1)[1] - 1]
                     if lines is not None:
                         lines.append(text)
-                        for line in lines:
-                            token.append_text(line)
-                        text = token.value
+                        text = yaml_lines(lines)
                     token.value = codecs.decode(text, "unicode_escape")
                     start, end = m.span(2)
                     return self._checked_string(linenum, start, end, line_text, [token])
@@ -906,9 +892,7 @@ class Scanner(object):
                     text = line_text[start:quote_pos]
                     if lines is not None:
                         lines.append(text)
-                        for line in lines:
-                            token.append_text(line)
-                        text = token.value
+                        text = yaml_lines(lines)
                     token.value = text.replace("''", "'")
                     m = RE_CONTENT.search(line_text, quote_pos + 1)
                     start, end = m.span(1)
@@ -969,18 +953,18 @@ class Scanner(object):
                 m = RE_CONTENT.match(line_text)
                 start, end = m.span(1)
                 if start == end:
-                    self._accumulate_literal(folded, lines, line_text)
+                    lines.append(line_text)
+                    # self._accumulate_literal(folded, lines, line_text)
                     continue
             except StopIteration:
-                linenum += 1
-                line_text = ""
+                line_text = None
                 start = end = 0
             if indent is None:
                 token.indent = indent = start if start != 0 else 1
             if start < indent:
                 if not lines:
                     raise ParseError("Bad literal indentation")
-                text = "\n".join(lines)
+                text = yaml_lines(lines, indent=indent, folded=folded, keep=keep)
                 if keep is None:
                     token.value = "%s\n" % text.rstrip()
                 elif keep is False:
@@ -990,7 +974,8 @@ class Scanner(object):
                 if start >= end:
                     line_text = None
                 return linenum, 0, end, line_text, [token]
-            self._accumulate_literal(folded, lines, line_text[indent:])
+            lines.append(line_text)
+            # self._accumulate_literal(folded, lines, line_text[indent:])
 
     def next_match(self, start, end, line_text):
         rstart = start
@@ -1183,25 +1168,45 @@ class Scanner(object):
             raise
 
 
-def yaml_lines(text, *lines):
+def yaml_lines(lines, text=None, indent=None, folded=None, keep=None):
     empty = 0
+    was_overindented = False
     for line in lines:
-        if not text:
+        if indent is not None:
+            line = line[indent:]
+            if line:
+                if line[0] in " \t":
+                    if not was_overindented:
+                        empty = empty + 1
+                        was_overindented = True
+                elif was_overindented:
+                    was_overindented = False
+        if text is None:
             text = line
+        elif not text:
+            if folded:
+                text = "\n%s" % line
+            else:
+                text = line
         elif not line:
             empty = empty + 1
+        elif empty > 0:
+            text = "%s%s%s" % (text, "\n" * empty, line)
+            empty = 1 if was_overindented else 0
+        elif folded is None:
+            text = "%s %s" % (text, line)
         else:
-            if empty > 0:
-                text = "%s%s%s" % (text, "\n" * empty, line)
-                empty = 0
-            else:
-                text = "%s %s" % (text, line)
+            text = "%s%s%s" % (text, " " if folded else "\n", line)
+    if keep and empty:
+        if was_overindented:
+            empty = empty - 1
+        text = "%s%s" % (text, "\n" * empty)
     return text
 
 
 def consumed_pending(scalar, *lines):
     if lines:
-        scalar.value = yaml_lines(scalar.value, *lines)
+        scalar.value = yaml_lines(lines, text=scalar.value)
     return scalar
 
 

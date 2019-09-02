@@ -36,14 +36,8 @@ def test_tokens():
     assert str(zyaml.ScalarToken(2, 3, "test'ed", style="|+")) == """ScalarToken[2,4] |+ "test'ed\""""
     assert str(zyaml.ScalarToken(1, 0, 'tested', style='"')) == 'ScalarToken[1,1] "tested"'
 
-    s = zyaml.ScalarToken(1, 0, None)
-    assert str(s) == "ScalarToken[1,1]"
-    s.append_text("foo")
+    s = zyaml.ScalarToken(1, 0, "foo")
     assert str(s) == 'ScalarToken[1,1] "foo"'
-    s.append_text("foo\n")
-    assert str(s) == 'ScalarToken[1,1] "foo foo\\n"'
-    s.append_text("foo")
-    assert str(s) == 'ScalarToken[1,1] "foo foo\\nfoo"'
 
     assert str(zyaml.Token(0, 0).represented_value()) == "None"
 
