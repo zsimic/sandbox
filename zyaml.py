@@ -465,7 +465,7 @@ class Token(object):
         self.value = value
 
     def __repr__(self):
-        result= "%s[%s,%s]" % (self.__class__.__name__, self.linenum, self.column)
+        result = "%s[%s,%s]" % (self.__class__.__name__, self.linenum, self.column)
         if self.value is not None:
             result = "%s %s" % (result, self.represented_value())
         return result
@@ -842,7 +842,8 @@ class Scanner(object):
     def consume_comma(linenum, start, _):
         return CommaToken(linenum, start)
 
-    def _checked_string(self, linenum, start, end, line_text, token):
+    @staticmethod
+    def _checked_string(linenum, start, end, line_text, token):
         if start >= end:
             line_text = None
             start = 0
@@ -1001,7 +1002,8 @@ class Scanner(object):
         if start < end:
             yield None, start, line_text[start:end]
 
-    def header_token(self, tokens, pending, linenum, start, line_text):
+    @staticmethod
+    def header_token(tokens, pending, linenum, start, line_text):
         if start == 0:
             m = RE_HEADERS.match(line_text)
             if m is not None:
