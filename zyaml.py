@@ -887,7 +887,7 @@ class Scanner(object):
 
     def _double_quoted(self, linenum, start, end, line_text):
         token = ScalarToken(linenum, start, "", style='"')
-        self.simple_key = token
+        self.pending_scalar = token
         try:
             if start < end and line_text[start] == '"':  # Empty string
                 return self._checked_string(linenum, start + 1, end, line_text)
@@ -915,7 +915,7 @@ class Scanner(object):
 
     def _single_quoted(self, linenum, start, end, line_text):
         token = ScalarToken(linenum, start, "", style="'")
-        self.simple_key = token
+        self.pending_scalar = token
         try:
             if start < end and line_text[start] == "'":  # Empty string
                 return self._checked_string(linenum, start + 1, end, line_text)
@@ -972,7 +972,7 @@ class Scanner(object):
 
     def _consume_literal(self, linenum, start, style):
         folded, keep, indent, token = self._get_literal_styled_token(linenum, start, style)
-        self.simple_key = token
+        self.pending_scalar = token
         lines = []
         while True:
             try:
@@ -1142,11 +1142,6 @@ class Scanner(object):
                             yield token
                         tokenizer = self.tokenizer_map.get(matched)
                         yield tokenizer(linenum, offset, text)
-        except StopIteration:
-            self.promote_pending_scalar()
-            for token in self.consumed_pending():
-                yield token
-            yield StreamEndToken(linenum, 0)
         except ParseError as error:
             error.auto_complete(linenum, offset)
             raise

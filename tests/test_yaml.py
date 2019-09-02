@@ -73,17 +73,6 @@ def test_errors():
     assert str(e) == "testing, line 1 column 3"
 
 
-def test_comments():
-    assert zyaml.de_commented("") == ""
-    assert zyaml.de_commented(" ") == " "
-    assert zyaml.de_commented("# foo") == "# foo"
-    assert zyaml.de_commented(" foo  # bar") == " foo"
-    assert zyaml.de_commented(" foo ") == " foo "
-    assert zyaml.de_commented("foo#bar") == "foo#bar"
-    assert zyaml.de_commented("foo#bar   #baz") == "foo#bar"
-    assert zyaml.de_commented("foo#bar   #baz #baz") == "foo#bar"
-
-
 def test_stack():
     root = zyaml.ScannerStack()
     assert str(root) == "D"
