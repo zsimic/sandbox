@@ -10,13 +10,14 @@ import sys
 PY2 = sys.version_info < (3, 0)
 # DEBUG = os.environ.get("TRACE_YAML")
 RESERVED = "@`"
-RE_HEADERS = re.compile(r"^(\s*(#).*|(\s*(%.*?)(\s+#.*)?)|(---)(\s.*)?|(\.\.\.)(\s.*)?)$")
+RE_HEADERS = re.compile(r"^(\s*#|\s*%|(---|\.\.\.)(\s|$))")
 RE_BLOCK_SEQUENCE = re.compile(r"\s*((-\s+\S)|-\s*$)")
 RE_FLOW_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{},])\s*(\S?)""")
 RE_BLOCK_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{}])\s*(\S?)""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")\s*(.*?)\s*$')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 RE_CONTENT = re.compile(r"\s*(.*?)\s*$")
+RE_COMMENT = re.compile(r"\s+#.*$")
 
 
 RE_SIMPLE_SCALAR = re.compile(
@@ -506,6 +507,9 @@ class DocumentEndToken(Token):
 
 class DirectiveToken(Token):
     def __init__(self, linenum, indent, text):
+        m = RE_COMMENT.search(text)
+        if m is not None:
+            text = text[:m.start()]
         if text.startswith("%YAML"):
             self.name = "%YAML"
             text = text[5:].strip()
@@ -955,7 +959,7 @@ class Scanner(object):
                         lines.append(text)
                         text = yaml_lines(lines)
                     token.value = text.replace("''", "'")
-                    m = RE_CONTENT.search(line_text, quote_pos + 1)
+                    m = RE_CONTENT.match(line_text, quote_pos + 1)
                     start, end = m.span(1)
                     return self._checked_string(linenum, start, end, line_text)
                 if lines is None:
@@ -1069,19 +1073,23 @@ class Scanner(object):
             m = RE_HEADERS.match(line_text)
             if m is not None:
                 self.promote_pending_scalar()
-                marker = max(m.span(6)[0], m.span(8)[0])
-                if marker >= 0:
-                    token = DocumentStartToken if line_text[marker] == "-" else DocumentEndToken
-                    self.add_pending_token(token(linenum, 0))
-                    start = max(m.span(7)[0], m.span(9)[0])
-                    if start < 0:
-                        return True, linenum, 0, None
-                    return False, linenum, start, line_text
-                dstart, dend = m.span(4)
-                if dstart >= 0:
-                    if dstart != 0:
-                        raise ParseError("Directive must not be indented", linenum, dstart)
-                    self.add_pending_token(DirectiveToken(linenum, 0, line_text[dstart:dend]))
+                start, end = m.span(1)
+                matched = line_text[start:end]
+                if matched[0] == "-":
+                    self.add_pending_token(DocumentStartToken(linenum, 0))
+                    if matched[-1] == " ":
+                        return False, linenum, end, line_text
+                    return True, linenum, 0, None
+                elif matched[0] == ".":
+                    self.add_pending_token(DocumentEndToken(linenum, 0))
+                    if matched[-1] == " ":
+                        return False, linenum, end, line_text
+                    return True, linenum, 0, None
+                elif matched[-1] == "%":
+                    if end != 1:
+                        raise ParseError("Directive must not be indented", linenum, end - 1)
+                    self.add_pending_token(DirectiveToken(linenum, 0, line_text))
+                    return True, linenum, 0, None
                 return True, linenum, 0, None
         m = RE_BLOCK_SEQUENCE.match(line_text, start)
         if m is None:
@@ -1096,7 +1104,8 @@ class Scanner(object):
         return False, linenum, first_non_blank, line_text
 
     def headers(self, linenum, start, line_text):
-        while True:
+        tbc = True
+        while tbc:
             if line_text is None:
                 try:
                     linenum, line_text = next(self.generator)
@@ -1105,8 +1114,6 @@ class Scanner(object):
                     self.promote_pending_scalar()
                     return linenum, 0, 0, None
             tbc, linenum, start, line_text = self.header_token(linenum, start, line_text)
-            if not tbc:
-                break
         m = RE_CONTENT.match(line_text, start)
         start, end = m.span(1)
         if start == end and self.pending_scalar is not None and self.pending_scalar.style is None:
