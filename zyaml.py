@@ -78,6 +78,11 @@ def shortened(text, size=32):
     return "%s..." % text[:size]
 
 
+def double_quoted(text):
+    text = decode(codecs.encode(str(text), "unicode_escape"))
+    return '"%s"' % text.replace('"', '\\"')
+
+
 def to_float(text):
     try:
         return float(text)
@@ -625,13 +630,11 @@ class ScalarToken(Token):
         self.style = style
 
     def represented_value(self):
-        if self.style is None:
-            return str(self.value)
-        if self.style == '"':
-            return '"%s"' % decode(codecs.encode(self.value, "unicode_escape"))
         if self.style == "'":
             return "'%s'" % self.value.replace("'", "''")
-        return "%s %s" % (self.style, self.value)
+        if self.style is None or self.style == '"':
+            return double_quoted(self.value)
+        return "%s %s" % (self.style, double_quoted(self.value))
 
     def resolved_value(self, clean):
         value = self.value
@@ -1082,7 +1085,7 @@ class Scanner(object):
 
     def tokens(self):
         line_number = start = end = offset = 0
-        pending = simple_key = upcoming = line_text = None
+        pending = simple_key = upcoming = None
         try:
             yield StreamStartToken(1, 0)
             while True:
@@ -1140,17 +1143,14 @@ class Scanner(object):
                         yield ColonToken(line_number, offset)
                     else:
                         tokenizer = self.tokenizer_map.get(text[0])
-                        if tokenizer is None:
-                            simple_key.append_text(text)
+                        if pending is None:
+                            yield simple_key
                         else:
-                            if pending is None:
-                                yield simple_key
-                            else:
-                                pending.append_text(simple_key.value)
-                                yield pending
-                                pending = None
-                            simple_key = None
-                            yield tokenizer(line_number, offset, text)
+                            pending.append_text(simple_key.value)
+                            yield pending
+                            pending = None
+                        simple_key = None
+                        yield tokenizer(line_number, offset, text)
         except StopIteration:
             if pending is not None:
                 if simple_key is not None:
