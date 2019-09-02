@@ -99,12 +99,14 @@ def test_edge_cases():
     assert loaded("''") == ""
     assert loaded("---a") == "---a"
     assert loaded(" ---") == "---"
+    assert loaded('a-{}: ""') == {"a-{}": ""}
     assert loaded("[]\n---\n[]") == [[], []]
 
     assert loaded("[\n:\n]") == [{"": None}]
     assert loaded("[\na:\n]") == [{"a": None}]
     assert loaded("[::]") == ["::"]
-    # assert loaded("[\n::\n]") == ["::"]
+    assert loaded("[:: ]") == [{':': None}]
+    assert loaded("[\n::\n]") == [{':': None}]
     assert loaded("[::a]") == ["::a"]
     assert loaded("[a::]") == ["a::"]
     assert loaded("[a::a]") == ["a::a"]

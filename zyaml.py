@@ -1000,12 +1000,12 @@ class Scanner(object):
             if m is None:
                 break
             mstart, mend = m.span(1)  # span1: what we just matched
-            rstart = m.span(2)[0]  # span2: first non-rest for the rest of the string
+            rstart = m.span(2)[0]  # span2: first non-space for the rest of the string
             matched = line_text[mstart]
             if matched == "#":
                 if line_text[mstart - 1] in " \t":
                     if start < mstart:
-                        yield start, line_text[start:mstart].rstrip()
+                        yield None, start, line_text[start:mstart].rstrip()
                     return
                 continue
             if self.flow_ender is None:
@@ -1025,11 +1025,11 @@ class Scanner(object):
                 actionable = start == mstart or matched in "{}[],"
             if actionable:
                 if start < mstart:
-                    yield start, line_text[start:mstart].rstrip()
-                yield mstart, line_text[mstart:mend]
+                    yield None, start, line_text[start:mstart].rstrip()
+                yield matched, mstart, line_text[mstart:mend]
                 start = rstart
         if start < end:
-            yield start, line_text[start:end]
+            yield None, start, line_text[start:end]
 
     def header_token(self, tokens, pending, line_number, start, line_text):
         if start == 0:
@@ -1108,33 +1108,34 @@ class Scanner(object):
                         yield consumed_pending(*pending)
                         pending = None
                 upcoming = None
-                for offset, text in self.next_match(start, end, line_text):
+                for matched, offset, text in self.next_match(start, end, line_text):
                     if simple_key is None:
-                        if text == ":":
-                            yield ColonToken(line_number, offset)
-                            continue
-                        if pending is None:
-                            first_char = text[0]
-                            if first_char == '"':
-                                line_number, start, end, upcoming, pending = self._double_quoted(line_number, offset + 1, end, line_text)
-                                break
-                            if first_char == "'":
-                                line_number, start, end, upcoming, pending = self._single_quoted(line_number, offset + 1, end, line_text)
-                                break
-                            if text[0] in '|>':
-                                line_number, start, end, upcoming, pending = self._consume_literal(line_number, offset, line_text)
-                                break
-                        tokenizer = self.tokenizer_map.get(text[0])
-                        if tokenizer is None:
+                        if matched is None:
                             if text[0] in RESERVED:
                                 raise ParseError("Character '%s' is reserved" % text[0], line_number, offset)
+                            if pending is None:
+                                if text[0] == '"':
+                                    line_number, start, end, upcoming, pending = self._double_quoted(line_number, offset + 1, end, line_text)
+                                    break
+                                if text[0] == "'":
+                                    line_number, start, end, upcoming, pending = self._single_quoted(line_number, offset + 1, end, line_text)
+                                    break
+                                if text[0] in '|>':
+                                    line_number, start, end, upcoming, pending = self._consume_literal(line_number, offset, line_text)
+                                    break
                             simple_key = ScalarToken(line_number, offset, text)
-                        else:
-                            if pending is not None:
-                                yield consumed_pending(*pending)
-                                pending = None
-                            yield tokenizer(line_number, offset, text)
-                    elif text == ":":
+                            continue
+                        if matched == ":":
+                            yield ColonToken(line_number, offset)
+                            continue
+                        tokenizer = self.tokenizer_map.get(matched)
+                        if tokenizer is None:
+                            print("--> %s %s %s %s" % (line_number, matched, offset, text))
+                        if pending is not None:
+                            yield consumed_pending(*pending)
+                            pending = None
+                        yield tokenizer(line_number, offset, text)
+                    elif matched == ":":
                         if pending is not None:
                             yield consumed_pending(*pending)
                             pending = None
@@ -1142,7 +1143,7 @@ class Scanner(object):
                         simple_key = None
                         yield ColonToken(line_number, offset)
                     else:
-                        tokenizer = self.tokenizer_map.get(text[0])
+                        tokenizer = self.tokenizer_map.get(matched)
                         if pending is None:
                             yield simple_key
                         else:
