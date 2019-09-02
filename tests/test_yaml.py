@@ -46,7 +46,7 @@ def test_tokens():
     assert key.represented_value() == "None"
 
     s = zyaml.Scanner("")
-    assert str(s) == "block mode"
+    assert str(s) == "block mode "
     assert len(list(s.tokens())) == 2
     tokens = list(zyaml.Scanner("--").tokens())
     assert len(tokens) == 3
