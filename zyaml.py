@@ -932,18 +932,6 @@ class Scanner(object):
                 raise ParseError("Indent must be between 1 and 9", linenum, start)
         return style == ">", keep, indent, ScalarToken(linenum, indent, None, style=original)
 
-    @staticmethod
-    def _accumulate_literal(folded, lines, value):
-        if not folded or not lines or not value:
-            lines.append(value)
-        elif (len(lines) > 1 or lines[0]) and value[0] not in " " and not lines[-1].startswith(" "):
-            if lines[-1]:
-                lines[-1] = "%s %s" % (lines[-1], value)
-            else:
-                lines[-1] = value
-        else:
-            lines.append(value)
-
     def _consume_literal(self, linenum, start, line_text):
         folded, keep, indent, token = self._get_literal_styled_token(linenum, start, de_commented(line_text[start:]))
         lines = []
@@ -954,7 +942,6 @@ class Scanner(object):
                 start, end = m.span(1)
                 if start == end:
                     lines.append(line_text)
-                    # self._accumulate_literal(folded, lines, line_text)
                     continue
             except StopIteration:
                 line_text = None
@@ -975,7 +962,6 @@ class Scanner(object):
                     line_text = None
                 return linenum, 0, end, line_text, [token]
             lines.append(line_text)
-            # self._accumulate_literal(folded, lines, line_text[indent:])
 
     def next_match(self, start, end, line_text):
         rstart = start
@@ -992,27 +978,27 @@ class Scanner(object):
                     if start < mstart:
                         yield None, start, line_text[start:mstart].rstrip()
                     return
-                continue
-            if self.flow_ender is None:
-                if matched == ":":  # ':' only applicable once, either at end of line or followed by a space
-                    if seen_colon:
-                        actionable = False
-                    elif rstart == end or line_text[mstart + 1] in " \t":
-                        seen_colon = True
-                        actionable = True
-                    else:
-                        actionable = False
-                else:
-                    actionable = start == mstart
-            elif matched == ":":
-                actionable = rstart == end or line_text[mstart - 1] == '"' or line_text[mstart + 1] in " \t"
             else:
-                actionable = start == mstart or matched in "{}[],"
-            if actionable:
-                if start < mstart:
-                    yield None, start, line_text[start:mstart].rstrip()
-                yield matched, mstart, line_text[mstart:mend]
-                start = rstart
+                if self.flow_ender is None:
+                    if matched == ":":  # ':' only applicable once, either at end of line or followed by a space
+                        if seen_colon:
+                            actionable = False
+                        elif rstart == end or line_text[mstart + 1] in " \t":
+                            seen_colon = True
+                            actionable = True
+                        else:
+                            actionable = False
+                    else:
+                        actionable = start == mstart
+                elif matched == ":":
+                    actionable = rstart == end or line_text[mstart - 1] == '"' or line_text[mstart + 1] in " \t"
+                else:
+                    actionable = start == mstart or matched in "{}[],"
+                if actionable:
+                    if start < mstart:
+                        yield None, start, line_text[start:mstart].rstrip()
+                    yield matched, mstart, line_text[mstart:mend]
+                    start = rstart
         if start < end:
             yield None, start, line_text[start:end]
 
@@ -1056,9 +1042,9 @@ class Scanner(object):
                     linenum, line_text = next(self.generator)
                     start = 0
                 except StopIteration:
-                    if tokens:
-                        return tokens, pending, linenum, 0, 0, None
-                    raise
+                    if tokens is None:
+                        tokens = [] if pending is None else [consumed_pending(*pending)]
+                    return tokens, None, linenum, 0, 0, None
             tbc, tokens, pending, linenum, start, line_text = self.header_token(tokens, pending, linenum, start, line_text)
             if not tbc:
                 break
@@ -1114,8 +1100,6 @@ class Scanner(object):
                             yield ColonToken(linenum, offset)
                             continue
                         tokenizer = self.tokenizer_map.get(matched)
-                        if tokenizer is None:
-                            print("--> %s %s %s %s" % (linenum, matched, offset, text))
                         if pending is not None:
                             yield consumed_pending(*pending)
                             pending = None
@@ -1138,13 +1122,13 @@ class Scanner(object):
                         simple_key = None
                         yield tokenizer(linenum, offset, text)
         except StopIteration:
-            if pending is not None:
-                if simple_key is not None:
-                    pending.append(simple_key.value)
-                    simple_key = None
-                yield consumed_pending(*pending)
-            if simple_key is not None:
-                yield simple_key
+            # if pending is not None:
+            #     if simple_key is not None:
+            #         pending.append(simple_key.value)
+            #         simple_key = None
+            #     yield consumed_pending(*pending)
+            # if simple_key is not None:
+            #     yield simple_key
             yield StreamEndToken(linenum, 0)
         except ParseError as error:
             error.auto_complete(linenum, offset)
@@ -1181,13 +1165,8 @@ def yaml_lines(lines, text=None, indent=None, folded=None, keep=None):
                         was_overindented = True
                 elif was_overindented:
                     was_overindented = False
-        if text is None:
-            text = line
-        elif not text:
-            if folded:
-                text = "\n%s" % line
-            else:
-                text = line
+        if not text:
+            text = line if text is None or not folded else "\n%s" % line
         elif not line:
             empty = empty + 1
         elif empty > 0:

@@ -122,6 +122,9 @@ def test_edge_cases():
     assert loaded("a: b\n\n\n   c\n\n") == {"a": "b\n\nc"}
     assert loaded("a\n\n \n b") == "a\n\nb"
 
+    # TODO
+    # assert loaded("- a\n - b\n- c") == ["a - b", "c"]
+
 
 def test_types():
     assert loaded("!!set [a]") == {"a"}
