@@ -631,7 +631,7 @@ class ScalarToken(Token):
 
     def represented_value(self):
         if self.style == "'":
-            return "'%s'" % self.value.replace("'", "''")
+            return "'%s'" % self.value.replace("'", "''").replace("\n", "\\n")
         if self.style is None or self.style == '"':
             return double_quoted(self.value)
         return "%s %s" % (self.style, double_quoted(self.value))
@@ -865,7 +865,7 @@ class Scanner(object):
         token = ScalarToken(line_number, start, "", style='"')
         try:
             if start < end and line_text[start] == '"':  # Empty string
-                return self._checked_string(line_number, start + 1, end, line_text, token)
+                return self._checked_string(line_number, start + 1, end, line_text, [token])
             lines = None
             m = None
             while m is None:
@@ -879,7 +879,7 @@ class Scanner(object):
                         text = token.value
                     token.value = codecs.decode(text, "unicode_escape")
                     start, end = m.span(2)
-                    return self._checked_string(line_number, start, end, line_text, token)
+                    return self._checked_string(line_number, start, end, line_text, [token])
                 if lines is None:
                     lines = [line_text[start:]]
                     start = 0
@@ -894,7 +894,7 @@ class Scanner(object):
         token = ScalarToken(line_number, start, "", style="'")
         try:
             if start < end and line_text[start] == "'":  # Empty string
-                return self._checked_string(line_number, start + 1, end, line_text, token)
+                return self._checked_string(line_number, start + 1, end, line_text, [token])
             lines = None
             m = None
             while m is None:
@@ -912,7 +912,7 @@ class Scanner(object):
                     token.value = text.replace("''", "'")
                     m = RE_CONTENT.search(line_text, quote_pos + 1)
                     start, end = m.span(1)
-                    return self._checked_string(line_number, start, end, line_text, token)
+                    return self._checked_string(line_number, start, end, line_text, [token])
                 if lines is None:
                     lines = [line_text[start:]]
                     start = 0
@@ -989,7 +989,7 @@ class Scanner(object):
                     token.value = "%s\n" % text
                 if start >= end:
                     line_text = None
-                return line_number, 0, end, line_text, token
+                return line_number, 0, end, line_text, [token]
             self._accumulate_literal(folded, lines, line_text[indent:])
 
     def next_match(self, start, end, line_text):
@@ -1036,7 +1036,7 @@ class Scanner(object):
             m = RE_HEADERS.match(line_text)
             if m is not None:
                 if tokens is None:
-                    tokens = [] if pending is None else [pending]
+                    tokens = [] if pending is None else [consumed_pending(*pending)]
                     pending = None
                 marker = max(m.span(6)[0], m.span(8)[0])
                 if marker >= 0:
@@ -1056,7 +1056,7 @@ class Scanner(object):
         if m is None:
             return False, tokens, pending, line_number, start, line_text
         if tokens is None:
-            tokens = [] if pending is None else [pending]
+            tokens = [] if pending is None else [consumed_pending(*pending)]
             pending = None
         tokens.append(DashToken(line_number, m.span(1)[0] + 1))
         if m.span(2)[0] == -1:
@@ -1071,7 +1071,7 @@ class Scanner(object):
                     line_number, line_text = next(self.generator)
                     start = 0
                 except StopIteration:
-                    if tokens is not None:
+                    if tokens:
                         return tokens, pending, line_number, 0, 0, None
                     raise
             tbc, tokens, pending, line_number, start, line_text = self.header_token(tokens, pending, line_number, start, line_text)
@@ -1079,8 +1079,8 @@ class Scanner(object):
                 break
         m = RE_CONTENT.match(line_text, start)
         start, end = m.span(1)
-        if pending is not None and start == end:
-            pending.append_text("")
+        if pending is not None and start == end and pending[0].style is None:
+            pending.append("")
         return tokens, pending, line_number, start, end, line_text
 
     def tokens(self):
@@ -1091,9 +1091,9 @@ class Scanner(object):
             while True:
                 if simple_key is not None:
                     if pending is None:
-                        pending = simple_key
+                        pending = [simple_key]
                     else:
-                        pending.append_text(simple_key.value)
+                        pending.append(simple_key.value)
                     simple_key = None
                 if start == 0 or upcoming is None:
                     tokens, pending, line_number, start, end, line_text = self.headers(pending, line_number, start, upcoming)
@@ -1105,7 +1105,7 @@ class Scanner(object):
                 else:
                     line_text = upcoming
                     if pending is not None:
-                        yield pending
+                        yield consumed_pending(*pending)
                         pending = None
                 upcoming = None
                 for offset, text in self.next_match(start, end, line_text):
@@ -1131,12 +1131,12 @@ class Scanner(object):
                             simple_key = ScalarToken(line_number, offset, text)
                         else:
                             if pending is not None:
-                                yield pending
+                                yield consumed_pending(*pending)
                                 pending = None
                             yield tokenizer(line_number, offset, text)
                     elif text == ":":
                         if pending is not None:
-                            yield pending
+                            yield consumed_pending(*pending)
                             pending = None
                         yield simple_key
                         simple_key = None
@@ -1146,17 +1146,17 @@ class Scanner(object):
                         if pending is None:
                             yield simple_key
                         else:
-                            pending.append_text(simple_key.value)
-                            yield pending
+                            pending.append(simple_key.value)
+                            yield consumed_pending(*pending)
                             pending = None
                         simple_key = None
                         yield tokenizer(line_number, offset, text)
         except StopIteration:
             if pending is not None:
                 if simple_key is not None:
-                    pending.append_text(simple_key.value)
+                    pending.append(simple_key.value)
                     simple_key = None
-                yield pending
+                yield consumed_pending(*pending)
             if simple_key is not None:
                 yield simple_key
             yield StreamEndToken(line_number, 0)
@@ -1180,6 +1180,28 @@ class Scanner(object):
         except ParseError as error:
             error.auto_complete(token)
             raise
+
+
+def yaml_lines(text, *lines):
+    empty = 0
+    for line in lines:
+        if not text:
+            text = line
+        elif not line:
+            empty = empty + 1
+        else:
+            if empty > 0:
+                text = "%s%s%s" % (text, "\n" * empty, line)
+                empty = 0
+            else:
+                text = "%s %s" % (text, line)
+    return text
+
+
+def consumed_pending(scalar, *lines):
+    if lines:
+        scalar.value = yaml_lines(scalar.value, *lines)
+    return scalar
 
 
 def load(stream, simplified=True):

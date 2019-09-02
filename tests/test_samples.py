@@ -117,7 +117,8 @@ def test_edge_cases():
     assert loaded("foo# bar") == "foo# bar"
     assert loaded("a\nb") == "a b"
     assert loaded("a\n\nb") == "a\nb"
-    # assert loaded("a\n\n \n b") == "a\n\n\nb"
+    assert loaded("a: b\n\n\n   c\n\n") == {"a": "b\n\nc"}
+    assert loaded("a\n\n \n b") == "a\n\nb"
 
 
 def test_types():

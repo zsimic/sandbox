@@ -265,9 +265,9 @@ def samples_arg(option=False, default=None, count=None, **kwargs):
         if count == 1 and hasattr(value, "endswith") and not value.endswith("."):
             value += "."
         s = get_samples(value)
-        if not s:
+        if not s and count is not None:
             raise click.BadParameter("No samples match %s" % value)
-        if count and len(s) != count:
+        if count is not None and count > 0 and len(s) != count:
             raise click.BadParameter("Need exactly %s sample%s, filter yielded %s" % (count, plural(count), len(s)))
         return s
 
@@ -322,6 +322,8 @@ def simplified_date(value):
 def diff(stacktrace, compact, untyped, implementations, samples):
     """Compare deserialization of 2 implementations"""
     stringify = str if untyped else zyaml.decode
+    if not samples:
+        samples = get_samples("valid")
     if compact is None:
         compact = len(samples) > 1
     with runez.TempFolder():
