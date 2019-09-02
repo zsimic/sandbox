@@ -782,6 +782,7 @@ class Scanner(object):
         else:
             self.generator = enumerate(buffer.splitlines(), start=1)
         self.simple_key = None
+        self.pending_dash = None
         self.pending_scalar = None
         self.pending_lines = None
         self.pending_tokens = None
@@ -801,15 +802,20 @@ class Scanner(object):
     def __repr__(self):
         return dbg(
             ("flow mode ", self.flow_ender, "block mode "),
-            ("S", self.pending_scalar), ("+", self.pending_lines), ("T", self.pending_tokens)
+            ("K", self.simple_key), ("S", self.pending_scalar), ("L", self.pending_lines),
+            ("T", self.pending_tokens), ("-", self.pending_dash)
         )
 
     def promote_simple_key(self):
         if self.simple_key is not None:
             if self.pending_scalar is None:
                 self.pending_scalar = self.simple_key
+            elif self.simple_key.indent == 0 and self.simple_key.indent != self.pending_scalar.indent:
+                raise ParseError("Simple key must be indented in order to continue previous line")
             else:
-                self.add_pending_line(self.simple_key.value)
+                if self.pending_lines is None:
+                    self.pending_lines = []
+                self.pending_lines.append(self.simple_key.value)
             self.simple_key = None
 
     def promote_pending_scalar(self):
@@ -820,15 +826,32 @@ class Scanner(object):
             self.pending_scalar = None
             self.pending_lines = None
 
+    def is_dash_meaningful(self, linenum, indent):
+        if self.pending_dash is not None:
+            return linenum == self.pending_dash.linenum or indent == self.pending_dash.indent
+        if self.pending_scalar is not None:
+            return indent < self.pending_scalar.indent
+        return True
+
+    def add_pending_dash(self, linenum, indent):
+        if self.is_dash_meaningful(linenum, indent):
+            self.pending_dash = DashToken(linenum, indent)
+            self.add_pending_token(self.pending_dash)
+        else:
+            self.add_pending_line(linenum, indent, "-")
+
     def add_pending_token(self, token):
         if self.pending_tokens is None:
             self.pending_tokens = []
         self.pending_tokens.append(token)
 
-    def add_pending_line(self, text):
-        if self.pending_lines is None:
-            self.pending_lines = []
-        self.pending_lines.append(text)
+    def add_pending_line(self, linenum, indent, text):
+        if self.pending_scalar is None:
+            self.pending_scalar = ScalarToken(linenum, indent, text)
+        else:
+            if self.pending_lines is None:
+                self.pending_lines = []
+            self.pending_lines.append(text)
 
     def consumed_pending(self):
         if self.pending_scalar is not None:
@@ -1063,10 +1086,14 @@ class Scanner(object):
         m = RE_BLOCK_SEQUENCE.match(line_text, start)
         if m is None:
             return False, linenum, start, line_text
-        self.add_pending_token(DashToken(linenum, m.span(1)[0] + 1))
-        if m.span(2)[0] == -1:
+        start = m.span(1)[0] + 1
+        self.add_pending_dash(linenum, start)
+        first_non_blank = m.span(2)[1] - 1
+        if first_non_blank < 0:
             return True, linenum, 0, None
-        return False, linenum, m.span(2)[1] - 1, line_text
+        if line_text[first_non_blank] == "-":
+            return True, linenum, start, line_text
+        return False, linenum, first_non_blank, line_text
 
     def headers(self, linenum, start, line_text):
         while True:
@@ -1083,7 +1110,7 @@ class Scanner(object):
         m = RE_CONTENT.match(line_text, start)
         start, end = m.span(1)
         if start == end and self.pending_scalar is not None and self.pending_scalar.style is None:
-            self.add_pending_line("")
+            self.add_pending_line(linenum, start, "")
         return linenum, start, end, line_text
 
     def tokens(self):
@@ -1130,7 +1157,9 @@ class Scanner(object):
                             yield token
                         tokenizer = self.tokenizer_map.get(matched)
                         yield tokenizer(linenum, offset, text)
+                        self.pending_dash = None
                     elif matched == ":":
+                        self.pending_dash = None
                         for token in self.consumed_pending():
                             yield token
                         yield self.simple_key

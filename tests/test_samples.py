@@ -66,8 +66,8 @@ def test_invalid():
     assert loaded("[a {}]") == "Missing comma between scalar and entry in flow, line 1 column 2"
     assert loaded("[{} a]") == "Missing comma in list, line 1 column 6"
     assert loaded("{a: {} b}") == "Missing comma in map, line 1 column 9"
-    assert loaded("[a\n- b]") == "Block not allowed in flow, line 2 column 1"
-    assert loaded("{a\n- b}") == "Block not allowed in flow, line 2 column 1"
+    assert loaded("[\n- a\n]") == "Block not allowed in flow, line 2 column 1"
+    assert loaded("{\n- a\n}") == "Block not allowed in flow, line 2 column 1"
     assert loaded("{{}: b}") == "Key '{}' is not hashable, line 1 column 3"
     assert loaded("a: [b] c") == "Key 'c' is not indented properly, line 1 column 1"
 
@@ -102,6 +102,8 @@ def test_edge_cases():
     assert loaded('a-{}: ""') == {"a-{}": ""}
     assert loaded("[]\n---\n[]") == [[], []]
 
+    assert loaded("[a\n- b]") == ["a - b"]
+    assert loaded("{a\n- b}") == {"a - b": None}
     assert loaded("[\n:\n]") == [{"": None}]
     assert loaded("[\na:\n]") == [{"a": None}]
     assert loaded("[::]") == ["::"]
@@ -119,11 +121,11 @@ def test_edge_cases():
     assert loaded("foo# bar") == "foo# bar"
     assert loaded("a\nb") == "a b"
     assert loaded("a\n\nb") == "a\nb"
+    assert loaded("- a\nb") == "Simple key must be indented in order to continue previous line, line 2 column 1"
+    assert loaded("- a\n b") == ["a b"]
     assert loaded("a: b\n\n\n   c\n\n") == {"a": "b\n\nc"}
     assert loaded("a\n\n \n b") == "a\n\nb"
-
-    # TODO
-    # assert loaded("- a\n - b\n- c") == ["a - b", "c"]
+    assert loaded("- a\n - b\n- c") == ["a - b", "c"]
 
 
 def test_types():
