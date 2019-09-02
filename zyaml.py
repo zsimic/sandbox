@@ -201,8 +201,8 @@ class StackedDocument(object):
     def represented_decoration(self):
         return dbg(("&", self.anchor_token), ("!", self.tag_token), (":",  self.is_key))
 
-    def needs_new_list(self, indent):
-        return True
+    def consume_dash(self, token):
+        self.root.push(StackedList(token.indent))
 
     def resolved_value(self):
         value = self.value
@@ -240,7 +240,7 @@ class StackedScalar(StackedDocument):
         self.linenum = token.linenum
         self.token = token
 
-    def needs_new_list(self, indent):
+    def consume_dash(self, token):
         _todo()
 
     def attach(self, root):
@@ -271,15 +271,15 @@ class StackedList(StackedDocument):
         self.indent = indent
         self.value = []
 
-    def needs_new_list(self, indent):
+    def consume_dash(self, token):
         i = self.indent
         if i is None:
             raise ParseError("Block not allowed in flow")
-        if i == indent:
-            return False
-        if i < indent:
-            return True
-        raise ParseError("Bad sequence entry indentation")
+        if i == token.indent:
+            return
+        if i >= token.indent:
+            raise ParseError("Bad sequence entry indentation")
+        self.root.push(StackedList(token.indent))
 
     def mark_as_key(self, token):
         scalar = token.new_tacked_scalar()
@@ -304,13 +304,13 @@ class StackedMap(StackedDocument):
     def represented_decoration(self):
         return dbg(super(StackedMap, self).represented_decoration(), ("*",  self.last_key))
 
-    def needs_new_list(self, indent):
+    def consume_dash(self, token):
         i = self.indent
         if i is None:
             raise ParseError("Block not allowed in flow")
-        if i >= indent:
+        if i >= token.indent:
             raise ParseError("Bad sequence entry indentation")
-        return True
+        self.root.push(StackedList(token.indent))
 
     def resolved_value(self):
         if self.has_key:
@@ -563,8 +563,7 @@ class DashToken(Token):
 
     def consume_token(self, root):
         root.pop_until(self.indent)
-        if root.head.needs_new_list(self.indent):
-            root.push(StackedList(self.indent))
+        root.head.consume_dash(self)
 
 
 class ColonToken(Token):
