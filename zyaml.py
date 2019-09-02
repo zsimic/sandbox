@@ -237,7 +237,7 @@ class StackedScalar(StackedDocument):
     def __init__(self, token):
         super(StackedScalar, self).__init__()
         self.indent = token.indent
-        self.line_number = token.line_number
+        self.linenum = token.linenum
         self.token = token
 
     def needs_new_list(self, indent):
@@ -395,11 +395,11 @@ class ScannerStack(object):
         )
 
     def decorate(self, target, name, secondary_name):
-        line_number = getattr(target, "line_number", None)
+        linenum = getattr(target, "linenum", None)
         tag = getattr(self, name)
-        if tag is not None and (line_number is None or line_number == tag.line_number):
+        if tag is not None and (linenum is None or linenum == tag.linenum):
             setattr(target, name, tag)
-            if line_number is not None:
+            if linenum is not None:
                 target.indent = min(target.indent, tag.indent)
             setattr(self, name, getattr(self, secondary_name))
             setattr(self, secondary_name, None)
@@ -412,7 +412,7 @@ class ScannerStack(object):
     def _set_decoration(self, token, name, secondary_name):
         tag = getattr(self, name)
         if tag is not None:
-            if tag.line_number == token.line_number or getattr(self, secondary_name) is not None:
+            if tag.linenum == token.linenum or getattr(self, secondary_name) is not None:
                 raise ParseError("Too many %ss" % name.replace("_", " "), token)
             setattr(self, secondary_name, tag)
         setattr(self, name, token)
@@ -459,13 +459,13 @@ class ScannerStack(object):
 class Token(object):
     """Scanned token, visitor pattern is used for parsing"""
 
-    def __init__(self, line_number, indent, value=None):
-        self.line_number = line_number
+    def __init__(self, linenum, indent, value=None):
+        self.linenum = linenum
         self.indent = indent
         self.value = value
 
     def __repr__(self):
-        result= "%s[%s,%s]" % (self.__class__.__name__, self.line_number, self.column)
+        result= "%s[%s,%s]" % (self.__class__.__name__, self.linenum, self.column)
         if self.value is not None:
             result = "%s %s" % (result, self.represented_value())
         return result
@@ -478,7 +478,7 @@ class Token(object):
         return str(self.value)
 
     def new_tacked_scalar(self, text=""):
-        return StackedScalar(ScalarToken(self.line_number, self.indent, text))
+        return StackedScalar(ScalarToken(self.linenum, self.indent, text))
 
     def consume_token(self, root):
         """
@@ -492,7 +492,7 @@ class StreamStartToken(Token):
 
 class StreamEndToken(Token):
     def consume_token(self, root):
-        if root.tag_token and root.tag_token.line_number == self.line_number:  # last line finished with a tag (but no value)
+        if root.tag_token and root.tag_token.linenum == self.linenum:  # last line finished with a tag (but no value)
             root.push(self.new_tacked_scalar())
         root.pop_doc()
 
@@ -504,7 +504,7 @@ class DocumentStartToken(Token):
 
 class DocumentEndToken(Token):
     def consume_token(self, root):
-        if root.tag_token and root.tag_token.line_number == self.line_number - 1:  # last line finished with a tag (but no value)
+        if root.tag_token and root.tag_token.linenum == self.linenum - 1:  # last line finished with a tag (but no value)
             root.push(self.new_tacked_scalar())
         if root.head.prev is None and root.head.value is None:  # doc was empty, no tokens
             root.docs.append(None)
@@ -513,7 +513,7 @@ class DocumentEndToken(Token):
 
 
 class DirectiveToken(Token):
-    def __init__(self, line_number, indent, text):
+    def __init__(self, linenum, indent, text):
         text = de_commented(text)
         if text.startswith("%YAML"):
             self.name = "%YAML"
@@ -523,7 +523,7 @@ class DirectiveToken(Token):
             text = text[4:].strip()
         else:
             self.name, _, text = text.partition(" ")
-        super(DirectiveToken, self).__init__(line_number, indent, text.strip())
+        super(DirectiveToken, self).__init__(linenum, indent, text.strip())
 
     def represented_value(self):
         return "%s %s" % (self.name, self.value)
@@ -574,8 +574,8 @@ class ColonToken(Token):
 
 
 class TagToken(Token):
-    def __init__(self, line_number, indent, text):
-        super(TagToken, self).__init__(line_number, indent, text)
+    def __init__(self, linenum, indent, text):
+        super(TagToken, self).__init__(linenum, indent, text)
         self.marshaller = Marshallers.get_marshaller(text)
 
     def consume_token(self, root):
@@ -594,8 +594,8 @@ class TagToken(Token):
 
 
 class AnchorToken(Token):
-    def __init__(self, line_number, indent, text):
-        super(AnchorToken, self).__init__(line_number, indent, text[1:])
+    def __init__(self, linenum, indent, text):
+        super(AnchorToken, self).__init__(linenum, indent, text[1:])
 
     def represented_value(self):
         return "&%s" % self.value
@@ -605,8 +605,8 @@ class AnchorToken(Token):
 
 
 class AliasToken(Token):
-    def __init__(self, line_number, indent, text):
-        super(AliasToken, self).__init__(line_number, indent)
+    def __init__(self, linenum, indent, text):
+        super(AliasToken, self).__init__(linenum, indent)
         self.anchor = text[1:]
 
     def represented_value(self):
@@ -625,8 +625,8 @@ class AliasToken(Token):
 
 
 class ScalarToken(Token):
-    def __init__(self, line_number, indent, text, style=None):
-        super(ScalarToken, self).__init__(line_number, indent, text)
+    def __init__(self, linenum, indent, text, style=None):
+        super(ScalarToken, self).__init__(linenum, indent, text)
         self.style = style
 
     def represented_value(self):
@@ -663,23 +663,23 @@ class ScalarToken(Token):
 class ParseError(Exception):
     def __init__(self, message, *context):
         self.message = message
-        self.line_number = None
+        self.linenum = None
         self.column = None
         self.auto_complete(*context)
 
     def __str__(self):
         coords = ""
-        if self.line_number is not None:
-            coords += " line %s" % self.line_number
+        if self.linenum is not None:
+            coords += " line %s" % self.linenum
         if self.column is not None:
             coords += " column %s" % self.column
         if coords:
             coords = ",%s" % coords
         return "%s%s" % (self.message, coords)
 
-    def complete_coordinates(self, line_number, column):
-        if self.line_number is None:
-            self.line_number = line_number
+    def complete_coordinates(self, linenum, column):
+        if self.linenum is None:
+            self.linenum = linenum
         if self.column is None:
             self.column = column
 
@@ -695,7 +695,7 @@ class ParseError(Exception):
                 column = getattr(c, "indent", None)
                 if column is not None:
                     column = column + 1
-            self.complete_coordinates(getattr(c, "line_number", None), column)
+            self.complete_coordinates(getattr(c, "linenum", None), column)
 
 
 def _checked_scalar(value):
@@ -835,37 +835,37 @@ class Scanner(object):
         if expected != found:
             raise ParseError("Expecting '%s', but found '%s'" % (expected, found))
 
-    def consume_flow_map_start(self, line_number, start, _):
+    def consume_flow_map_start(self, linenum, start, _):
         self.push_flow_ender("}")
-        return FlowMapToken(line_number, start)
+        return FlowMapToken(linenum, start)
 
-    def consume_flow_map_end(self, line_number, start, _):
+    def consume_flow_map_end(self, linenum, start, _):
         self.pop_flow_ender("}")
-        return FlowEndToken(line_number, start)
+        return FlowEndToken(linenum, start)
 
-    def consume_flow_list_start(self, line_number, start, _):
+    def consume_flow_list_start(self, linenum, start, _):
         self.push_flow_ender("]")
-        return FlowSeqToken(line_number, start)
+        return FlowSeqToken(linenum, start)
 
-    def consume_flow_list_end(self, line_number, start, _):
+    def consume_flow_list_end(self, linenum, start, _):
         self.pop_flow_ender("]")
-        return FlowEndToken(line_number, start)
+        return FlowEndToken(linenum, start)
 
     @staticmethod
-    def consume_comma(line_number, start, _):
-        return CommaToken(line_number, start)
+    def consume_comma(linenum, start, _):
+        return CommaToken(linenum, start)
 
-    def _checked_string(self, line_number, start, end, line_text, token):
+    def _checked_string(self, linenum, start, end, line_text, token):
         if start >= end:
             line_text = None
             start = 0
-        return line_number, start, end, line_text, token
+        return linenum, start, end, line_text, token
 
-    def _double_quoted(self, line_number, start, end, line_text):
-        token = ScalarToken(line_number, start, "", style='"')
+    def _double_quoted(self, linenum, start, end, line_text):
+        token = ScalarToken(linenum, start, "", style='"')
         try:
             if start < end and line_text[start] == '"':  # Empty string
-                return self._checked_string(line_number, start + 1, end, line_text, [token])
+                return self._checked_string(linenum, start + 1, end, line_text, [token])
             lines = None
             m = None
             while m is None:
@@ -879,22 +879,22 @@ class Scanner(object):
                         text = token.value
                     token.value = codecs.decode(text, "unicode_escape")
                     start, end = m.span(2)
-                    return self._checked_string(line_number, start, end, line_text, [token])
+                    return self._checked_string(linenum, start, end, line_text, [token])
                 if lines is None:
                     lines = [line_text[start:]]
                     start = 0
                 else:
                     lines.append(line_text)
-                line_number, line_text = next(self.generator)
+                linenum, line_text = next(self.generator)
                 line_text = line_text.strip()
         except StopIteration:
-            raise ParseError("Unexpected end, runaway double-quoted string at line %s?" % token.line_number)
+            raise ParseError("Unexpected end, runaway double-quoted string at line %s?" % token.linenum)
 
-    def _single_quoted(self, line_number, start, end, line_text):
-        token = ScalarToken(line_number, start, "", style="'")
+    def _single_quoted(self, linenum, start, end, line_text):
+        token = ScalarToken(linenum, start, "", style="'")
         try:
             if start < end and line_text[start] == "'":  # Empty string
-                return self._checked_string(line_number, start + 1, end, line_text, [token])
+                return self._checked_string(linenum, start + 1, end, line_text, [token])
             lines = None
             m = None
             while m is None:
@@ -912,29 +912,29 @@ class Scanner(object):
                     token.value = text.replace("''", "'")
                     m = RE_CONTENT.search(line_text, quote_pos + 1)
                     start, end = m.span(1)
-                    return self._checked_string(line_number, start, end, line_text, [token])
+                    return self._checked_string(linenum, start, end, line_text, [token])
                 if lines is None:
                     lines = [line_text[start:]]
                     start = 0
                 else:
                     lines.append(line_text)
-                line_number, line_text = next(self.generator)
+                linenum, line_text = next(self.generator)
                 line_text = line_text.strip()
         except StopIteration:
-            raise ParseError("Unexpected end, runaway single-quoted string at line %s?" % token.line_number)
+            raise ParseError("Unexpected end, runaway single-quoted string at line %s?" % token.linenum)
 
     @staticmethod
-    def _get_literal_styled_token(line_number, start, style):
+    def _get_literal_styled_token(linenum, start, style):
         original = style
         if len(style) > 3:
-            raise ParseError("Invalid literal style '%s', should be less than 3 chars" % style, line_number, start)
+            raise ParseError("Invalid literal style '%s', should be less than 3 chars" % style, linenum, start)
         keep = None
         if "-" in style:
             style = style.replace("-", "", 1)
             keep = False
         if "+" in style:
             if keep is not None:
-                raise ParseError("Ambiguous literal style '%s'" % original, line_number, start)
+                raise ParseError("Ambiguous literal style '%s'" % original, linenum, start)
             keep = True
             style = style.replace("+", "", 1)
         indent = None
@@ -942,11 +942,11 @@ class Scanner(object):
             indent = style[1]
             style = style[0]
             if not indent.isdigit():
-                raise ParseError("Invalid literal style '%s'" % original, line_number, start)
+                raise ParseError("Invalid literal style '%s'" % original, linenum, start)
             indent = int(indent)
             if indent < 1:
-                raise ParseError("Indent must be between 1 and 9", line_number, start)
-        return style == ">", keep, indent, ScalarToken(line_number, indent, None, style=original)
+                raise ParseError("Indent must be between 1 and 9", linenum, start)
+        return style == ">", keep, indent, ScalarToken(linenum, indent, None, style=original)
 
     @staticmethod
     def _accumulate_literal(folded, lines, value):
@@ -960,19 +960,19 @@ class Scanner(object):
         else:
             lines.append(value)
 
-    def _consume_literal(self, line_number, start, line_text):
-        folded, keep, indent, token = self._get_literal_styled_token(line_number, start, de_commented(line_text[start:]))
+    def _consume_literal(self, linenum, start, line_text):
+        folded, keep, indent, token = self._get_literal_styled_token(linenum, start, de_commented(line_text[start:]))
         lines = []
         while True:
             try:
-                line_number, line_text = next(self.generator)
+                linenum, line_text = next(self.generator)
                 m = RE_CONTENT.match(line_text)
                 start, end = m.span(1)
                 if start == end:
                     self._accumulate_literal(folded, lines, line_text)
                     continue
             except StopIteration:
-                line_number += 1
+                linenum += 1
                 line_text = ""
                 start = end = 0
             if indent is None:
@@ -989,7 +989,7 @@ class Scanner(object):
                     token.value = "%s\n" % text
                 if start >= end:
                     line_text = None
-                return line_number, 0, end, line_text, [token]
+                return linenum, 0, end, line_text, [token]
             self._accumulate_literal(folded, lines, line_text[indent:])
 
     def next_match(self, start, end, line_text):
@@ -1031,7 +1031,7 @@ class Scanner(object):
         if start < end:
             yield None, start, line_text[start:end]
 
-    def header_token(self, tokens, pending, line_number, start, line_text):
+    def header_token(self, tokens, pending, linenum, start, line_text):
         if start == 0:
             m = RE_HEADERS.match(line_text)
             if m is not None:
@@ -1041,50 +1041,50 @@ class Scanner(object):
                 marker = max(m.span(6)[0], m.span(8)[0])
                 if marker >= 0:
                     token = DocumentStartToken if line_text[marker] == "-" else DocumentEndToken
-                    tokens.append(token(line_number, 0))
+                    tokens.append(token(linenum, 0))
                     start = max(m.span(7)[0], m.span(9)[0])
                     if start < 0:
-                        return True, tokens, pending, line_number, 0, None
-                    return False, tokens, pending, line_number, start, line_text
+                        return True, tokens, pending, linenum, 0, None
+                    return False, tokens, pending, linenum, start, line_text
                 dstart, dend = m.span(4)
                 if dstart >= 0:
                     if dstart != 0:
-                        raise ParseError("Directive must not be indented", line_number, dstart)
-                    tokens.append(DirectiveToken(line_number, 0, line_text[dstart:dend]))
-                return True, tokens, pending, line_number, 0, None
+                        raise ParseError("Directive must not be indented", linenum, dstart)
+                    tokens.append(DirectiveToken(linenum, 0, line_text[dstart:dend]))
+                return True, tokens, pending, linenum, 0, None
         m = RE_BLOCK_SEQUENCE.match(line_text, start)
         if m is None:
-            return False, tokens, pending, line_number, start, line_text
+            return False, tokens, pending, linenum, start, line_text
         if tokens is None:
             tokens = [] if pending is None else [consumed_pending(*pending)]
             pending = None
-        tokens.append(DashToken(line_number, m.span(1)[0] + 1))
+        tokens.append(DashToken(linenum, m.span(1)[0] + 1))
         if m.span(2)[0] == -1:
-            return True, tokens, pending, line_number, 0, None
-        return False, tokens, pending, line_number, m.span(2)[1] - 1, line_text
+            return True, tokens, pending, linenum, 0, None
+        return False, tokens, pending, linenum, m.span(2)[1] - 1, line_text
 
-    def headers(self, pending, line_number, start, line_text):
+    def headers(self, pending, linenum, start, line_text):
         tokens = None
         while True:
             if line_text is None:
                 try:
-                    line_number, line_text = next(self.generator)
+                    linenum, line_text = next(self.generator)
                     start = 0
                 except StopIteration:
                     if tokens:
-                        return tokens, pending, line_number, 0, 0, None
+                        return tokens, pending, linenum, 0, 0, None
                     raise
-            tbc, tokens, pending, line_number, start, line_text = self.header_token(tokens, pending, line_number, start, line_text)
+            tbc, tokens, pending, linenum, start, line_text = self.header_token(tokens, pending, linenum, start, line_text)
             if not tbc:
                 break
         m = RE_CONTENT.match(line_text, start)
         start, end = m.span(1)
         if pending is not None and start == end and pending[0].style is None:
             pending.append("")
-        return tokens, pending, line_number, start, end, line_text
+        return tokens, pending, linenum, start, end, line_text
 
     def tokens(self):
-        line_number = start = end = offset = 0
+        linenum = start = end = offset = 0
         pending = simple_key = upcoming = None
         try:
             yield StreamStartToken(1, 0)
@@ -1096,7 +1096,7 @@ class Scanner(object):
                         pending.append(simple_key.value)
                     simple_key = None
                 if start == 0 or upcoming is None:
-                    tokens, pending, line_number, start, end, line_text = self.headers(pending, line_number, start, upcoming)
+                    tokens, pending, linenum, start, end, line_text = self.headers(pending, linenum, start, upcoming)
                     if tokens is not None:
                         for token in tokens:
                             yield token
@@ -1112,36 +1112,36 @@ class Scanner(object):
                     if simple_key is None:
                         if matched is None:
                             if text[0] in RESERVED:
-                                raise ParseError("Character '%s' is reserved" % text[0], line_number, offset)
+                                raise ParseError("Character '%s' is reserved" % text[0], linenum, offset)
                             if pending is None:
                                 if text[0] == '"':
-                                    line_number, start, end, upcoming, pending = self._double_quoted(line_number, offset + 1, end, line_text)
+                                    linenum, start, end, upcoming, pending = self._double_quoted(linenum, offset + 1, end, line_text)
                                     break
                                 if text[0] == "'":
-                                    line_number, start, end, upcoming, pending = self._single_quoted(line_number, offset + 1, end, line_text)
+                                    linenum, start, end, upcoming, pending = self._single_quoted(linenum, offset + 1, end, line_text)
                                     break
                                 if text[0] in '|>':
-                                    line_number, start, end, upcoming, pending = self._consume_literal(line_number, offset, line_text)
+                                    linenum, start, end, upcoming, pending = self._consume_literal(linenum, offset, line_text)
                                     break
-                            simple_key = ScalarToken(line_number, offset, text)
+                            simple_key = ScalarToken(linenum, offset, text)
                             continue
                         if matched == ":":
-                            yield ColonToken(line_number, offset)
+                            yield ColonToken(linenum, offset)
                             continue
                         tokenizer = self.tokenizer_map.get(matched)
                         if tokenizer is None:
-                            print("--> %s %s %s %s" % (line_number, matched, offset, text))
+                            print("--> %s %s %s %s" % (linenum, matched, offset, text))
                         if pending is not None:
                             yield consumed_pending(*pending)
                             pending = None
-                        yield tokenizer(line_number, offset, text)
+                        yield tokenizer(linenum, offset, text)
                     elif matched == ":":
                         if pending is not None:
                             yield consumed_pending(*pending)
                             pending = None
                         yield simple_key
                         simple_key = None
-                        yield ColonToken(line_number, offset)
+                        yield ColonToken(linenum, offset)
                     else:
                         tokenizer = self.tokenizer_map.get(matched)
                         if pending is None:
@@ -1151,7 +1151,7 @@ class Scanner(object):
                             yield consumed_pending(*pending)
                             pending = None
                         simple_key = None
-                        yield tokenizer(line_number, offset, text)
+                        yield tokenizer(linenum, offset, text)
         except StopIteration:
             if pending is not None:
                 if simple_key is not None:
@@ -1160,9 +1160,9 @@ class Scanner(object):
                 yield consumed_pending(*pending)
             if simple_key is not None:
                 yield simple_key
-            yield StreamEndToken(line_number, 0)
+            yield StreamEndToken(linenum, 0)
         except ParseError as error:
-            error.auto_complete(line_number, offset)
+            error.auto_complete(linenum, offset)
             raise
 
     def deserialized(self, simplified=True):

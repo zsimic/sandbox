@@ -23,14 +23,14 @@ class ScannerMock:
     def __repr__(self):
         return "block" if self.block_mode else "flow"
 
-    def next_actionable_line(self, line_number, line_text):
+    def next_actionable_line(self, linenum, line_text):
         comments = 0
         while True:
             m = RE_LINE_SPLIT.match(line_text)
             leader_start, leader_end = m.span(1)
             start, end = m.span(3)
             if leader_start < 0:  # No special leading token
-                return line_number, start, end, line_text, comments, None
+                return linenum, start, end, line_text, comments, None
             leader = line_text[leader_start]
             if leader == "#":
                 comments += 1
@@ -38,7 +38,7 @@ class ScannerMock:
             if leader == "%":
                 if leader_start != 0:
                     raise zyaml.ParseError("Directive must not be indented")
-                return line_number, start, end, line_text, comments, line_text
+                return linenum, start, end, line_text, comments, line_text
             token = None
             if leader_end < end and line_text[leader_end] != " ":  # -, --- and ... need either a space after, or be at end of line
                 start = leader_start
@@ -48,7 +48,7 @@ class ScannerMock:
                 start = leader_start
             else:
                 token = line_text[leader_start:leader_end]
-            return line_number, start, end, line_text, comments, token
+            return linenum, start, end, line_text, comments, token
 
     @staticmethod
     def is_block_match_actionable(seen_colon, start, matched, mstart, rstart, rend, line_text):
@@ -96,10 +96,10 @@ class ScannerMock:
 
     def print_matches(self, text):
         count = 0
-        line_number, start, end, upcoming, comments, token = self.next_actionable_line(1, text)
+        linenum, start, end, upcoming, comments, token = self.next_actionable_line(1, text)
         if token is not None:
             print("token: %s" % token)
-        if line_number is None:
+        if linenum is None:
             return
         if start == end:
             print("-- empty line --")
