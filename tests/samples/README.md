@@ -9,7 +9,6 @@ Samples are organized in folders:
 - [flex](./flex): samples that are correct, but require a bit of flexibility from the parsing lib to be usable
 - [invalid](./invalid): effectively invalid yaml
 - [js](./js): from the javascript world
-- [redundant](./redundant): duplicates from yamllint
 - [valid](./valid): those work in [ruamel](https://pypi.org/project/ruamel.yaml/) as well, and deserialize correctly
 
 
