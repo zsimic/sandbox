@@ -60,8 +60,8 @@ def test_invalid():
     # Malformed docs
     assert loaded("a\n#\nb") == "Document separator expected, line 3 column 1"
     assert loaded("[a\n#\nb]") == "Missing comma between scalars in flow, line 1 column 2"
-    assert loaded(" %YAML 1.2") == "Directive must not be indented, line 1 column 1"
-    assert loaded("{ foo: ]}") == "Expecting ']', but found '}', line 1 column 8"
+    assert loaded(" %YAML 1.2") == "Directive must not be indented, line 1 column 2"
+    assert loaded("{ foo: ]}") == "Expecting '}', but found ']', line 1 column 8"
     assert loaded("foo: ]") == "']' without corresponding opener, line 1 column 6"
     assert loaded("[a {}]") == "Missing comma between scalar and entry in flow, line 1 column 2"
     assert loaded("[{} a]") == "Missing comma in list, line 1 column 6"
