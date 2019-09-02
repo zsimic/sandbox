@@ -101,6 +101,7 @@ def test_edge_cases():
     assert loaded(" ---") == "---"
     assert loaded('a-{}: ""') == {"a-{}": ""}
     assert loaded("[]\n---\n[]") == [[], []]
+    assert loaded("-   ") == [None]
 
     assert loaded("[a\n- b]") == ["a - b"]
     assert loaded("{a\n- b}") == {"a - b": None}

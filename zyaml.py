@@ -486,7 +486,7 @@ class StreamStartToken(Token):
 class StreamEndToken(Token):
     def consume_token(self, root):
         if root.tag_token and root.tag_token.linenum == self.linenum:  # last line finished with a tag (but no value)
-            root.push(self.new_tacked_scalar())
+            root.push(root.tag_token.new_tacked_scalar())
         root.pop_doc()
 
 
@@ -498,7 +498,7 @@ class DocumentStartToken(Token):
 class DocumentEndToken(Token):
     def consume_token(self, root):
         if root.tag_token and root.tag_token.linenum == self.linenum - 1:  # last line finished with a tag (but no value)
-            root.push(self.new_tacked_scalar())
+            root.push(root.tag_token.new_tacked_scalar())
         if root.head.prev is None and root.head.value is None:  # doc was empty, no tokens
             root.docs.append(None)
         else:
@@ -1107,12 +1107,8 @@ class Scanner(object):
         tbc = True
         while tbc:
             if line_text is None:
-                try:
-                    linenum, line_text = next(self.generator)
-                    start = 0
-                except StopIteration:
-                    self.promote_pending_scalar()
-                    return linenum, 0, 0, None
+                linenum, line_text = next(self.generator)
+                start = 0
             tbc, linenum, start, line_text = self.header_token(linenum, start, line_text)
         m = RE_CONTENT.match(line_text, start)
         start, end = m.span(1)
@@ -1132,9 +1128,6 @@ class Scanner(object):
                     if self.pending_tokens is not None:
                         for token in self.consumed_pending():
                             yield token
-                    if line_text is None:
-                        yield StreamEndToken(linenum, 0)
-                        return
                 else:
                     line_text = upcoming
                     for token in self.consumed_pending():
@@ -1178,6 +1171,16 @@ class Scanner(object):
                             yield token
                         tokenizer = self.tokenizer_map.get(matched)
                         yield tokenizer(linenum, offset, text)
+        except StopIteration:
+            self.promote_simple_key()
+            self.promote_pending_scalar()
+            last_token = None
+            for token in self.consumed_pending():
+                last_token = token
+                yield token
+            if isinstance(last_token, DashToken):
+                yield ScalarToken(linenum, start, None)
+            yield StreamEndToken(linenum, 0)
         except ParseError as error:
             error.auto_complete(linenum, offset)
             raise
