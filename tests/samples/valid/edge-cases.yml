@@ -13,3 +13,17 @@
   one"
 - 'single quoted multi\
 line string'
+- "
+   double-quoted on
+
+   multiple
+
+   lines
+  "
+- '
+   single-quoted on
+
+   multiple
+
+   lines
+  '

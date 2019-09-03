@@ -14,8 +14,8 @@ RE_HEADERS = re.compile(r"^(\s*#|\s*%|(---|\.\.\.)(\s|$))")
 RE_BLOCK_SEQUENCE = re.compile(r"\s*((-\s+\S)|-\s*$)")
 RE_FLOW_SEP = re.compile(r"""(#|\?\s|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{},])\s*(\S?)""")
 RE_BLOCK_SEP = re.compile(r"""(#|\?\s|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{}])\s*(\S?)""")
-RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")\s*(.*?)\s*$')
-RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
+RE_DOUBLE_QUOTE_END = re.compile(r'(^\s*"|[^\\]")\s*(.*?)\s*$')
+RE_SINGLE_QUOTE_END = re.compile(r"(^\s*'|[^']'([^']|$))")
 RE_CONTENT = re.compile(r"\s*(.*?)\s*$")
 RE_COMMENT = re.compile(r"\s+#.*$")
 
@@ -314,7 +314,7 @@ class StackedMap(StackedDocument):
         return dbg(super(StackedMap, self).represented_decoration(), ("*",  self.last_key))
 
     def check_key_indentation(self, indent):  # type: (Optional[int]) -> None
-        if self.indent is not None and indent != self.indent:
+        if indent is not None and self.indent is not None and indent != self.indent:
             raise ParseError("Key is not indented properly", None, indent)
 
     def check_value_indentation(self, indent):  # type: (Optional[int]) -> None
@@ -961,7 +961,7 @@ class Scanner(object):
                     text = line_text[start:m.span(1)[1] - 1]
                     if lines is not None:
                         lines.append(text)
-                        text = yaml_lines(lines, continuations=True)
+                        text = yaml_lines(lines, keep=True, continuations=True)
                     token.value = codecs.decode(text, "unicode_escape")
                     start, end = m.span(2)
                     return self._checked_string(linenum, start, end, line_text)
@@ -992,7 +992,7 @@ class Scanner(object):
                     text = line_text[start:quote_pos]
                     if lines is not None:
                         lines.append(text)
-                        text = yaml_lines(lines)
+                        text = yaml_lines(lines, keep=True)
                     token.value = text.replace("''", "'")
                     m = RE_CONTENT.match(line_text, quote_pos + 1)
                     start, end = m.span(1)
@@ -1252,11 +1252,13 @@ def yaml_lines(lines, text=None, indent=None, folded=None, keep=None, continuati
                         was_over_indented = True
                 elif was_over_indented:
                     was_over_indented = False
-        if not text:
-            text = line if text is None or not folded else "\n%s" % line
+        if text is None:
+            text = line
+        elif indent is not None and not text:
+            text = line if not folded else "\n%s" % line
         elif not line:
             empty = empty + 1
-        elif continuations and text[-1] == "\\" and text[-2:] != "\\\\":
+        elif continuations and text[-1:] == "\\" and text[-2:] != "\\\\":
             text = "%s%s%s" % (text[:-1], "\n" * empty, line)
             empty = 0
         elif empty > 0:
@@ -1266,8 +1268,11 @@ def yaml_lines(lines, text=None, indent=None, folded=None, keep=None, continuati
             text = "%s %s" % (text, line)
         else:
             text = "%s%s%s" % (text, " " if folded else "\n", line)
-    if keep and empty:
-        if was_over_indented:
+    if empty and keep:
+        if indent is None:
+            if empty == 1:
+                text = "%s " % text
+        if was_over_indented or continuations or indent is None:
             empty = empty - 1
         text = "%s%s" % (text, "\n" * empty)
     return text

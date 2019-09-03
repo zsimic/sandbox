@@ -1,5 +1,7 @@
 [
   "Fun with \\ \" \u0007 \b \f \n \r \t \u000b \u0000 A A A",
   "some multiline string\none\nmore\nand an escaped\\ one",
-  "single quoted multi\\ line string"
+  "single quoted multi\\ line string",
+  " double-quoted on\nmultiple\nlines ",
+  " single-quoted on\nmultiple\nlines "
 ]
