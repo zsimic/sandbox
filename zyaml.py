@@ -4,16 +4,16 @@ import datetime
 import dateutil
 import re
 import sys
-# import os
+import os
 
 
 PY2 = sys.version_info < (3, 0)
-# DEBUG = os.environ.get("TRACE_YAML")
+DEBUG = os.environ.get("TRACE_YAML")
 RESERVED = "@`"
 RE_HEADERS = re.compile(r"^(\s*#|\s*%|(---|\.\.\.)(\s|$))")
 RE_BLOCK_SEQUENCE = re.compile(r"\s*((-\s+\S)|-\s*$)")
-RE_FLOW_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{},])\s*(\S?)""")
-RE_BLOCK_SEP = re.compile(r"""(#|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{}])\s*(\S?)""")
+RE_FLOW_SEP = re.compile(r"""(#|\?\s|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{},])\s*(\S?)""")
+RE_BLOCK_SEP = re.compile(r"""(#|\?\s|![^\s\[\]{}]*|[&*][^\s:,\[\]{}]+|[:\[\]{}])\s*(\S?)""")
 RE_DOUBLE_QUOTE_END = re.compile(r'([^\\]")\s*(.*?)\s*$')
 RE_SINGLE_QUOTE_END = re.compile(r"([^']'([^']|$))")
 RE_CONTENT = re.compile(r"\s*(.*?)\s*$")
@@ -46,13 +46,13 @@ CONSTANTS = {
 }
 
 
-# def trace(message, *args):
-#     """Output 'message' if tracing is on"""
-#     if DEBUG:
-#         if args:
-#             message = message.format(*args)
-#         sys.stderr.write(":: %s\n" % message)
-#         sys.stderr.flush()
+def trace(message, *args):
+    """Output 'message' if tracing is on"""
+    if DEBUG:
+        if args:
+            message = message.format(*args)
+        sys.stderr.write(":: %s\n" % message)
+        sys.stderr.flush()
 
 
 if PY2:
@@ -593,6 +593,16 @@ class CommaToken(Token):
         root.head.mark_open(self)
 
 
+class ExplicitMapToken(Token):
+    def __init__(self, linenum, indent):
+        super(ExplicitMapToken, self).__init__(linenum, indent + 2)
+
+    def consume_token(self, root):
+        root.pop_until(self.indent)
+        if not isinstance(root.head, StackedMap) or (root.head.indent is not None and root.head.indent != self.indent):
+            root.push(StackedMap(self.indent))
+
+
 class DashToken(Token):
     @property
     def column(self):
@@ -843,6 +853,7 @@ class Scanner(object):
             "[": self.consume_flow_list_start,
             "]": self.consume_flow_list_end,
             ",": self.consume_comma,
+            "?": self.consume_map,
         }
 
     def __repr__(self):
@@ -946,6 +957,10 @@ class Scanner(object):
     @staticmethod
     def consume_comma(linenum, start, _):
         return CommaToken(linenum, start)
+
+    @staticmethod
+    def consume_map(linenum, start, _):
+        return ExplicitMapToken(linenum, start)
 
     @staticmethod
     def _checked_string(linenum, start, end, line_text):
@@ -1099,7 +1114,7 @@ class Scanner(object):
                     else:
                         actionable = start == mstart
                 elif matched == ":":
-                    actionable = rstart == end or line_text[mstart - 1] == '"' or line_text[mstart + 1] in " \t"
+                    actionable = rstart == end or line_text[mstart - 1] == '"' or line_text[mstart + 1] in " \t,"
                 else:
                     actionable = start == mstart or matched in "{}[],"
                 if actionable:
@@ -1234,7 +1249,7 @@ class Scanner(object):
             root = ScannerStack()
             for token in self.tokens():
                 token.consume_token(root)
-                # trace("{}: {}", token, root)
+                trace("{}: {}", token, root)
             if simplified:
                 if not root.docs:
                     return None
