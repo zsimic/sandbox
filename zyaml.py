@@ -64,6 +64,7 @@ if PY2:
 
 else:
     import base64
+    from typing import Optional
 
     def cleaned_number(text):
         return text
@@ -169,30 +170,47 @@ def dbg(*args):
 class StackedDocument(object):
     def __init__(self):
         self.indent = -1
-        self.root = None  # type: ScannerStack
-        self.prev = None  # type: StackedDocument
+        self.root = None  # type: Optional[ScannerStack]
+        self.prev = None  # type: Optional[StackedDocument]
         self.value = None
-        self.anchor_token = None  # type: AnchorToken
-        self.tag_token = None  # type: TagToken
+        self.anchor_token = None  # type: Optional[AnchorToken]
+        self.tag_token = None  # type: Optional[TagToken]
         self.is_key = False
         self.closed = False
 
     def __repr__(self):
+        return "%s %s" % (self.dbg_representation(), self.value)
+
+    def dbg_representation(self):
         indent = self.indent if self.indent != -1 else None
         return dbg(self.__class__.__name__[7], indent, self.represented_decoration())
+
+    def represented_decoration(self):
+        return dbg(("&", self.anchor_token), ("!", self.tag_token), (":",  self.is_key))
+
+    def check_indentation(self, indent, name, offset=0):
+        if indent is not None:
+            si = self.indent
+            if si is not None and si >= 0:
+                si = si + offset
+                if indent < si:
+                    raise ParseError("%s must be indented at least %s columns" % (name, si + 1), None, indent)
+
+    def check_key_indentation(self, indent):
+        self.check_indentation(indent, "Key")
+
+    def check_value_indentation(self, indent):
+        self.check_indentation(indent, "Value")
 
     def attach(self, root):
         self.root = root
 
-    def underranks(self, indent):
+    def under_ranks(self, indent):
         if indent is None:
             return self.indent is not None
         elif self.indent is None:
             return False
         return self.indent > indent
-
-    def represented_decoration(self):
-        return dbg(("&", self.anchor_token), ("!", self.tag_token), (":",  self.is_key))
 
     def consume_dash(self, token):
         self.root.push(StackedList(token.indent))
@@ -212,14 +230,16 @@ class StackedDocument(object):
         self.is_key = True
 
     def take_key(self, element):
-        self.root.pop_until(element.indent)
-        if self.root.head.indent != element.indent:
-            self.root.push(StackedMap(element.indent))
+        ei = element.indent
+        self.root.pop_until(ei)
+        if self.root.head.indent != ei:
+            self.root.push(StackedMap(ei))
         self.root.head.take_key(element)
 
     def take_value(self, element):
         if self.value is not None:
             raise ParseError("Document separator expected", element)
+        self.check_value_indentation(element.indent)
         self.value = element.resolved_value()
 
     def consume_scalar(self, token):
@@ -240,7 +260,7 @@ class StackedScalar(StackedDocument):
         self.root = root
         self.value = self.token.resolved_value(self.anchor_token is None and self.tag_token is None)
 
-    def underranks(self, indent):
+    def under_ranks(self, indent):
         return True
 
     def take_key(self, element):
@@ -264,6 +284,12 @@ class StackedList(StackedDocument):
         self.indent = indent
         self.value = []
 
+    def check_key_indentation(self, indent):
+        self.check_indentation(indent, "Key", offset=1)
+
+    def check_value_indentation(self, indent):
+        self.check_indentation(indent, "Value", offset=1)
+
     def consume_dash(self, token):
         i = self.indent
         if i is None:
@@ -278,6 +304,15 @@ class StackedList(StackedDocument):
         scalar = token.new_tacked_scalar()
         scalar.is_key = True
         self.root.push(scalar)
+
+    def take_key(self, element):
+        ei = element.indent
+        self.root.pop_until(ei)
+        if self.root.head.indent != ei:
+            self.root.push(StackedMap(ei))
+        if self.root.head is self:
+            raise ParseError("List values are not allowed here")
+        self.root.head.take_key(element)
 
     def take_value(self, element):
         if self.closed:
@@ -296,6 +331,13 @@ class StackedMap(StackedDocument):
 
     def represented_decoration(self):
         return dbg(super(StackedMap, self).represented_decoration(), ("*",  self.last_key))
+
+    def check_key_indentation(self, indent):  # type: (Optional[int]) -> None
+        if self.indent is not None and indent != self.indent:
+            raise ParseError("Key is not indented properly", None, indent)
+
+    def check_value_indentation(self, indent):  # type: (Optional[int]) -> None
+        self.check_indentation(indent, "Value", offset=1)
 
     def consume_dash(self, token):
         i = self.indent
@@ -332,25 +374,25 @@ class StackedMap(StackedDocument):
         self.last_key = None
         self.has_key = False
 
-    def check_key(self, element):
-        if self.indent is not None and element.indent != self.indent:
-            raise ParseError("Key '%s' is not indented properly" % shortened(element.value))
-
     def take_key(self, element):
-        if self.indent is not None and element.indent is not None and element.indent != self.indent:
-            # We're pushing a sub-mpa of the form "a:\n  b: ..."
+        ei = element.indent
+        if self.indent is not None and ei is not None and ei != self.indent:
+            # We're pushing a sub-map of the form "a:\n  b: ..."
+            if not self.has_key and ei > self.indent:
+                raise ParseError("Mapping values are not allowed here")
             return super(StackedMap, self).take_key(element)
-        if self.has_key and element.indent == self.indent:
+        if self.has_key and ei == self.indent:
             self.add_key_value(self.last_key, None)
-        self.check_key(element)
+        self.check_key_indentation(ei)
         self.last_key = element.resolved_value()
         self.has_key = True
 
     def take_value(self, element):
         if self.has_key:
+            self.check_value_indentation(element.indent)
             self.add_key_value(self.last_key, element.resolved_value())
         else:
-            self.check_key(element)
+            self.check_key_indentation(element.indent)
             self.add_key_value(element.resolved_value(), None)
 
 
@@ -371,7 +413,7 @@ class ScannerStack(object):
         stack = []
         head = self.head
         while head is not None:
-            stack.append(str(head))
+            stack.append(head.dbg_representation())
             head = head.prev
         result = " / ".join(stack)
         deco = self.represented_decoration()
@@ -435,7 +477,7 @@ class ScannerStack(object):
             self.head.take_value(popped)
 
     def pop_until(self, indent):
-        while self.head.underranks(indent):
+        while self.head.under_ranks(indent):
             self.pop()
 
     def pop_doc(self):
@@ -660,16 +702,16 @@ class ParseError(Exception):
         return "%s%s" % (self.message, coords)
 
     def complete_coordinates(self, linenum, column):
-        if self.linenum is None:
+        if self.linenum is None and isinstance(linenum, int):
             self.linenum = linenum
-        if self.column is None:
+        if self.column is None and isinstance(column, int):
             self.column = column
 
     def auto_complete(self, *context):
         if not context:
             return
-        if len(context) == 2 and isinstance(context[0], int) and isinstance(context[1], int):
-            self.complete_coordinates(context[0], context[1] + 1)
+        if len(context) == 2:
+            self.complete_coordinates(context[0], context[1] + 1 if isinstance(context[1], int) else None)
             return
         for c in context:
             column = getattr(c, "column", None)
@@ -1117,7 +1159,8 @@ class Scanner(object):
         return linenum, start, end, line_text
 
     def tokens(self):
-        linenum = start = end = offset = 0
+        start = end = offset = 0
+        linenum = 1
         upcoming = None
         try:
             yield StreamStartToken(1, 0)
@@ -1179,7 +1222,7 @@ class Scanner(object):
                 last_token = token
                 yield token
             if isinstance(last_token, DashToken):
-                yield ScalarToken(linenum, start, None)
+                yield ScalarToken(linenum, last_token.indent + 1, None)
             yield StreamEndToken(linenum, 0)
         except ParseError as error:
             error.auto_complete(linenum, offset)
@@ -1205,30 +1248,30 @@ class Scanner(object):
 
 def yaml_lines(lines, text=None, indent=None, folded=None, keep=None):
     empty = 0
-    was_overindented = False
+    was_over_indented = False
     for line in lines:
         if indent is not None:
             line = line[indent:]
             if line:
                 if line[0] in " \t":
-                    if not was_overindented:
+                    if not was_over_indented:
                         empty = empty + 1
-                        was_overindented = True
-                elif was_overindented:
-                    was_overindented = False
+                        was_over_indented = True
+                elif was_over_indented:
+                    was_over_indented = False
         if not text:
             text = line if text is None or not folded else "\n%s" % line
         elif not line:
             empty = empty + 1
         elif empty > 0:
             text = "%s%s%s" % (text, "\n" * empty, line)
-            empty = 1 if was_overindented else 0
+            empty = 1 if was_over_indented else 0
         elif folded is None:
             text = "%s %s" % (text, line)
         else:
             text = "%s%s%s" % (text, " " if folded else "\n", line)
     if keep and empty:
-        if was_overindented:
+        if was_over_indented:
             empty = empty - 1
         text = "%s%s" % (text, "\n" * empty)
     return text

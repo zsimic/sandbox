@@ -699,7 +699,7 @@ class YmlImplementation(object):
 
 class RawImplementation(YmlImplementation):
     def _load(self, stream):
-        return stream.read()
+        return "".join("%4s: %s" % (n + 1, s) for n, s in enumerate(stream.readlines()))
 
     def json_representation(self, result, stringify=zyaml.decode):
         if result.error:
