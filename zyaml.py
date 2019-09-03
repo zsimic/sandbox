@@ -1256,6 +1256,9 @@ def yaml_lines(lines, text=None, indent=None, folded=None, keep=None):
             text = line if text is None or not folded else "\n%s" % line
         elif not line:
             empty = empty + 1
+        elif indent is None and text[-1] == "\\" and text[-2:] != "\\\\":
+            text = "%s%s%s" % (text[:-1], "\n" * empty, line)
+            empty = 0
         elif empty > 0:
             text = "%s%s%s" % (text, "\n" * empty, line)
             empty = 1 if was_over_indented else 0
