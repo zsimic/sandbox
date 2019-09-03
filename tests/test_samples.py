@@ -89,7 +89,6 @@ def test_invalid():
     assert loaded("a: |+-") == "Ambiguous literal style '|+-', line 1 column 4"
     assert loaded("a: |+-") == "Ambiguous literal style '|+-', line 1 column 4"
     assert loaded("a: |2\n foo") == "Bad literal indentation, line 1 column 4"
-    # assert loaded("") == ""
 
 
 def test_edge_cases():
@@ -108,6 +107,9 @@ def test_edge_cases():
     assert loaded("- a:\n   b") == [{"a": "b"}]
     assert loaded("- a: b\n c: d") == "List values are not allowed here, line 2 column 3"
     assert loaded("- a: b\n  c: d") == [{"a": "b", "c": "d"}]
+    assert loaded("- a:\n - b\n- c") == "Bad sequence entry indentation, line 2 column 2"
+    # assert loaded("a:\n  - b\n- c") == "Simple key must be indented in order to continue previous line, line 3 column 1"
+    # assert loaded("- a:\n  - b\n- c") == [{"a": ["b"]}, "c"]
 
     assert loaded("a: b\n  c: d\ne: f") == "Mapping values are not allowed here, line 2 column 4"
     assert loaded("a: \n  c: d\ne: f") == {"a": {"c": "d"}, "e": "f"}
@@ -154,5 +156,6 @@ def test_types():
     assert loaded("!!bool no") is False
 
 
-# def test_q():
-#     assert loaded('a-{}: ""') == {"a-{}": ""}
+def test_q():
+    # assert loaded("- a:\n  - b\n- c") == [{"a": ["b"]}, "c"]
+    assert loaded('a-{}: ""') == {"a-{}": ""}

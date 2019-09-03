@@ -270,7 +270,7 @@ def samples_arg(option=False, default=None, count=None, **kwargs):
         s = get_samples(value)
         if not s:
             raise click.BadParameter("No samples match %s" % value)
-        if count is not None and count > 0 and len(s) != count:
+        if count is not None and 0 < count != len(s):
             raise click.BadParameter("Need exactly %s sample%s, filter yielded %s" % (count, plural(count), len(s)))
         return s
 
@@ -743,7 +743,6 @@ class RuamelImplementation(YmlImplementation):
     def _load(self, stream):
         y = ruamel.yaml.YAML(typ="safe")
         ruamel.yaml.add_multi_constructor('', ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
-        # y.constructor.yaml_constructors["tag:yaml.org,2002:timestamp"] = y.constructor.yaml_constructors["tag:yaml.org,2002:str"]
         return y.load_all(stream)
 
 

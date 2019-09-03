@@ -1237,6 +1237,7 @@ class Scanner(object):
                             continue
                         if matched == ":":
                             yield ColonToken(linenum, offset)
+                            self.pending_dash = None
                             continue
                         for token in self.consumed_pending():
                             yield token
