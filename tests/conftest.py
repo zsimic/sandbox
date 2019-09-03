@@ -482,13 +482,13 @@ def refresh(stacktrace, implementation, samples):
 @contextmanager
 def profiled(enabled):
     if not enabled:
-        yield
+        yield False
         return
     import cProfile
     profiler = cProfile.Profile()
     try:
         profiler.enable()
-        yield
+        yield True
     finally:
         profiler.disable()
         filepath = os.path.join(PROJECT_FOLDER, ".tox", "lastrun.profile")
@@ -509,20 +509,22 @@ def profiled(enabled):
 @samples_arg(default="misc")
 def show(profile, stacktrace, implementations, samples):
     """Show deserialized yaml objects as json"""
-    with profiled(profile):
+    with profiled(profile) as is_profiling:
         for sample in samples:
             print("========  %s  ========" % sample)
             assert isinstance(implementations, ImplementationCollection)
             for impl in implementations:
+                print("--------  %s  --------" % impl)
                 assert isinstance(impl, YmlImplementation)
                 result = impl.load(sample, stacktrace=stacktrace)
+                if is_profiling:
+                    return
                 if result.error:
                     rep = "Error: %s\n" % result.error
                     implementations.track_result_combination(impl, "error")
                 else:
                     rep = impl.json_representation(result)
                     implementations.track_result_combination(impl, rep)
-                print("--------  %s  --------" % impl)
                 print(rep)
             if implementations.combinations:
                 combinations = ["/".join(x) for x in implementations.combinations]

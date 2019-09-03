@@ -7,8 +7,8 @@ import sys
 # import os
 
 
-PY2 = sys.version_info < (3, 0)
 # DEBUG = os.environ.get("TRACE_YAML")
+PY2 = sys.version_info < (3, 0)
 RESERVED = "@`"
 RE_HEADERS = re.compile(r"^(\s*#|\s*%|(---|\.\.\.)(\s|$))")
 RE_BLOCK_SEQUENCE = re.compile(r"\s*((-\s+\S)|-\s*$)")
