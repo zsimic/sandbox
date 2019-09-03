@@ -85,7 +85,7 @@ def double_quoted(text):  # type: (str) -> str
     return '"%s"' % text.replace('"', '\\"')
 
 
-def yaml_lines(lines, text=None, indent=None, folded=False, keep=False, continuations=False):
+def yaml_lines(lines, text=None, indent=None, folded=None, keep=False, continuations=False):
     """
     :param list lines: Lines to concatenate together
     :param str|None text: Initial line (optional)
@@ -100,7 +100,7 @@ def yaml_lines(lines, text=None, indent=None, folded=False, keep=False, continua
     for line in lines:
         if indent is not None:
             line = line[indent:]
-            if line:
+            if folded is True and line:
                 if line[0] in " \t":
                     if not was_over_indented:
                         empty = empty + 1
@@ -109,27 +109,25 @@ def yaml_lines(lines, text=None, indent=None, folded=False, keep=False, continua
                     was_over_indented = False
         if text is None:
             text = line
-        elif indent is not None and not text:
-            text = line if not folded else "\n%s" % line
+        elif folded is not None and not text:
+            text = "\n%s" % line
         elif not line:
             empty = empty + 1
         elif continuations and text[-1:] == "\\" and text[-2:] != "\\\\":
-            text = "%s%s%s" % (text[:-1], "\n" * empty, line)
+            text = "".join((text[:-1], "\n" * empty, line))
             empty = 0
         elif empty > 0:
-            text = "%s%s%s" % (text, "\n" * empty, line)
+            text = "".join((text, "\n" * empty, "\n" if folded is False else "", line))
             empty = 1 if was_over_indented else 0
-        elif folded is None:
-            text = "%s %s" % (text, line)
         else:
-            text = "%s%s%s" % (text, " " if folded else "\n", line)
+            text = "".join((text, "\n" if folded is False else " ", line))
     if empty and keep:
         if indent is None:
             if empty == 1:
                 text = "%s " % text
         if was_over_indented or continuations or indent is None:
             empty = empty - 1
-        text = "%s%s" % (text, "\n" * empty)
+        text = "".join((text, "\n" * empty))
     return text
 
 
@@ -738,7 +736,7 @@ class ParseError(Exception):
             coords += " column %s" % self.column
         if coords:
             coords = ",%s" % coords
-        return "%s%s" % (self.message, coords)
+        return "".join((self.message, coords))
 
     def complete_coordinates(self, linenum, column):
         if self.linenum is None and isinstance(linenum, int):

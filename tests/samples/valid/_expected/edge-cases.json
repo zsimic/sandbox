@@ -3,5 +3,7 @@
   "some multiline string\none\nmore\nand an escaped\\ one",
   "single quoted multi\\ line string",
   " double-quoted on\nmultiple\nlines ",
-  " single-quoted on\nmultiple\nlines "
+  " single-quoted on\nmultiple\nlines ",
+  "\nFolded multiline\nstring\n",
+  "\nLiteral multiline\n\nstring\n"
 ]

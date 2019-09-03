@@ -27,3 +27,15 @@ line string'
 
    lines
   '
+- >
+
+  Folded multiline
+
+  string
+
+
+- |
+
+  Literal multiline
+
+  string

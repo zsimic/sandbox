@@ -503,20 +503,20 @@ def profiled(enabled):
 
 @main.command()
 @click.option("--profile", is_flag=True, help="Enable profiling")
-@click.option("--no-lines", "-n", is_flag=True, help="Enable profiling")
+@click.option("--line-numbers", "-n", is_flag=True, help="Show line numbers when showing original yaml")
 @stacktrace_option()
 @implementations_option(default="zyaml,ruamel")
 @samples_arg(default="misc")
-def show(profile, no_lines, stacktrace, implementations, samples):
+def show(profile, line_numbers, stacktrace, implementations, samples):
     """Show deserialized yaml objects as json"""
     with profiled(profile) as is_profiling:
         for sample in samples:
             print("========  %s  ========" % sample)
             with open(sample.path) as fh:
-                if no_lines:
-                    print("".join(fh.readlines()))
-                else:
+                if line_numbers:
                     print("".join("%4s: %s" % (n + 1, s) for n, s in enumerate(fh.readlines())))
+                else:
+                    print("".join(fh.readlines()))
             assert isinstance(implementations, ImplementationCollection)
             for impl in implementations:
                 print("--------  %s  --------" % impl)
