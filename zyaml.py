@@ -64,7 +64,7 @@ if PY2:
 
 else:
     import base64
-    from typing import List, Optional
+    from typing import List, Optional, Union
 
     def cleaned_number(text):
         return text
@@ -73,19 +73,67 @@ else:
         return base64.decodebytes(_checked_scalar(value).encode("ascii"))
 
 
-def shortened(text, size=32):
+def shortened(text, size=32):  # type: (str, int) -> str
     text = str(text)
     if not text or len(text) < size:
         return text
     return "%s..." % text[:size]
 
 
-def double_quoted(text):
+def double_quoted(text):  # type: (str) -> str
     text = decode(codecs.encode(str(text), "unicode_escape"))
     return '"%s"' % text.replace('"', '\\"')
 
 
-def to_float(text):
+def yaml_lines(lines, text=None, indent=None, folded=False, keep=False, continuations=False):
+    """
+    :param list lines: Lines to concatenate together
+    :param str|None text: Initial line (optional)
+    :param int|None indent: If not None, we're doing a block scalar
+    :param bool folded: If True, we're doing a folded block scalar (marked by `>`)
+    :param bool keep: If True, keep trailing newlines
+    :param bool continuations: If True, respect end-of-line continuations (marked by `\`)
+    :return str: Concatenated string, with yaml's weird convention
+    """
+    empty = 0
+    was_over_indented = False
+    for line in lines:
+        if indent is not None:
+            line = line[indent:]
+            if line:
+                if line[0] in " \t":
+                    if not was_over_indented:
+                        empty = empty + 1
+                        was_over_indented = True
+                elif was_over_indented:
+                    was_over_indented = False
+        if text is None:
+            text = line
+        elif indent is not None and not text:
+            text = line if not folded else "\n%s" % line
+        elif not line:
+            empty = empty + 1
+        elif continuations and text[-1:] == "\\" and text[-2:] != "\\\\":
+            text = "%s%s%s" % (text[:-1], "\n" * empty, line)
+            empty = 0
+        elif empty > 0:
+            text = "%s%s%s" % (text, "\n" * empty, line)
+            empty = 1 if was_over_indented else 0
+        elif folded is None:
+            text = "%s %s" % (text, line)
+        else:
+            text = "%s%s%s" % (text, " " if folded else "\n", line)
+    if empty and keep:
+        if indent is None:
+            if empty == 1:
+                text = "%s " % text
+        if was_over_indented or continuations or indent is None:
+            empty = empty - 1
+        text = "%s%s" % (text, "\n" * empty)
+    return text
+
+
+def to_float(text):  # type: (str) -> float
     try:
         return float(text)
     except ValueError:
@@ -99,7 +147,7 @@ def to_float(text):
         raise
 
 
-def to_number(text):
+def to_number(text):  # type: (str) -> Union[int, float]
     text = cleaned_number(text)
     try:
         return int(text)
@@ -107,7 +155,7 @@ def to_number(text):
         return to_float(text)
 
 
-def get_tzinfo(text):
+def get_tzinfo(text):  # type: (str) -> Optional[datetime.tzinfo]
     if text is None:
         return None
     if text == "Z":
@@ -118,7 +166,7 @@ def get_tzinfo(text):
     return UTC if offset == 0 else dateutil.tz.tzoffset(text, offset)
 
 
-def default_marshal(text):
+def default_marshal(text):  # type: (text) -> Union[str, int, float, list, dict, datetime.date, datetime.datetime]
     if not text:
         return text
     match = RE_SIMPLE_SCALAR.match(text)
@@ -165,14 +213,14 @@ def dbg(*args):
 
 class StackedDocument(object):
     def __init__(self):
-        self.indent = -1
+        self.indent = -1  # type: Optional[int]
         self.root = None  # type: Optional[ScannerStack]
         self.prev = None  # type: Optional[StackedDocument]
-        self.value = None
+        self.value = None  # type: Union[str, list, dict]
         self.anchor_token = None  # type: Optional[AnchorToken]
         self.tag_token = None  # type: Optional[TagToken]
-        self.is_key = False
-        self.closed = False
+        self.is_key = False  # type: bool
+        self.closed = False  # type: bool
 
     def __repr__(self):
         return "%s %s" % (self.dbg_representation(), self.value)
@@ -1237,45 +1285,6 @@ class Scanner(object):
         except ParseError as error:
             error.auto_complete(token)
             raise
-
-
-def yaml_lines(lines, text=None, indent=None, folded=None, keep=None, continuations=False):
-    empty = 0
-    was_over_indented = False
-    for line in lines:
-        if indent is not None:
-            line = line[indent:]
-            if line:
-                if line[0] in " \t":
-                    if not was_over_indented:
-                        empty = empty + 1
-                        was_over_indented = True
-                elif was_over_indented:
-                    was_over_indented = False
-        if text is None:
-            text = line
-        elif indent is not None and not text:
-            text = line if not folded else "\n%s" % line
-        elif not line:
-            empty = empty + 1
-        elif continuations and text[-1:] == "\\" and text[-2:] != "\\\\":
-            text = "%s%s%s" % (text[:-1], "\n" * empty, line)
-            empty = 0
-        elif empty > 0:
-            text = "%s%s%s" % (text, "\n" * empty, line)
-            empty = 1 if was_over_indented else 0
-        elif folded is None:
-            text = "%s %s" % (text, line)
-        else:
-            text = "%s%s%s" % (text, " " if folded else "\n", line)
-    if empty and keep:
-        if indent is None:
-            if empty == 1:
-                text = "%s " % text
-        if was_over_indented or continuations or indent is None:
-            empty = empty - 1
-        text = "%s%s" % (text, "\n" * empty)
-    return text
 
 
 def load(stream, simplified=True):
