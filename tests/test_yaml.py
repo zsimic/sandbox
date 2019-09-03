@@ -76,8 +76,10 @@ def test_errors():
 def test_stack():
     root = zyaml.ScannerStack()
     assert str(root) == "D"
+    assert str(root.head) == "D None"
     root.push(zyaml.StackedScalar(zyaml.ScalarToken(1, 0, "foo")))
     assert str(root) == "S0 / D"
+    assert str(root.head) == "S0 foo"
     root.set_tag_token(zyaml.TagToken(1, 1, "foo"))
     assert str(root) == "S0 / D [!]"
     root.head.mark_as_key(zyaml.ColonToken(1, 4))

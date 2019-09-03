@@ -4,11 +4,11 @@ import datetime
 import dateutil
 import re
 import sys
-import os
+# import os
 
 
 PY2 = sys.version_info < (3, 0)
-DEBUG = os.environ.get("TRACE_YAML")
+# DEBUG = os.environ.get("TRACE_YAML")
 RESERVED = "@`"
 RE_HEADERS = re.compile(r"^(\s*#|\s*%|(---|\.\.\.)(\s|$))")
 RE_BLOCK_SEQUENCE = re.compile(r"\s*((-\s+\S)|-\s*$)")
@@ -46,13 +46,13 @@ CONSTANTS = {
 }
 
 
-def trace(message, *args):
-    """Output 'message' if tracing is on"""
-    if DEBUG:
-        if args:
-            message = message.format(*args)
-        sys.stderr.write(":: %s\n" % message)
-        sys.stderr.flush()
+# def trace(message, *args):
+#     """Output 'message' if tracing is on"""
+#     if DEBUG:
+#         if args:
+#             message = message.format(*args)
+#         sys.stderr.write(":: %s\n" % message)
+#         sys.stderr.flush()
 
 
 if PY2:
@@ -64,7 +64,7 @@ if PY2:
 
 else:
     import base64
-    from typing import Optional
+    from typing import List, Optional
 
     def cleaned_number(text):
         return text
@@ -151,10 +151,6 @@ def decode(value):
     return value
 
 
-def _todo():
-    raise Exception("TODO")
-
-
 def _dbg_repr(value):
     if isinstance(value, tuple):
         if value[1] is None or value[1] is False:
@@ -181,6 +177,9 @@ class StackedDocument(object):
     def __repr__(self):
         return "%s %s" % (self.dbg_representation(), self.value)
 
+    def type_name(self):
+        return self.__class__.__name__.replace("Stacked", "").lower()
+
     def dbg_representation(self):
         indent = self.indent if self.indent != -1 else None
         return dbg(self.__class__.__name__[7], indent, self.represented_decoration())
@@ -195,9 +194,6 @@ class StackedDocument(object):
                 si = si + offset
                 if indent < si:
                     raise ParseError("%s must be indented at least %s columns" % (name, si + 1), None, indent)
-
-    def check_key_indentation(self, indent):
-        self.check_indentation(indent, "Key")
 
     def check_value_indentation(self, indent):
         self.check_indentation(indent, "Value")
@@ -253,9 +249,6 @@ class StackedScalar(StackedDocument):
         self.linenum = token.linenum
         self.token = token
 
-    def consume_dash(self, token):
-        _todo()
-
     def attach(self, root):
         self.root = root
         self.value = self.token.resolved_value(self.anchor_token is None and self.tag_token is None)
@@ -263,13 +256,9 @@ class StackedScalar(StackedDocument):
     def under_ranks(self, indent):
         return True
 
-    def take_key(self, element):
-        _todo()
-
     def take_value(self, element):
         if element.indent is None:
-            raise ParseError("Missing comma between scalar and entry in flow", self.token)
-        raise ParseError("2 consecutive scalars")
+            raise ParseError("Missing comma between %s and %s in flow" % (self.type_name(), element.type_name()), self.token)
 
     def consume_scalar(self, token):
         if self.prev.indent is None:
@@ -284,20 +273,12 @@ class StackedList(StackedDocument):
         self.indent = indent
         self.value = []
 
-    def check_key_indentation(self, indent):
-        self.check_indentation(indent, "Key", offset=1)
-
-    def check_value_indentation(self, indent):
-        self.check_indentation(indent, "Value", offset=1)
-
     def consume_dash(self, token):
         i = self.indent
         if i is None:
             raise ParseError("Block not allowed in flow")
         if i == token.indent:
             return
-        if i >= token.indent:
-            raise ParseError("Bad sequence entry indentation")
         self.root.push(StackedList(token.indent))
 
     def mark_as_key(self, token):
@@ -837,11 +818,11 @@ class Scanner(object):
             self.generator = enumerate(buffer.read().splitlines(), start=1)
         else:
             self.generator = enumerate(buffer.splitlines(), start=1)
-        self.simple_key = None
-        self.pending_dash = None
-        self.pending_scalar = None
-        self.pending_lines = None
-        self.pending_tokens = None
+        self.simple_key = None  # type: Optional[ScalarToken]
+        self.pending_dash = None  # type: Optional[DashToken]
+        self.pending_scalar = None  # type: Optional[ScalarToken]
+        self.pending_lines = None  # type: Optional[List[str]]
+        self.pending_tokens = None  # type: Optional[List[Token]]
         self.line_regex = RE_BLOCK_SEP
         self.flow_ender = None
         self.tokenizer_map = {
@@ -895,20 +876,17 @@ class Scanner(object):
             self.pending_dash = DashToken(linenum, indent)
             self.add_pending_token(self.pending_dash)
         else:
-            self.add_pending_line(linenum, indent, "-")
+            self.add_pending_line("-")
 
     def add_pending_token(self, token):
         if self.pending_tokens is None:
             self.pending_tokens = []
         self.pending_tokens.append(token)
 
-    def add_pending_line(self, linenum, indent, text):
-        if self.pending_scalar is None:
-            self.pending_scalar = ScalarToken(linenum, indent, text)
-        else:
-            if self.pending_lines is None:
-                self.pending_lines = []
-            self.pending_lines.append(text)
+    def add_pending_line(self, text):
+        if self.pending_lines is None:
+            self.pending_lines = []
+        self.pending_lines.append(text)
 
     def consumed_pending(self):
         if self.pending_scalar is not None:
@@ -1170,7 +1148,7 @@ class Scanner(object):
         m = RE_CONTENT.match(line_text, start)
         start, end = m.span(1)
         if start == end and self.pending_scalar is not None and self.pending_scalar.style is None:
-            self.add_pending_line(linenum, start, "")
+            self.add_pending_line("")
         return linenum, start, end, line_text
 
     def tokens(self):
@@ -1249,7 +1227,7 @@ class Scanner(object):
             root = ScannerStack()
             for token in self.tokens():
                 token.consume_token(root)
-                trace("{}: {}", token, root)
+                # trace("{}: {}", token, root)
             if simplified:
                 if not root.docs:
                     return None
