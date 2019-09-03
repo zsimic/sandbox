@@ -1012,10 +1012,10 @@ class Scanner(object):
                     start, end = m.span(2)
                     return self._checked_string(linenum, start, end, line_text)
                 if lines is None:
-                    lines = [line_text[start:]]
+                    lines = [line_text[start:].rstrip()]
                     start = 0
                 else:
-                    lines.append(line_text)
+                    lines.append(line_text.rstrip())
                 linenum, line_text = next(self.generator)
                 line_text = line_text.strip()
         except StopIteration:
@@ -1044,10 +1044,10 @@ class Scanner(object):
                     start, end = m.span(1)
                     return self._checked_string(linenum, start, end, line_text)
                 if lines is None:
-                    lines = [line_text[start:]]
+                    lines = [line_text[start:].rstrip()]
                     start = 0
                 else:
-                    lines.append(line_text)
+                    lines.append(line_text.rstrip())
                 linenum, line_text = next(self.generator)
                 line_text = line_text.strip()
         except StopIteration:
@@ -1100,7 +1100,10 @@ class Scanner(object):
                     raise ParseError("Bad literal indentation")
                 text = yaml_lines(lines, indent=indent, folded=folded, keep=keep)
                 if keep is None:
-                    token.value = "%s\n" % text.rstrip()
+                    if text:
+                        token.value = "%s\n" % text.rstrip()
+                    else:
+                        token.value = text
                 elif keep is False:
                     token.value = text.rstrip()
                 else:
