@@ -11,3 +11,5 @@
 
   and an escaped\\
   one"
+- 'single quoted multi\
+line string'

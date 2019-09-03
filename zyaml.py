@@ -961,7 +961,7 @@ class Scanner(object):
                     text = line_text[start:m.span(1)[1] - 1]
                     if lines is not None:
                         lines.append(text)
-                        text = yaml_lines(lines)
+                        text = yaml_lines(lines, continuations=True)
                     token.value = codecs.decode(text, "unicode_escape")
                     start, end = m.span(2)
                     return self._checked_string(linenum, start, end, line_text)
@@ -1239,7 +1239,7 @@ class Scanner(object):
             raise
 
 
-def yaml_lines(lines, text=None, indent=None, folded=None, keep=None):
+def yaml_lines(lines, text=None, indent=None, folded=None, keep=None, continuations=False):
     empty = 0
     was_over_indented = False
     for line in lines:
@@ -1256,7 +1256,7 @@ def yaml_lines(lines, text=None, indent=None, folded=None, keep=None):
             text = line if text is None or not folded else "\n%s" % line
         elif not line:
             empty = empty + 1
-        elif indent is None and text[-1] == "\\" and text[-2:] != "\\\\":
+        elif continuations and text[-1] == "\\" and text[-2:] != "\\\\":
             text = "%s%s%s" % (text[:-1], "\n" * empty, line)
             empty = 0
         elif empty > 0:
