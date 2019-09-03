@@ -848,7 +848,7 @@ class Scanner(object):
         if self.simple_key is not None:
             if self.pending_scalar is None:
                 self.pending_scalar = self.simple_key
-            elif self.simple_key.indent == 0 and self.simple_key.indent != self.pending_scalar.indent:
+            elif self.flow_ender is None and self.simple_key.indent == 0 and self.simple_key.indent != self.pending_scalar.indent:
                 raise ParseError("Simple key must be indented in order to continue previous line")
             else:
                 if self.pending_lines is None:

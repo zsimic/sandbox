@@ -131,7 +131,10 @@ def test_edge_cases():
     assert loaded("foo# bar") == "foo# bar"
     assert loaded("a\nb") == "a b"
     assert loaded("a\n\nb") == "a\nb"
+
+    assert loaded(" a\nb") == "Simple key must be indented in order to continue previous line, line 2 column 1"
     assert loaded("- a\nb") == "Simple key must be indented in order to continue previous line, line 2 column 1"
+    assert loaded("[ a\nb]") == ["a b"]
     assert loaded("- a\n b") == ["a b"]
     assert loaded("a: b\n\n\n   c\n\n") == {"a": "b\n\nc"}
     assert loaded("a\n\n \n b") == "a\n\nb"
@@ -139,6 +142,10 @@ def test_edge_cases():
 
 
 def test_types():
+    assert loaded("! 2019-01-01 01:02:03Z") == "2019-01-01 01:02:03Z"
+    assert loaded("2019-01-01 01:02:03Z").tzinfo is zyaml.UTC
+    assert loaded("!!date 2019-01-01 01:02:03").tzinfo is None
+
     assert loaded("!!set [a]") == {"a"}
     assert loaded("!!set {a}") == {"a"}
     assert loaded("!!set {a: b}") == {"a"}

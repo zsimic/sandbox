@@ -180,7 +180,6 @@ class ImplementationCollection(object):
         self.available = dict((n, i()) for n, i in self.available.items())
         self.unknown = []
         self.selected = []
-        self.uncombined = set("raw".split())
         if names.startswith("+"):
             names = "%s,%s" % (names[1:], default)
         names = [s.strip() for s in names.split(",")]
@@ -204,7 +203,7 @@ class ImplementationCollection(object):
             self.combinations = {}
             for i1 in self.selected:
                 for i2 in self.selected:
-                    if i1.name < i2.name and i1.name not in self.uncombined and i2.name not in self.uncombined:
+                    if i1.name < i2.name:
                         self.combinations[(i1.name, i2.name)] = set()
         for names, values in self.combinations.items():
             if name in names:
@@ -504,14 +503,20 @@ def profiled(enabled):
 
 @main.command()
 @click.option("--profile", is_flag=True, help="Enable profiling")
+@click.option("--no-lines", "-n", is_flag=True, help="Enable profiling")
 @stacktrace_option()
-@implementations_option(default="raw,zyaml,ruamel")
+@implementations_option(default="zyaml,ruamel")
 @samples_arg(default="misc")
-def show(profile, stacktrace, implementations, samples):
+def show(profile, no_lines, stacktrace, implementations, samples):
     """Show deserialized yaml objects as json"""
     with profiled(profile) as is_profiling:
         for sample in samples:
             print("========  %s  ========" % sample)
+            with open(sample.path) as fh:
+                if no_lines:
+                    print("".join(fh.readlines()))
+                else:
+                    print("".join("%4s: %s" % (n + 1, s) for n, s in enumerate(fh.readlines())))
             assert isinstance(implementations, ImplementationCollection)
             for impl in implementations:
                 print("--------  %s  --------" % impl)
@@ -697,16 +702,6 @@ class YmlImplementation(object):
         except Exception:
             print("Failed to json serialize %s" % result.sample)
             raise
-
-
-class RawImplementation(YmlImplementation):
-    def _load(self, stream):
-        return "".join("%4s: %s" % (n + 1, s) for n, s in enumerate(stream.readlines()))
-
-    def json_representation(self, result, stringify=zyaml.decode):
-        if result.error:
-            return str(result)
-        return result.data
 
 
 class ZyamlImplementation(YmlImplementation):
