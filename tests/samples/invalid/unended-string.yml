@@ -1,3 +1,6 @@
 "this is \
  \" some runaway 'text',
+'
 we forgot \" to close the leading double-quote \"
+\"
+
