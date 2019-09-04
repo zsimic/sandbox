@@ -521,7 +521,6 @@ class ScannerStack(object):
 class TokenStack(object):
     def __init__(self):
         self.started_doc = False
-        self.directive = None
         self.pending_scalar = None
         self.structures = collections.deque()
         self.nesting_level = None
@@ -534,12 +533,27 @@ class TokenStack(object):
         if self.pending_scalar is None:
             self.pending_scalar = token
         else:
-            pass
+            self.pending_scalar.append_line(token.value)
 
     def popped_scalar(self):
         s = self.pending_scalar
         self.pending_scalar = None
         return s
+
+    def doc_start(self, token):
+        if not self.started_doc:
+            self.started_doc = True
+            yield DocumentStartToken(token.linenum, token.indent)
+
+    def doc_end(self, token):
+        if self.started_doc:
+            self.started_doc = False
+            linenum = token.linenum
+            if not isinstance(token, DocumentEndToken):
+                linenum += 1
+            while self.structures:
+                yield BlockEndToken(token.linenum, self.structures.pop().indent)
+            yield DocumentEndToken(linenum, token.indent)
 
     def pop_until(self, linenum, indent):
         i = self.nesting_level
@@ -580,9 +594,8 @@ class Token(object):
         """
         :param TokenStack stack: Groom tokens like doc start/end, block start/end, validate indentation etc
         """
-        if not stack.started_doc:
-            stack.started_doc = True
-            yield DocumentStartToken(self.linenum, self.indent)
+        for t in stack.doc_start(self):
+            yield t
         yield self
 
     def consume_token(self, root):
@@ -592,18 +605,10 @@ class Token(object):
 
 
 class StreamStartToken(Token):
-    def second_pass(self, stack):
-        yield self
+    pass
 
 
 class StreamEndToken(Token):
-    def second_pass(self, stack):
-        if stack.started_doc:
-            stack.started_doc = False
-            stack.directive = None
-            yield DocumentEndToken(self.linenum, self.indent)
-        yield self
-
     def consume_token(self, root):
         if root.tag_token and root.tag_token.linenum == self.linenum:  # last line finished with a tag (but no value)
             root.push(root.tag_token.new_tacked_scalar())
@@ -612,9 +617,10 @@ class StreamEndToken(Token):
 
 class DocumentStartToken(Token):
     def second_pass(self, stack):
-        if not stack.started_doc:
-            stack.started_doc = True
-            yield self
+        for t in stack.doc_end(self):
+            yield t
+        for t in stack.doc_start(self):
+            yield t
 
     def consume_token(self, root):
         root.pop_doc()
@@ -622,10 +628,10 @@ class DocumentStartToken(Token):
 
 class DocumentEndToken(Token):
     def second_pass(self, stack):
-        if stack.started_doc:
-            stack.started_doc = False
-            stack.directive = None
-            yield self
+        if not stack.started_doc:
+            raise ParseError("Document end without start")
+        for t in stack.doc_end(self):
+            yield t
 
     def consume_token(self, root):
         if root.tag_token and root.tag_token.linenum == self.linenum - 1:  # last line finished with a tag (but no value)
@@ -651,17 +657,11 @@ class DirectiveToken(Token):
             self.name, _, text = text.partition(" ")
         super(DirectiveToken, self).__init__(linenum, indent, text.strip())
 
-    def second_pass(self, stack):
-        if not stack.started_doc:
-            stack.started_doc = True
-            yield DocumentStartToken(self.linenum, self.indent)
-        if stack.directive is not None:
-            raise ParseError("Duplicate directive")
-        stack.directive = self
-        yield self
-
     def represented_value(self):
         return "%s %s" % (self.name, self.value)
+
+    def second_pass(self, stack):
+        yield self
 
     def consume_token(self, root):
         if root.directive is not None:
@@ -719,9 +719,8 @@ class DashToken(Token):
         return self.indent
 
     def second_pass(self, stack):
-        if not stack.started_doc:
-            stack.started_doc = True
-            yield DocumentStartToken(self.linenum, self.indent)
+        for t in stack.doc_start(self):
+            yield t
         for t in stack.pop_until(self.linenum, self.indent):
             yield t
         if stack.nesting_level == self.indent:
@@ -814,10 +813,15 @@ class ScalarToken(Token):
             value = default_marshal(value)
         return value
 
+    def append_line(self, text):
+        if not self.value:
+            self.value = text
+        elif text:
+            self.value = "%s %s" % (self.value, text)
+
     def second_pass(self, stack):
-        if not stack.started_doc:
-            stack.started_doc = True
-            yield DocumentStartToken(self.linenum, self.indent)
+        for t in stack.doc_start(self):
+            yield t
         stack.add_scalar(self)
         yield self
 
@@ -1306,9 +1310,14 @@ class Scanner(object):
 
     def tokens(self):
         stack = TokenStack()
-        for token in self.first_pass():
-            for t in token.second_pass(stack):
-                yield t
+        t1 = StreamStartToken(1, 0)
+        yield t1
+        for t1 in self.first_pass():
+            for t2 in t1.second_pass(stack):
+                yield t2
+        for t2 in stack.doc_end(t1):
+            yield t2
+        yield StreamEndToken(t1.linenum, 0)
 
     def first_pass(self):
         """Yield raw tokens as-is, don't try to interpret simple keys, look at indentation etc"""
@@ -1316,7 +1325,6 @@ class Scanner(object):
         linenum = 1
         upcoming = None
         try:
-            yield StreamStartToken(1, 0)
             while True:
                 self.promote_simple_key()
                 if start == 0 or upcoming is None:
@@ -1377,7 +1385,6 @@ class Scanner(object):
                 yield token
             if isinstance(last_token, DashToken):
                 yield ScalarToken(linenum, last_token.indent + 1, None)
-            yield StreamEndToken(linenum, 0)
         except ParseError as error:
             error.auto_complete(linenum, offset)
             raise

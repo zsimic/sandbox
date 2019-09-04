@@ -49,8 +49,8 @@ def test_tokens():
     assert str(s) == "block mode "
     assert len(list(s.tokens())) == 2
     tokens = list(zyaml.Scanner("--").tokens())
-    assert len(tokens) == 3
-    assert str(tokens[1]) == 'ScalarToken[1,1] "--"'
+    assert len(tokens) == 5
+    assert str(tokens[2]) == 'ScalarToken[1,1] "--"'
 
     assert zyaml.load("--") == "--"
     assert zyaml.load_string("--") == "--"

@@ -408,7 +408,7 @@ def mv(samples, category):
 
 
 @main.command(name="print")
-@click.option("--tokens", "-t", is_flag=True, help="Show tokens instead of deserialization")
+@click.option("--tokens", "-t", is_flag=True, help="Show zyaml tokens as well")
 @stacktrace_option()
 @implementations_option(default="zyaml,ruamel")
 @click.argument("text", nargs=-1)
@@ -419,10 +419,9 @@ def print_(tokens, stacktrace, implementations, text):
     print("--- raw:\n%s" % text)
     for impl in implementations:
         assert isinstance(impl, YmlImplementation)
-        if tokens:
-            if impl.name == "zyaml":
-                result = "\n".join(str(s) for s in impl.tokens(text, stacktrace=stacktrace))
-                print("---- %s tokens:\n%s" % (impl, result))
+        if tokens and impl.name == "zyaml":
+            result = "\n".join(str(s) for s in impl.tokens(text, stacktrace=stacktrace))
+            print("---- %s tokens:\n%s" % (impl, result))
         if stacktrace:
             data = impl.load_stream(text)
             rtype = data.__class__.__name__ if data is not None else "None"
@@ -509,11 +508,12 @@ def profiled(enabled):
 
 @main.command()
 @click.option("--profile", is_flag=True, help="Enable profiling")
+@click.option("--tokens", "-t", is_flag=True, help="Show zyaml tokens as well")
 @click.option("--line-numbers", "-n", is_flag=True, help="Show line numbers when showing original yaml")
 @stacktrace_option()
 @implementations_option(default="zyaml,ruamel")
 @samples_arg(default="misc")
-def show(profile, line_numbers, stacktrace, implementations, samples):
+def show(profile, tokens, line_numbers, stacktrace, implementations, samples):
     """Show deserialized yaml objects as json"""
     with profiled(profile) as is_profiling:
         for sample in samples:
@@ -525,6 +525,9 @@ def show(profile, line_numbers, stacktrace, implementations, samples):
                     print("".join(fh.readlines()))
             assert isinstance(implementations, ImplementationCollection)
             for impl in implementations:
+                if tokens and impl.name == "zyaml":
+                    result = "\n".join(str(s) for s in impl.tokens(sample, stacktrace=stacktrace))
+                    print("---- %s tokens:\n%s" % (impl, result))
                 print("--------  %s  --------" % impl)
                 assert isinstance(impl, YmlImplementation)
                 result = impl.load(sample, stacktrace=stacktrace)
