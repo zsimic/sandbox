@@ -534,7 +534,7 @@ class TokenStack(object):
         if self.pending_scalar is None:
             self.pending_scalar = token
         else:
-            print("--> check %s" % token)
+            pass
 
     def popped_scalar(self):
         s = self.pending_scalar
@@ -576,9 +576,9 @@ class Token(object):
     def new_tacked_scalar(self, text=""):
         return StackedScalar(ScalarToken(self.linenum, self.indent, text))
 
-    def auto_stack(self, stack):
+    def second_pass(self, stack):
         """
-        :param TokenStack stack:
+        :param TokenStack stack: Groom tokens like doc start/end, block start/end, validate indentation etc
         """
         if not stack.started_doc:
             stack.started_doc = True
@@ -592,12 +592,12 @@ class Token(object):
 
 
 class StreamStartToken(Token):
-    def auto_stack(self, stack):
+    def second_pass(self, stack):
         yield self
 
 
 class StreamEndToken(Token):
-    def auto_stack(self, stack):
+    def second_pass(self, stack):
         if stack.started_doc:
             stack.started_doc = False
             stack.directive = None
@@ -611,7 +611,7 @@ class StreamEndToken(Token):
 
 
 class DocumentStartToken(Token):
-    def auto_stack(self, stack):
+    def second_pass(self, stack):
         if not stack.started_doc:
             stack.started_doc = True
             yield self
@@ -621,7 +621,7 @@ class DocumentStartToken(Token):
 
 
 class DocumentEndToken(Token):
-    def auto_stack(self, stack):
+    def second_pass(self, stack):
         if stack.started_doc:
             stack.started_doc = False
             stack.directive = None
@@ -651,7 +651,7 @@ class DirectiveToken(Token):
             self.name, _, text = text.partition(" ")
         super(DirectiveToken, self).__init__(linenum, indent, text.strip())
 
-    def auto_stack(self, stack):
+    def second_pass(self, stack):
         if not stack.started_doc:
             stack.started_doc = True
             yield DocumentStartToken(self.linenum, self.indent)
@@ -718,7 +718,7 @@ class DashToken(Token):
     def column(self):
         return self.indent
 
-    def auto_stack(self, stack):
+    def second_pass(self, stack):
         if not stack.started_doc:
             stack.started_doc = True
             yield DocumentStartToken(self.linenum, self.indent)
@@ -814,7 +814,7 @@ class ScalarToken(Token):
             value = default_marshal(value)
         return value
 
-    def auto_stack(self, stack):
+    def second_pass(self, stack):
         if not stack.started_doc:
             stack.started_doc = True
             yield DocumentStartToken(self.linenum, self.indent)
@@ -1306,11 +1306,12 @@ class Scanner(object):
 
     def tokens(self):
         stack = TokenStack()
-        for token in self._tokens():
-            for t in token.auto_stack(stack):
+        for token in self.first_pass():
+            for t in token.second_pass(stack):
                 yield t
 
-    def _tokens(self):
+    def first_pass(self):
+        """Yield raw tokens as-is, don't try to interpret simple keys, look at indentation etc"""
         start = end = offset = 0
         linenum = 1
         upcoming = None
