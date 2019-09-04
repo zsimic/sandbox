@@ -164,7 +164,7 @@ def get_tzinfo(text):  # type: (str) -> Optional[datetime.tzinfo]
     return UTC if offset == 0 else dateutil.tz.tzoffset(text, offset)
 
 
-def default_marshal(text):  # type: (text) -> Union[str, int, float, list, dict, datetime.date, datetime.datetime]
+def default_marshal(text):  # type: (str) -> Union[str, int, float, list, dict, datetime.date, datetime.datetime]
     if not text:
         return text
     match = RE_SIMPLE_SCALAR.match(text)
@@ -214,7 +214,7 @@ class StackedDocument(object):
         self.indent = -1  # type: Optional[int]
         self.root = None  # type: Optional[ScannerStack]
         self.prev = None  # type: Optional[StackedDocument]
-        self.value = None  # type: Union[str, list, dict]
+        self.value = None  # type: Optional[Union[str, list, dict]]
         self.anchor_token = None  # type: Optional[AnchorToken]
         self.tag_token = None  # type: Optional[TagToken]
         self.is_key = False  # type: bool
@@ -518,6 +518,40 @@ class ScannerStack(object):
         self.directive = None
 
 
+class TokenStack(object):
+    def __init__(self):
+        self.started_doc = False
+        self.directive = None
+        self.pending_scalar = None
+        self.structures = collections.deque()
+        self.nesting_level = None
+
+    def add_structure(self, token):
+        self.nesting_level = token.indent
+        self.structures.append(token)
+
+    def add_scalar(self, token):
+        if self.pending_scalar is None:
+            self.pending_scalar = token
+        else:
+            print("--> check %s" % token)
+
+    def popped_scalar(self):
+        s = self.pending_scalar
+        self.pending_scalar = None
+        return s
+
+    def pop_until(self, linenum, indent):
+        i = self.nesting_level
+        while i is not None and i < indent:
+            try:
+                i = self.structures.pop().indent
+                yield BlockEndToken(linenum, i)
+            except IndexError:
+                i = None
+        self.nesting_level = i
+
+
 class Token(object):
     """Scanned token, visitor pattern is used for parsing"""
 
@@ -542,6 +576,15 @@ class Token(object):
     def new_tacked_scalar(self, text=""):
         return StackedScalar(ScalarToken(self.linenum, self.indent, text))
 
+    def auto_stack(self, stack):
+        """
+        :param TokenStack stack:
+        """
+        if not stack.started_doc:
+            stack.started_doc = True
+            yield DocumentStartToken(self.linenum, self.indent)
+        yield self
+
     def consume_token(self, root):
         """
         :param ScannerStack root: Process this token on given 'root' node
@@ -549,10 +592,18 @@ class Token(object):
 
 
 class StreamStartToken(Token):
-    pass
+    def auto_stack(self, stack):
+        yield self
 
 
 class StreamEndToken(Token):
+    def auto_stack(self, stack):
+        if stack.started_doc:
+            stack.started_doc = False
+            stack.directive = None
+            yield DocumentEndToken(self.linenum, self.indent)
+        yield self
+
     def consume_token(self, root):
         if root.tag_token and root.tag_token.linenum == self.linenum:  # last line finished with a tag (but no value)
             root.push(root.tag_token.new_tacked_scalar())
@@ -560,11 +611,22 @@ class StreamEndToken(Token):
 
 
 class DocumentStartToken(Token):
+    def auto_stack(self, stack):
+        if not stack.started_doc:
+            stack.started_doc = True
+            yield self
+
     def consume_token(self, root):
         root.pop_doc()
 
 
 class DocumentEndToken(Token):
+    def auto_stack(self, stack):
+        if stack.started_doc:
+            stack.started_doc = False
+            stack.directive = None
+            yield self
+
     def consume_token(self, root):
         if root.tag_token and root.tag_token.linenum == self.linenum - 1:  # last line finished with a tag (but no value)
             root.push(root.tag_token.new_tacked_scalar())
@@ -588,6 +650,15 @@ class DirectiveToken(Token):
         else:
             self.name, _, text = text.partition(" ")
         super(DirectiveToken, self).__init__(linenum, indent, text.strip())
+
+    def auto_stack(self, stack):
+        if not stack.started_doc:
+            stack.started_doc = True
+            yield DocumentStartToken(self.linenum, self.indent)
+        if stack.directive is not None:
+            raise ParseError("Duplicate directive")
+        stack.directive = self
+        yield self
 
     def represented_value(self):
         return "%s %s" % (self.name, self.value)
@@ -630,10 +701,36 @@ class ExplicitMapToken(Token):
             root.push(StackedMap(self.indent))
 
 
+class BlockMapToken(Token):
+    pass
+
+
+class BlockSeqToken(Token):
+    pass
+
+
+class BlockEndToken(Token):
+    pass
+
+
 class DashToken(Token):
     @property
     def column(self):
         return self.indent
+
+    def auto_stack(self, stack):
+        if not stack.started_doc:
+            stack.started_doc = True
+            yield DocumentStartToken(self.linenum, self.indent)
+        for t in stack.pop_until(self.linenum, self.indent):
+            yield t
+        if stack.nesting_level == self.indent:
+            yield self
+            return
+        block = BlockSeqToken(self.linenum, self.indent)
+        stack.add_structure(block)
+        yield block
+        yield self
 
     def consume_token(self, root):
         root.pop_until(self.indent)
@@ -716,6 +813,13 @@ class ScalarToken(Token):
         if clean and self.style is None:
             value = default_marshal(value)
         return value
+
+    def auto_stack(self, stack):
+        if not stack.started_doc:
+            stack.started_doc = True
+            yield DocumentStartToken(self.linenum, self.indent)
+        stack.add_scalar(self)
+        yield self
 
     def consume_token(self, root):
         root.head.consume_scalar(self)
@@ -1201,6 +1305,12 @@ class Scanner(object):
         return linenum, start, end, line_text
 
     def tokens(self):
+        stack = TokenStack()
+        for token in self._tokens():
+            for t in token.auto_stack(stack):
+                yield t
+
+    def _tokens(self):
         start = end = offset = 0
         linenum = 1
         upcoming = None

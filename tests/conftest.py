@@ -408,15 +408,21 @@ def mv(samples, category):
 
 
 @main.command(name="print")
+@click.option("--tokens", "-t", is_flag=True, help="Show tokens instead of deserialization")
 @stacktrace_option()
 @implementations_option(default="zyaml,ruamel")
 @click.argument("text", nargs=-1)
-def print_(stacktrace, implementations, text):
+def print_(tokens, stacktrace, implementations, text):
     """Deserialize given argument as yaml"""
     text = " ".join(text)
     text = codecs.decode(text, "unicode_escape")
     print("--- raw:\n%s" % text)
     for impl in implementations:
+        assert isinstance(impl, YmlImplementation)
+        if tokens:
+            if impl.name == "zyaml":
+                result = "\n".join(str(s) for s in impl.tokens(text, stacktrace=stacktrace))
+                print("---- %s tokens:\n%s" % (impl, result))
         if stacktrace:
             data = impl.load_stream(text)
             rtype = data.__class__.__name__ if data is not None else "None"
@@ -647,16 +653,20 @@ class YmlImplementation(object):
         return []
 
     def tokens(self, sample, stacktrace=False):
-        if stacktrace:
+        if isinstance(sample, Sample):
             with open(sample.path) as fh:
-                for t in self._tokens(fh.read()):
-                    yield t
+                contents = fh.read()
+        else:
+            contents = sample
+
+        if stacktrace:
+            for t in self._tokens(contents):
+                yield t
             return
 
         try:
-            with open(sample.path) as fh:
-                for t in self._tokens(fh.read()):
-                    yield t
+            for t in self._tokens(contents):
+                yield t
         except Exception as e:
             yield "Error: %s" % e
 
