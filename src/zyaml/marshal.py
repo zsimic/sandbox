@@ -12,13 +12,12 @@ UTC = dateutil.tz.tzoffset("UTC", 0)
 
 RE_SIMPLE_SCALAR = re.compile(
     r"^("
-    r"(false|true|null|~)|"
-    r"([-+]?[0-9_]*\.?[0-9_]*([eE][-+]?[0-9_]+)?|[-+]?\.inf|\.nan|0o[0-7]+|0x[0-9a-f]+)|"
+    r"(false|False|FALSE|true|True|TRUE|null|Null|NULL|~)|"
+    r"([-+]?[0-9_]*\.?[0-9_]*([eE][-+]?[0-9_]+)?|[-+]?\.inf|[-+]?\.Inf|[-+]?\.INF|\.nan|\.NaN|\.NAN|0o[0-7]+|0x[0-9a-fA-F]+)|"
     r"(([0-9]{4})-([0-9][0-9]?)-([0-9][0-9]?)" 
     r"([Tt \t]([0-9][0-9]?):([0-9][0-9]?):([0-9][0-9]?)(\.[0-9]*)?"
     r"([ \t]*(Z|[+-][0-9][0-9]?(:([0-9][0-9]?))?))?)?)"
-    r")$",
-    re.IGNORECASE
+    r")$"
 )
 
 CONSTANTS = {

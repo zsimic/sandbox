@@ -151,8 +151,8 @@ def test_edge_cases():
     assert loaded("inf") == "inf"
     assert loaded("+inf") == "+inf"
     assert loaded("-inf") == "-inf"
+    assert loaded(".iNf") == ".iNf"
     assert math.isinf(loaded(".inf"))
-    assert math.isinf(loaded(".iNf"))
     assert math.isinf(loaded("-.inf"))
     assert math.isinf(loaded("+.inf"))
     assert loaded("nan") == "nan"
@@ -160,12 +160,13 @@ def test_edge_cases():
     assert loaded("+.nan") == "+.nan"
     assert loaded("-.nan") == "-.nan"
     assert math.isnan(loaded(".nan"))
-    assert math.isnan(loaded(".nAn"))
+    assert loaded(".nAn") == ".nAn"
 
     assert loaded("0") == 0
     assert loaded("1") == 1
     assert loaded("0o7") == 7
     assert loaded("0O7") == "0O7"
+    assert loaded("0XF") == "0XF"
     assert loaded("0xF") == 15
     assert loaded("0xf") == 15
     assert loaded("0xG") == "0xG"
