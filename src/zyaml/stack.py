@@ -295,7 +295,10 @@ class ScannerStack(object):
         self.head.mark_open(token)
 
     def ExplicitMapToken(self, token):
-        self.push_map(token.indent)
+        indent = token.indent + 2
+        self.pop_until(indent)
+        if not isinstance(self.head, StackedMap) or (self.head.indent is not None and self.head.indent != indent):
+            self.push(StackedMap(indent))
 
     def DashToken(self, token):
         self.pop_until(token.indent)
@@ -319,14 +322,6 @@ class ScannerStack(object):
 
     def ScalarToken(self, token):
         self.head.consume_scalar(token)
-
-    def push_list(self, indent):
-        self.push(StackedList(indent))
-
-    def push_map(self, indent):
-        self.pop_until(indent)
-        if not isinstance(self.head, StackedMap) or (self.head.indent is not None and self.head.indent != indent):
-            self.push(StackedMap(indent))
 
     def push(self, element):
         """

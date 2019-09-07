@@ -97,8 +97,7 @@ class CommaToken(Token):
 
 
 class ExplicitMapToken(Token):
-    def __init__(self, linenum, indent):
-        super(ExplicitMapToken, self).__init__(linenum, indent + 2)
+    pass
 
 
 class BlockMapToken(Token):

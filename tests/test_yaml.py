@@ -4,6 +4,7 @@ except ImportError:
     from io import StringIO
 
 import zyaml
+import zyaml.marshal
 
 
 def test_scalar():
@@ -94,7 +95,6 @@ def test_stack():
     assert str(root) == "D"
 
 
-def test_trace():
-    zyaml.DEBUG = True
+def test_trace(monkeypatch):
+    monkeypatch.setattr(zyaml.marshal, "DEBUG", True)
     zyaml.trace("{}", "testing")
-    zyaml.DEBUG = False
