@@ -60,7 +60,8 @@ def yaml_lines(lines, text=None, indent=None, folded=None, keep=False, continuat
 
 
 class TokenStack(object):
-    def __init__(self):
+    def __init__(self, scanner):
+        self.scanner = scanner
         self.started_doc = False
         self.pending_scalar = None
         self.structures = collections.deque()
@@ -84,7 +85,7 @@ class TokenStack(object):
     def doc_start(self, token):
         if not self.started_doc:
             self.started_doc = True
-            yield DocumentStartToken(token.linenum, token.indent)
+            yield DocumentStartToken(self.scanner, token.linenum, token.indent)
 
     def doc_end(self, token):
         if self.started_doc:
@@ -93,15 +94,15 @@ class TokenStack(object):
             if not isinstance(token, DocumentEndToken):
                 linenum += 1
             while self.structures:
-                yield BlockEndToken(token.linenum, self.structures.pop().indent)
-            yield DocumentEndToken(linenum, token.indent)
+                yield BlockEndToken(self.scanner, token.linenum, self.structures.pop().indent)
+            yield DocumentEndToken(self.scanner, linenum, token.indent)
 
     def pop_until(self, linenum, indent):
         i = self.nesting_level
         while i is not None and i < indent:
             try:
                 i = self.structures.pop().indent
-                yield BlockEndToken(linenum, i)
+                yield BlockEndToken(self.scanner, linenum, i)
             except IndexError:
                 i = None
         self.nesting_level = i
@@ -124,12 +125,12 @@ class Scanner(object):
             "!": TagToken,
             "&": AnchorToken,
             "*": AliasToken,
-            "{": self.consume_flow_map_start,
-            "}": self.consume_flow_map_end,
-            "[": self.consume_flow_list_start,
-            "]": self.consume_flow_list_end,
-            ",": self.consume_comma,
-            "?": self.consume_map,
+            "{": FlowMapToken,
+            "}": FlowEndToken,
+            "[": FlowSeqToken,
+            "]": FlowEndToken,
+            ",": CommaToken,
+            "?": ExplicitMapToken,
         }
 
     def __repr__(self):
@@ -168,7 +169,7 @@ class Scanner(object):
 
     def add_pending_dash(self, linenum, indent):
         if self.is_dash_meaningful(linenum, indent):
-            self.pending_dash = DashToken(linenum, indent)
+            self.pending_dash = DashToken(self, linenum, indent)
             self.add_pending_token(self.pending_dash)
         else:
             self.add_pending_line("-")
@@ -211,30 +212,6 @@ class Scanner(object):
         if expected != found:
             raise ParseError("Expecting '%s', but found '%s'" % (expected, found))
 
-    def consume_flow_map_start(self, linenum, start, _):
-        self.push_flow_ender("}")
-        return FlowMapToken(linenum, start)
-
-    def consume_flow_map_end(self, linenum, start, _):
-        self.pop_flow_ender("}")
-        return FlowEndToken(linenum, start)
-
-    def consume_flow_list_start(self, linenum, start, _):
-        self.push_flow_ender("]")
-        return FlowSeqToken(linenum, start)
-
-    def consume_flow_list_end(self, linenum, start, _):
-        self.pop_flow_ender("]")
-        return FlowEndToken(linenum, start)
-
-    @staticmethod
-    def consume_comma(linenum, start, _):
-        return CommaToken(linenum, start)
-
-    @staticmethod
-    def consume_map(linenum, start, _):
-        return ExplicitMapToken(linenum, start)
-
     @staticmethod
     def _checked_string(linenum, start, end, line_text):
         if start >= end:
@@ -243,7 +220,7 @@ class Scanner(object):
         return linenum, start, end, line_text
 
     def _double_quoted(self, linenum, start, end, line_text):
-        token = ScalarToken(linenum, start, "", style='"')
+        token = ScalarToken(self, linenum, start, "", style='"')
         self.pending_scalar = token
         try:
             if start < end and line_text[start] == '"':  # Empty string
@@ -271,7 +248,7 @@ class Scanner(object):
             raise ParseError("Unexpected end, runaway double-quoted string at line %s?" % token.linenum)
 
     def _single_quoted(self, linenum, start, end, line_text):
-        token = ScalarToken(linenum, start, "", style="'")
+        token = ScalarToken(self, linenum, start, "", style="'")
         self.pending_scalar = token
         try:
             if start < end and line_text[start] == "'":  # Empty string
@@ -302,8 +279,7 @@ class Scanner(object):
         except StopIteration:
             raise ParseError("Unexpected end, runaway single-quoted string at line %s?" % token.linenum)
 
-    @staticmethod
-    def _get_literal_styled_token(linenum, start, style):
+    def _get_literal_styled_token(self, linenum, start, style):
         original = style
         if len(style) > 3:
             raise ParseError("Invalid literal style '%s', should be less than 3 chars" % style, linenum, start)
@@ -325,7 +301,7 @@ class Scanner(object):
             indent = int(indent)
             if indent < 1:
                 raise ParseError("Indent must be between 1 and 9", linenum, start)
-        return style == ">", keep, indent, ScalarToken(linenum, indent, None, style=original)
+        return style == ">", keep, indent, ScalarToken(self, linenum, indent, None, style=original)
 
     def _consume_literal(self, linenum, start, style):
         folded, keep, indent, token = self._get_literal_styled_token(linenum, start, style)
@@ -409,19 +385,19 @@ class Scanner(object):
                 start, end = m.span(1)
                 matched = line_text[start:end]
                 if matched[0] == "-":
-                    self.add_pending_token(DocumentStartToken(linenum, 0))
+                    self.add_pending_token(DocumentStartToken(self, linenum, 0))
                     if matched[-1] == " ":
                         return False, linenum, end, line_text
                     return True, linenum, 0, None
                 elif matched[0] == ".":
-                    self.add_pending_token(DocumentEndToken(linenum, 0))
+                    self.add_pending_token(DocumentEndToken(self, linenum, 0))
                     if matched[-1] == " ":
                         return False, linenum, end, line_text
                     return True, linenum, 0, None
                 elif matched[-1] == "%":
                     if end != 1:
                         raise ParseError("Directive must not be indented", linenum, end - 1)
-                    self.add_pending_token(DirectiveToken(linenum, 0, line_text))
+                    self.add_pending_token(DirectiveToken(self, linenum, 0, line_text))
                     return True, linenum, 0, None
                 return True, linenum, 0, None
         m = RE_BLOCK_SEQUENCE.match(line_text, start)
@@ -450,15 +426,15 @@ class Scanner(object):
         return linenum, start, end, line_text
 
     def tokens(self):
-        stack = TokenStack()
-        t1 = StreamStartToken(1, 0)
+        stack = TokenStack(self)
+        t1 = StreamStartToken(self, 1, 0)
         yield t1
         for t1 in self.first_pass():
             for t2 in t1.second_pass(stack):
                 yield t2
         for t2 in stack.doc_end(t1):
             yield t2
-        yield StreamEndToken(t1.linenum, 0)
+        yield StreamEndToken(self, t1.linenum, 0)
 
     def first_pass(self):
         """Yield raw tokens as-is, don't try to interpret simple keys, look at indentation etc"""
@@ -493,16 +469,16 @@ class Scanner(object):
                                 if text[0] in '|>':
                                     linenum, start, end, upcoming = self._consume_literal(linenum, offset, text)
                                     break
-                            self.simple_key = ScalarToken(linenum, offset, text)
+                            self.simple_key = ScalarToken(self, linenum, offset, text)
                             continue
                         if matched == ":":
-                            yield ColonToken(linenum, offset)
+                            yield ColonToken(self, linenum, offset)
                             self.pending_dash = None
                             continue
                         for token in self.consumed_pending():
                             yield token
                         tokenizer = self.tokenizer_map.get(matched)
-                        yield tokenizer(linenum, offset, text)
+                        yield tokenizer(self, linenum, offset, text)
                         self.pending_dash = None
                     elif matched == ":":
                         self.pending_dash = None
@@ -510,13 +486,13 @@ class Scanner(object):
                             yield token
                         yield self.simple_key
                         self.simple_key = None
-                        yield ColonToken(linenum, offset)
+                        yield ColonToken(self, linenum, offset)
                     else:
                         self.promote_simple_key()
                         for token in self.consumed_pending():
                             yield token
                         tokenizer = self.tokenizer_map.get(matched)
-                        yield tokenizer(linenum, offset, text)
+                        yield tokenizer(self, linenum, offset, text)
         except StopIteration:
             self.promote_simple_key()
             self.promote_pending_scalar()
@@ -525,7 +501,7 @@ class Scanner(object):
                 last_token = token
                 yield token
             if isinstance(last_token, DashToken):
-                yield ScalarToken(linenum, last_token.indent + 1, None)
+                yield ScalarToken(self, linenum, last_token.indent + 1, None)
         except ParseError as error:
             error.auto_complete(linenum, offset)
             raise

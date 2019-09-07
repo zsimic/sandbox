@@ -58,6 +58,7 @@ def test_invalid():
     assert s == "'some very long text we want to t...' can't be converted using !!int, line 1 column 1"
 
     # Malformed docs
+    assert loaded("...\nfoo") == "Document end without start, line 1 column 1"
     assert loaded("a\n#\nb") == "Document separator expected, line 3 column 1"
     assert loaded("[a\n#\nb]") == "Missing comma between scalars in flow, line 1 column 2"
     assert loaded(" %YAML 1.2") == "Directive must not be indented, line 1 column 2"

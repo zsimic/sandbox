@@ -23,26 +23,26 @@ def test_scalar():
 
 
 def test_tokens():
-    assert str(zyaml.Token(0, 0)) == "Token[0,1]"
-    assert str(zyaml.Token(1, 2)) == "Token[1,3]"
-    assert str(zyaml.DirectiveToken(1, 0, "")) == "DirectiveToken[1,1]  "
-    assert str(zyaml.DirectiveToken(1, 0, "%foo bar")) == "DirectiveToken[1,1] %foo bar"
-    assert str(zyaml.AnchorToken(1, 0, "&foo")) == "AnchorToken[1,1] &foo"
-    alias = zyaml.AliasToken(1, 0, "*foo")
+    assert str(zyaml.Token(None, 0, 0)) == "Token[0,1]"
+    assert str(zyaml.Token(None, 1, 2)) == "Token[1,3]"
+    assert str(zyaml.DirectiveToken(None, 1, 0, "")) == "DirectiveToken[1,1]  "
+    assert str(zyaml.DirectiveToken(None, 1, 0, "%foo bar")) == "DirectiveToken[1,1] %foo bar"
+    assert str(zyaml.AnchorToken(None, 1, 0, "&foo")) == "AnchorToken[1,1] &foo"
+    alias = zyaml.AliasToken(None, 1, 0, "*foo")
     assert str(alias) == "AliasToken[1,1]"
     alias.value = ""
     assert str(alias) == "AliasToken[1,1] *foo"
-    assert str(zyaml.ScalarToken(2, 3, "test'ed")) == """ScalarToken[2,4] "test'ed\""""
-    assert str(zyaml.ScalarToken(2, 3, "test'ed", style="'")) == "ScalarToken[2,4] 'test''ed'"
-    assert str(zyaml.ScalarToken(2, 3, "test'ed", style="|+")) == """ScalarToken[2,4] |+ "test'ed\""""
-    assert str(zyaml.ScalarToken(1, 0, 'tested', style='"')) == 'ScalarToken[1,1] "tested"'
+    assert str(zyaml.ScalarToken(None, 2, 3, "test'ed")) == """ScalarToken[2,4] "test'ed\""""
+    assert str(zyaml.ScalarToken(None, 2, 3, "test'ed", style="'")) == "ScalarToken[2,4] 'test''ed'"
+    assert str(zyaml.ScalarToken(None, 2, 3, "test'ed", style="|+")) == """ScalarToken[2,4] |+ "test'ed\""""
+    assert str(zyaml.ScalarToken(None, 1, 0, 'tested', style='"')) == 'ScalarToken[1,1] "tested"'
 
-    s = zyaml.ScalarToken(1, 0, "foo")
+    s = zyaml.ScalarToken(None, 1, 0, "foo")
     assert str(s) == 'ScalarToken[1,1] "foo"'
 
-    assert str(zyaml.Token(0, 0).represented_value()) == "None"
+    assert str(zyaml.Token(None, 0, 0).represented_value()) == "None"
 
-    key = zyaml.ColonToken(1, 2)
+    key = zyaml.ColonToken(None, 1, 2)
     assert str(key) == "ColonToken[1,3]"
     assert key.represented_value() == "None"
 
@@ -78,16 +78,16 @@ def test_stack():
     root = zyaml.ScannerStack()
     assert str(root) == "D"
     assert str(root.head) == "D None"
-    root.push(zyaml.StackedScalar(zyaml.ScalarToken(1, 0, "foo")))
+    root.push(zyaml.StackedScalar(zyaml.ScalarToken(None, 1, 0, "foo")))
     assert str(root) == "S0 / D"
     assert str(root.head) == "S0 foo"
-    root.TagToken(zyaml.TagToken(1, 1, "foo"))
+    root.TagToken(zyaml.TagToken(None, 1, 1, "foo"))
     assert str(root) == "S0 / D [!]"
-    root.head.mark_as_key(zyaml.ColonToken(1, 4))
+    root.head.mark_as_key(zyaml.ColonToken(None, 1, 4))
     assert str(root) == "S0: / D [!]"
     root.pop()
     assert str(root) == "M0!* / D"
-    root.push(zyaml.StackedScalar(zyaml.ScalarToken(1, 5, "bar")))
+    root.push(zyaml.StackedScalar(zyaml.ScalarToken(None, 1, 5, "bar")))
     assert str(root) == "S5 / M0!* / D"
     root.pop()
     assert str(root) == "M0! / D"

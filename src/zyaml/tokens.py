@@ -7,7 +7,8 @@ RE_COMMENT = re.compile(r"\s+#.*$")
 class Token(object):
     """Scanned token, visitor pattern is used for parsing"""
 
-    def __init__(self, linenum, indent, value=None):
+    def __init__(self, scanner, linenum, indent, value=None):
+        self.scanner = scanner
         self.linenum = linenum
         self.indent = indent
         self.value = value
@@ -59,7 +60,7 @@ class DocumentEndToken(Token):
 
 
 class DirectiveToken(Token):
-    def __init__(self, linenum, indent, text):
+    def __init__(self, scanner, linenum, indent, text):
         m = RE_COMMENT.search(text)
         if m is not None:
             text = text[:m.start()]
@@ -71,7 +72,7 @@ class DirectiveToken(Token):
             text = text[4:].strip()
         else:
             self.name, _, text = text.partition(" ")
-        super(DirectiveToken, self).__init__(linenum, indent, text.strip())
+        super(DirectiveToken, self).__init__(scanner, linenum, indent, text.strip())
 
     def represented_value(self):
         return "%s %s" % (self.name, self.value)
@@ -81,15 +82,21 @@ class DirectiveToken(Token):
 
 
 class FlowMapToken(Token):
-    pass
+    def __init__(self, scanner, linenum, indent, text):
+        scanner.push_flow_ender("}")
+        super(FlowMapToken, self).__init__(scanner, linenum, indent, text)
 
 
 class FlowSeqToken(Token):
-    pass
+    def __init__(self, scanner, linenum, indent, text):
+        scanner.push_flow_ender("]")
+        super(FlowSeqToken, self).__init__(scanner, linenum, indent, text)
 
 
 class FlowEndToken(Token):
-    pass
+    def __init__(self, scanner, linenum, indent, text):
+        scanner.pop_flow_ender(text)
+        super(FlowEndToken, self).__init__(scanner, linenum, indent, text)
 
 
 class CommaToken(Token):
@@ -125,7 +132,7 @@ class DashToken(Token):
         if stack.nesting_level == self.indent:
             yield self
             return
-        block = BlockSeqToken(self.linenum, self.indent)
+        block = BlockSeqToken(self.scanner, self.linenum, self.indent)
         stack.add_structure(block)
         yield block
         yield self
@@ -136,8 +143,8 @@ class ColonToken(Token):
 
 
 class TagToken(Token):
-    def __init__(self, linenum, indent, text):
-        super(TagToken, self).__init__(linenum, indent, text)
+    def __init__(self, scanner, linenum, indent, text):
+        super(TagToken, self).__init__(scanner, linenum, indent, text)
         self.marshaller = Marshallers.get_marshaller(text)
 
     def marshalled(self, value):
@@ -153,16 +160,16 @@ class TagToken(Token):
 
 
 class AnchorToken(Token):
-    def __init__(self, linenum, indent, text):
-        super(AnchorToken, self).__init__(linenum, indent, text[1:])
+    def __init__(self, scanner, linenum, indent, text):
+        super(AnchorToken, self).__init__(scanner, linenum, indent, text[1:])
 
     def represented_value(self):
         return "&%s" % self.value
 
 
 class AliasToken(Token):
-    def __init__(self, linenum, indent, text):
-        super(AliasToken, self).__init__(linenum, indent)
+    def __init__(self, scanner, linenum, indent, text):
+        super(AliasToken, self).__init__(scanner, linenum, indent)
         self.anchor = text[1:]
 
     def represented_value(self):
@@ -175,8 +182,8 @@ class AliasToken(Token):
 
 
 class ScalarToken(Token):
-    def __init__(self, linenum, indent, text, style=None):
-        super(ScalarToken, self).__init__(linenum, indent, text)
+    def __init__(self, scanner, linenum, indent, text, style=None):
+        super(ScalarToken, self).__init__(scanner, linenum, indent, text)
         self.style = style
 
     def represented_value(self):
