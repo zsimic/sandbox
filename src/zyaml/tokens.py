@@ -26,11 +26,11 @@ class Token(object):
     def represented_value(self):
         return str(self.value)
 
-    def second_pass(self, stack):
+    def second_pass(self, scanner):
         """
-        :param TokenStack stack: Groom tokens like doc start/end, block start/end, validate indentation etc
+        :param zyaml.Scanner scanner: Groom tokens like doc start/end, block start/end, validate indentation etc
         """
-        for t in stack.doc_start(self):
+        for t in scanner.p2_doc_start(self):
             yield t
         yield self
 
@@ -44,18 +44,18 @@ class StreamEndToken(Token):
 
 
 class DocumentStartToken(Token):
-    def second_pass(self, stack):
-        for t in stack.doc_end(self):
+    def second_pass(self, scanner):
+        for t in scanner.p2_doc_end(self):
             yield t
-        for t in stack.doc_start(self):
+        for t in scanner.p2_doc_start(self):
             yield t
 
 
 class DocumentEndToken(Token):
-    def second_pass(self, stack):
-        if not stack.started_doc:
+    def second_pass(self, scanner):
+        if not scanner.started_doc:
             raise ParseError("Document end without start")
-        for t in stack.doc_end(self):
+        for t in scanner.p2_doc_end(self):
             yield t
 
 
@@ -77,7 +77,7 @@ class DirectiveToken(Token):
     def represented_value(self):
         return "%s %s" % (self.name, self.value)
 
-    def second_pass(self, stack):
+    def second_pass(self, scanner):
         yield self
 
 
@@ -124,16 +124,16 @@ class DashToken(Token):
     def column(self):
         return self.indent
 
-    def second_pass(self, stack):
-        for t in stack.doc_start(self):
+    def second_pass(self, scanner):
+        for t in scanner.p2_doc_start(self):
             yield t
-        for t in stack.pop_until(self.linenum, self.indent):
+        for t in scanner.p2_pop_structure(self):
             yield t
-        if stack.nesting_level == self.indent:
+        if scanner.nesting_level == self.indent:
             yield self
             return
         block = BlockSeqToken(self.scanner, self.linenum, self.indent)
-        stack.add_structure(block)
+        scanner.p2_add_structure(block)
         yield block
         yield self
 
@@ -207,8 +207,8 @@ class ScalarToken(Token):
         elif text:
             self.value = "%s %s" % (self.value, text)
 
-    def second_pass(self, stack):
-        for t in stack.doc_start(self):
+    def second_pass(self, scanner):
+        for t in scanner.p2_doc_start(self):
             yield t
-        stack.add_scalar(self)
+        scanner.p2_add_scalar(self)
         yield self

@@ -59,55 +59,6 @@ def yaml_lines(lines, text=None, indent=None, folded=None, keep=False, continuat
     return text
 
 
-class TokenStack(object):
-    def __init__(self, scanner):
-        self.scanner = scanner
-        self.started_doc = False
-        self.pending_scalar = None
-        self.structures = collections.deque()
-        self.nesting_level = None
-
-    def add_structure(self, token):
-        self.nesting_level = token.indent
-        self.structures.append(token)
-
-    def add_scalar(self, token):
-        if self.pending_scalar is None:
-            self.pending_scalar = token
-        else:
-            self.pending_scalar.append_line(token.value)
-
-    def popped_scalar(self):
-        s = self.pending_scalar
-        self.pending_scalar = None
-        return s
-
-    def doc_start(self, token):
-        if not self.started_doc:
-            self.started_doc = True
-            yield DocumentStartToken(self.scanner, token.linenum, token.indent)
-
-    def doc_end(self, token):
-        if self.started_doc:
-            self.started_doc = False
-            linenum = token.linenum
-            if not isinstance(token, DocumentEndToken):
-                linenum += 1
-            while self.structures:
-                yield BlockEndToken(self.scanner, token.linenum, self.structures.pop().indent)
-            yield DocumentEndToken(self.scanner, linenum, token.indent)
-
-    def pop_until(self, linenum, indent):
-        i = self.nesting_level
-        while i is not None and i < indent:
-            try:
-                i = self.structures.pop().indent
-                yield BlockEndToken(self.scanner, linenum, i)
-            except IndexError:
-                i = None
-        self.nesting_level = i
-
-
 class Scanner(object):
     def __init__(self, buffer):
         if hasattr(buffer, "read"):
@@ -115,10 +66,17 @@ class Scanner(object):
         else:
             self.generator = enumerate(buffer.splitlines(), start=1)
         self.simple_key = None  # type: Optional[ScalarToken]
+
+        self.started_doc = False
+        self.current_scalar = None
+        self.structures = collections.deque()
+        self.nesting_level = None
+
         self.pending_dash = None  # type: Optional[DashToken]
         self.pending_scalar = None  # type: Optional[ScalarToken]
         self.pending_lines = None  # type: Optional[List[str]]
         self.pending_tokens = None  # type: Optional[List[Token]]
+
         self.line_regex = RE_BLOCK_SEP
         self.flow_ender = None
         self.tokenizer_map = {
@@ -139,6 +97,46 @@ class Scanner(object):
             ("K", self.simple_key), ("S", self.pending_scalar), ("L", self.pending_lines),
             ("T", self.pending_tokens), ("-", self.pending_dash)
         )
+
+    def p2_add_structure(self, token):
+        self.nesting_level = token.indent
+        self.structures.append(token)
+
+    def p2_add_scalar(self, token):
+        if self.current_scalar is None:
+            self.current_scalar = token
+        else:
+            self.current_scalar.append_line(token.value)
+
+    def p2_popped_scalar(self):
+        s = self.current_scalar
+        self.current_scalar = None
+        return s
+
+    def p2_doc_start(self, token):
+        if not self.started_doc:
+            self.started_doc = True
+            yield DocumentStartToken(self, token.linenum, token.indent)
+
+    def p2_doc_end(self, token):
+        if self.started_doc:
+            self.started_doc = False
+            linenum = token.linenum
+            if not isinstance(token, DocumentEndToken):
+                linenum += 1
+            while self.structures:
+                yield BlockEndToken(self, token.linenum, self.structures.pop().indent)
+            yield DocumentEndToken(self, linenum, token.indent)
+
+    def p2_pop_structure(self, token):
+        i = self.nesting_level
+        while i is not None and i < token.indent:
+            try:
+                i = self.structures.pop().indent
+                yield BlockEndToken(self, token.linenum, i)
+            except IndexError:
+                i = None
+        self.nesting_level = i
 
     def promote_simple_key(self):
         if self.simple_key is not None:
@@ -426,13 +424,12 @@ class Scanner(object):
         return linenum, start, end, line_text
 
     def tokens(self):
-        stack = TokenStack(self)
         t1 = StreamStartToken(self, 1, 0)
         yield t1
         for t1 in self.first_pass():
-            for t2 in t1.second_pass(stack):
+            for t2 in t1.second_pass(self):
                 yield t2
-        for t2 in stack.doc_end(t1):
+        for t2 in self.p2_doc_end(t1):
             yield t2
         yield StreamEndToken(self, t1.linenum, 0)
 
