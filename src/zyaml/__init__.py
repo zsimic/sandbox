@@ -7,7 +7,7 @@ def load(stream, simplified=True):
     :param bool simplified: If True, return document itself when there was only one document (instead of list with 1 item)
     """
     scanner = Scanner(stream)
-    return scanner.deserialized(simplified=simplified)
+    return scanner.deserialized(ScannerStack(), simplified=simplified)
 
 
 def load_string(contents, simplified=True):
@@ -16,7 +16,7 @@ def load_string(contents, simplified=True):
     :param bool simplified: If True, return document itself when there was only one document (instead of list with 1 item)
     """
     scanner = Scanner(contents)
-    return scanner.deserialized(simplified=simplified)
+    return scanner.deserialized(ScannerStack(), simplified=simplified)
 
 
 def load_path(path, simplified=True):

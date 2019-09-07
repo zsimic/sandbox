@@ -33,11 +33,6 @@ class Token(object):
             yield t
         yield self
 
-    def consume_token(self, root):
-        """
-        :param zyaml.ScannerStack root: Process this token on given 'root' node
-        """
-
 
 class StreamStartToken(Token):
     pass
@@ -62,9 +57,6 @@ class DocumentEndToken(Token):
         for t in stack.doc_end(self):
             yield t
 
-    def consume_token(self, root):
-        root.pop_doc(self)
-
 
 class DirectiveToken(Token):
     def __init__(self, linenum, indent, text):
@@ -87,36 +79,26 @@ class DirectiveToken(Token):
     def second_pass(self, stack):
         yield self
 
-    def consume_token(self, root):
-        root.set_directive(self)
-
 
 class FlowMapToken(Token):
-    def consume_token(self, root):
-        root.push_map(None)
+    pass
 
 
 class FlowSeqToken(Token):
-    def consume_token(self, root):
-        root.push_list(None)
+    pass
 
 
 class FlowEndToken(Token):
-    def consume_token(self, root):
-        root.pop_flow()
+    pass
 
 
 class CommaToken(Token):
-    def consume_token(self, root):
-        root.consume_comma(self)
+    pass
 
 
 class ExplicitMapToken(Token):
     def __init__(self, linenum, indent):
         super(ExplicitMapToken, self).__init__(linenum, indent + 2)
-
-    def consume_token(self, root):
-        root.push_map(self.indent)
 
 
 class BlockMapToken(Token):
@@ -149,22 +131,15 @@ class DashToken(Token):
         yield block
         yield self
 
-    def consume_token(self, root):
-        root.consume_dash(self)
-
 
 class ColonToken(Token):
-    def consume_token(self, root):
-        root.consume_colon(self)
+    pass
 
 
 class TagToken(Token):
     def __init__(self, linenum, indent, text):
         super(TagToken, self).__init__(linenum, indent, text)
         self.marshaller = Marshallers.get_marshaller(text)
-
-    def consume_token(self, root):
-        root.set_tag_token(self)
 
     def marshalled(self, value):
         if self.marshaller is None:
@@ -185,9 +160,6 @@ class AnchorToken(Token):
     def represented_value(self):
         return "&%s" % self.value
 
-    def consume_token(self, root):
-        root.set_anchor_token(self)
-
 
 class AliasToken(Token):
     def __init__(self, linenum, indent, text):
@@ -201,9 +173,6 @@ class AliasToken(Token):
         if not clean:
             raise ParseError("Alias should not have any properties")
         return self.value
-
-    def consume_token(self, root):
-        root.consume_alias(self)
 
 
 class ScalarToken(Token):
@@ -237,6 +206,3 @@ class ScalarToken(Token):
             yield t
         stack.add_scalar(self)
         yield self
-
-    def consume_token(self, root):
-        root.consume_scalar(self)

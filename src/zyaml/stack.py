@@ -275,52 +275,58 @@ class ScannerStack(object):
             setattr(self, secondary_name, tag)
         setattr(self, name, token)
 
-    def set_anchor_token(self, token):
-        self._set_decoration(token, "anchor_token", "secondary_anchor_token")
-
-    def set_tag_token(self, token):
-        self._set_decoration(token, "tag_token", "secondary_tag_token")
-
-    def set_directive(self, token):
+    def DirectiveToken(self, token):
         if self.directive is not None:
             raise ParseError("Duplicate directive")
-        self.directive = self
+        self.directive = token
 
-    def consume_alias(self, token):
+    def FlowMapToken(self, token):
+        self.push(StackedMap(None))
+
+    def FlowSeqToken(self, token):
+        self.push(StackedList(None))
+
+    def FlowEndToken(self, token):
+        self.pop_until(None)
+        self.pop()
+
+    def CommaToken(self, token):
+        self.pop_until(None)
+        self.head.mark_open(token)
+
+    def ExplicitMapToken(self, token):
+        self.push_map(token.indent)
+
+    def DashToken(self, token):
+        self.pop_until(token.indent)
+        self.head.consume_dash(token)
+
+    def ColonToken(self, token):
+        self.head.mark_as_key(token)
+        self.pop()
+
+    def TagToken(self, token):
+        self._set_decoration(token, "tag_token", "secondary_tag_token")
+
+    def AnchorToken(self, token):
+        self._set_decoration(token, "anchor_token", "secondary_anchor_token")
+
+    def AliasToken(self, token):
         if token.anchor not in self.anchors:
             raise ParseError("Undefined anchor &%s" % token.anchor)
         token.value = self.anchors.get(token.anchor)
         self.head.consume_scalar(token)
 
-    def consume_scalar(self, token):
+    def ScalarToken(self, token):
         self.head.consume_scalar(token)
-
-    def consume_colon(self, token):
-        self.head.mark_as_key(token)
-        self.pop()
-
-    def consume_comma(self, token):
-        self.pop_until(None)
-        self.head.mark_open(token)
-
-    def consume_dash(self, token):
-        self.pop_until(token.indent)
-        self.head.consume_dash(token)
 
     def push_list(self, indent):
         self.push(StackedList(indent))
 
     def push_map(self, indent):
-        if indent is None:
+        self.pop_until(indent)
+        if not isinstance(self.head, StackedMap) or (self.head.indent is not None and self.head.indent != indent):
             self.push(StackedMap(indent))
-        else:
-            self.pop_until(indent)
-            if not isinstance(self.head, StackedMap) or (self.head.indent is not None and self.head.indent != indent):
-                self.push(StackedMap(indent))
-
-    def pop_flow(self):
-        self.pop_until(None)
-        self.pop()
 
     def push(self, element):
         """
@@ -344,7 +350,7 @@ class ScannerStack(object):
         while self.head.under_ranks(indent):
             self.pop()
 
-    def pop_doc(self, token):
+    def DocumentEndToken(self, token):
         if self.tag_token and self.tag_token.linenum == token.linenum - 1:  # last line finished with a tag (but no value)
             self.push(new_stacked_scalar(self.tag_token))
         if self.head.prev is None and self.head.value is None:  # doc was empty, no tokens

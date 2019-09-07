@@ -530,19 +530,21 @@ class Scanner(object):
             error.auto_complete(linenum, offset)
             raise
 
-    def deserialized(self, simplified=True):
+    def deserialized(self, loader, simplified=True):
         token = None
         try:
-            root = ScannerStack()
             for token in self.tokens():
-                token.consume_token(root)
-                # trace("{}: {}", token, root)
+                name = token.__class__.__name__
+                func = getattr(loader, name, None)
+                if func is not None:
+                    func(token)
+                # trace("{}: {}", token, loader)
             if simplified:
-                if not root.docs:
+                if not loader.docs:
                     return None
-                if len(root.docs) == 1:
-                    return root.docs[0]
-            return root.docs
+                if len(loader.docs) == 1:
+                    return loader.docs[0]
+            return loader.docs
         except ParseError as error:
             error.auto_complete(token)
             raise
