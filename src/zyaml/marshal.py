@@ -13,7 +13,7 @@ UTC = dateutil.tz.tzoffset("UTC", 0)
 RE_SIMPLE_SCALAR = re.compile(
     r"^("
     r"(false|true|null|~)|"
-    r"([-+]?([0-9_]*\.?[0-9_]*([eE][-+]?[0-9_]+)?|\.?inf|\.?nan|0o[0-7]+|0x[0-9a-f]+))|"
+    r"([-+]?[0-9_]*\.?[0-9_]*([eE][-+]?[0-9_]+)?|[-+]?\.inf|\.nan|0o[0-7]+|0x[0-9a-f]+)|"
     r"(([0-9]{4})-([0-9][0-9]?)-([0-9][0-9]?)" 
     r"([Tt \t]([0-9][0-9]?):([0-9][0-9]?):([0-9][0-9]?)(\.[0-9]*)?"
     r"([ \t]*(Z|[+-][0-9][0-9]?(:([0-9][0-9]?))?))?)?)"
@@ -170,7 +170,7 @@ def default_marshal(text):  # type: (Optional[str]) -> Union[str, int, float, li
     match = RE_SIMPLE_SCALAR.match(text)
     if match is None:
         return text
-    _, constant, number, _, _, _, y, m, d, _, hh, mm, ss, sf, _, tz, _, _ = match.groups()
+    _, constant, number, _, _, y, m, d, _, hh, mm, ss, sf, _, tz, _, _ = match.groups()
     if constant is not None:
         return CONSTANTS.get(constant.lower(), text)
     if number is not None:

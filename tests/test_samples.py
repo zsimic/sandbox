@@ -1,4 +1,5 @@
 import json
+import math
 
 import zyaml
 
@@ -142,6 +143,33 @@ def test_edge_cases():
     assert loaded("a: b\n\n\n   c\n\n") == {"a": "b\n\nc"}
     assert loaded("a\n\n \n b") == "a\n\nb"
     assert loaded("- a\n - b\n- c") == ["a - b", "c"]
+
+    assert loaded("? a") == {"a": None}
+    # assert loaded("? a\n: b") == {"a": "b"}
+    assert loaded("{? a: b, ? c: d}") == {"a": "b", "c": "d"}
+
+    assert loaded("inf") == "inf"
+    assert loaded("+inf") == "+inf"
+    assert loaded("-inf") == "-inf"
+    assert math.isinf(loaded(".inf"))
+    assert math.isinf(loaded(".iNf"))
+    assert math.isinf(loaded("-.inf"))
+    assert math.isinf(loaded("+.inf"))
+    assert loaded("nan") == "nan"
+    assert loaded("+nan") == "+nan"
+    assert loaded("+.nan") == "+.nan"
+    assert loaded("-.nan") == "-.nan"
+    assert math.isnan(loaded(".nan"))
+    assert math.isnan(loaded(".nAn"))
+
+    assert loaded("0") == 0
+    assert loaded("1") == 1
+    assert loaded("0o7") == 7
+    assert loaded("0O7") == "0O7"
+    assert loaded("0xF") == 15
+    assert loaded("0xf") == 15
+    assert loaded("0xG") == "0xG"
+    assert loaded("0xg") == "0xg"
 
 
 def test_types():
