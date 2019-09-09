@@ -8,10 +8,12 @@ class Token(object):
     """Scanned token, visitor pattern is used for parsing"""
 
     def __init__(self, scanner, linenum, indent, value=None):
+        assert scanner.__class__.__name__ == "Scanner"
         self.scanner = scanner
         self.linenum = linenum
         self.indent = indent
         self.value = value
+        self.stacked_cell = None
 
     def __repr__(self):
         result = "%s[%s,%s]" % (self.__class__.__name__, self.linenum, self.column)
@@ -30,7 +32,7 @@ class Token(object):
         """
         :param zyaml.Scanner scanner: Groom tokens like doc start/end, block start/end, validate indentation etc
         """
-        for t in scanner.p2_doc_start(self):
+        for t in scanner.pass2_docstart(self):
             yield t
         yield self
 
@@ -45,9 +47,9 @@ class StreamEndToken(Token):
 
 class DocumentStartToken(Token):
     def second_pass(self, scanner):
-        for t in scanner.p2_doc_end(self):
+        for t in scanner.pass2_docend(self):
             yield t
-        for t in scanner.p2_doc_start(self):
+        for t in scanner.pass2_docstart(self):
             yield t
 
 
@@ -55,7 +57,7 @@ class DocumentEndToken(Token):
     def second_pass(self, scanner):
         if not scanner.started_doc:
             raise ParseError("Document end without start")
-        for t in scanner.p2_doc_end(self):
+        for t in scanner.pass2_docend(self):
             yield t
 
 
@@ -82,12 +84,16 @@ class DirectiveToken(Token):
 
 
 class FlowMapToken(Token):
+    mnemonic = "{"
+
     def __init__(self, scanner, linenum, indent, text):
         scanner.push_flow_ender("}")
         super(FlowMapToken, self).__init__(scanner, linenum, indent, text)
 
 
 class FlowSeqToken(Token):
+    mnemonic = "["
+
     def __init__(self, scanner, linenum, indent, text):
         scanner.push_flow_ender("]")
         super(FlowSeqToken, self).__init__(scanner, linenum, indent, text)
@@ -107,16 +113,18 @@ class ExplicitMapToken(Token):
     pass
 
 
-class BlockMapToken(Token):
+class BlockEndToken(Token):
     pass
+
+
+class BlockMapToken(Token):
+    terminator = BlockEndToken
+    mnemonic = ":"
 
 
 class BlockSeqToken(Token):
-    pass
-
-
-class BlockEndToken(Token):
-    pass
+    terminator = BlockEndToken
+    mnemonic = "-"
 
 
 class DashToken(Token):
@@ -125,21 +133,36 @@ class DashToken(Token):
         return self.indent
 
     def second_pass(self, scanner):
-        for t in scanner.p2_doc_start(self):
+        for t in scanner.pass2_docstart(self, pop_simple_key=True):
             yield t
-        for t in scanner.p2_pop_structure(self):
+        for t in scanner.mode.pass2_structure(self, BlockSeqToken):
             yield t
-        if scanner.nesting_level == self.indent:
-            yield self
-            return
-        block = BlockSeqToken(self.scanner, self.linenum, self.indent)
-        scanner.p2_add_structure(block)
-        yield block
         yield self
 
 
-class ColonToken(Token):
+class KeyToken(Token):
     pass
+
+
+class ValueToken(Token):
+    pass
+
+
+class ColonToken(Token):
+    def second_pass(self, scanner):
+        for t in scanner.pass2_docstart(self, pop_simple_key=False):
+            yield t
+        cs = scanner.popped_simple_key()
+        if scanner.is_block_mode:
+            if cs is None:
+                raise ParseError("Incomplete explicit mapping pair")
+            for t in scanner.mode.pass2_structure(cs, BlockMapToken):
+                yield t
+        if cs is not None:
+            yield KeyToken(scanner, cs.linenum, cs.indent)
+            yield cs
+        yield ValueToken(scanner, self.linenum, self.indent)
+
 
 
 class TagToken(Token):
@@ -208,7 +231,9 @@ class ScalarToken(Token):
             self.value = "%s %s" % (self.value, text)
 
     def second_pass(self, scanner):
-        for t in scanner.p2_doc_start(self):
+        for t in scanner.pass2_docstart(self, pop_simple_key=self.style is not None):
             yield t
-        scanner.p2_add_scalar(self)
-        yield self
+        if self.style is not None:
+            yield self
+        else:
+            scanner.add_simple_key(self)

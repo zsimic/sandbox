@@ -423,12 +423,12 @@ def print_(tokens, stacktrace, implementations, text):
             result = "\n".join(str(s) for s in impl.tokens(text, stacktrace=stacktrace))
             print("---- %s tokens:\n%s" % (impl, result))
         if stacktrace:
-            data = impl.load_stream(text)
+            data = impl.load_string(text)
             rtype = data.__class__.__name__ if data is not None else "None"
             result = impl.json_representation(ParseResult(impl, None, data=data))[:-1]
         else:
             try:
-                data = impl.load_stream(text)
+                data = impl.load_string(text)
                 rtype = data.__class__.__name__ if data is not None else "None"
                 result = impl.json_representation(ParseResult(impl, None, data=data))[:-1]
             except Exception as e:
@@ -556,6 +556,8 @@ def tokens(stacktrace, implementations, samples):
     """Refresh expected json for each sample"""
     for sample in samples:
         print("========  %s  ========" % sample)
+        with open(sample.path) as fh:
+            print("".join(fh.readlines()))
         for impl in implementations:
             print("--------  %s  --------" % impl)
             for t in impl.tokens(sample, stacktrace=stacktrace):
@@ -681,7 +683,7 @@ class YmlImplementation(object):
             return value[0]
         return value
 
-    def load_stream(self, contents):
+    def load_string(self, contents):
         data = self._load(contents)
         if data is not None and inspect.isgenerator(data):
             data = list(data)
@@ -689,7 +691,7 @@ class YmlImplementation(object):
 
     def load_path(self, path):
         with open(path) as fh:
-            return self.load_stream(fh)
+            return self.load_string(fh.read())
 
     def load(self, sample, stacktrace=True):
         """

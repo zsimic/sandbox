@@ -1,28 +1,25 @@
 from zyaml.scanner import *
 
 
-def load(stream, simplified=True):
+def load(stream):
     """
     :param str|file stream: Stream or contents to load
-    :param bool simplified: If True, return document itself when there was only one document (instead of list with 1 item)
     """
     scanner = Scanner(stream)
-    return scanner.deserialized(ScannerStack(), simplified=simplified)
+    return scanner.deserialized()
 
 
-def load_string(contents, simplified=True):
+def load_string(contents):
     """
     :param str contents: Yaml to deserialize
-    :param bool simplified: If True, return document itself when there was only one document (instead of list with 1 item)
     """
     scanner = Scanner(contents)
-    return scanner.deserialized(ScannerStack(), simplified=simplified)
+    return scanner.deserialized()
 
 
-def load_path(path, simplified=True):
+def load_path(path):
     """
     :param str path: Path to file to deserialize
-    :param bool simplified: If True, return document itself when there was only one document (instead of list with 1 item)
     """
     with open(path) as fh:
-        return load_string(fh.read(), simplified=simplified)
+        return load_string(fh.read())
