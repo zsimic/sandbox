@@ -14,7 +14,7 @@ RE_SIMPLE_SCALAR = re.compile(
     r"^("
     r"(false|False|FALSE|true|True|TRUE|null|Null|NULL|~)|"
     r"([-+]?[0-9_]*\.?[0-9_]*([eE][-+]?[0-9_]+)?|[-+]?\.inf|[-+]?\.Inf|[-+]?\.INF|\.nan|\.NaN|\.NAN|0o[0-7]+|0x[0-9a-fA-F]+)|"
-    r"(([0-9]{4})-([0-9][0-9]?)-([0-9][0-9]?)" 
+    r"(([0-9]{4})-([0-9][0-9]?)-([0-9][0-9]?)"
     r"([Tt \t]([0-9][0-9]?):([0-9][0-9]?):([0-9][0-9]?)(\.[0-9]*)?"
     r"([ \t]*(Z|[+-][0-9][0-9]?(:([0-9][0-9]?))?))?)?)"
     r")$"
@@ -90,6 +90,16 @@ def _dbg_repr(value):
 
 def dbg(*args):
     return "".join(_dbg_repr(s) for s in args if s is not None)
+
+
+def represented_scalar(style, value):
+    if style == "'":
+        return "'%s'" % value.replace("'", "''").replace("\n", "\\n")
+
+    if style is None or style == '"':
+        return double_quoted(value)
+
+    return "%s %s" % (style, double_quoted(value))
 
 
 class ParseError(Exception):

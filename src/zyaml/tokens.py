@@ -210,11 +210,7 @@ class ScalarToken(Token):
         self.style = style
 
     def represented_value(self):
-        if self.style == "'":
-            return "'%s'" % self.value.replace("'", "''").replace("\n", "\\n")
-        if self.style is None or self.style == '"':
-            return double_quoted(self.value)
-        return "%s %s" % (self.style, double_quoted(self.value))
+        return represented_scalar(self.style, self.value)
 
     def resolved_value(self, clean):
         value = self.value

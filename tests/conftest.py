@@ -19,6 +19,7 @@ import strictyaml
 import yaml as pyyaml
 
 import zyaml
+from zyaml.marshal import *
 
 
 TESTS_FOLDER = os.path.abspath(os.path.dirname(__file__))
@@ -317,34 +318,45 @@ def simplified_date(value):
 
 
 @main.command()
-@stacktrace_option()
 @click.option("--compact/--no-compact", "-1", is_flag=True, default=None, help="Do not show diff text")
 @click.option("--untyped", "-u", is_flag=True, help="Parse everything as strings")
+@click.option("--tokens", "-t", is_flag=True, help="Compare tokens")
 @implementations_option(count=2)
 @samples_arg(nargs=-1)
-def diff(stacktrace, compact, untyped, implementations, samples):
+def diff(compact, untyped, tokens, implementations, samples):
     """Compare deserialization of 2 implementations"""
     stringify = str if untyped else zyaml.decode
     if compact is None:
         compact = len(samples) > 1
+
     with runez.TempFolder():
         generated_files = []
         for sample in samples:
             generated_files.append([sample])
             for impl in implementations:
                 assert isinstance(impl, YmlImplementation)
-                result = impl.load(sample, stacktrace=stacktrace)
-                if result.data is not None:
-                    result.data = json_sanitized(result.data, stringify=stringify, dt=simplified_date)
-                fname = "%s-%s.json" % (impl.name, sample.basename)
+                result = ParseResult(impl, sample)
+                try:
+                    if tokens:
+                        result.data = list(impl.tokens(sample))
+                        result.text = "\n".join(impl.represented_token(t) for t in result.data)
+
+                    else:
+                        result.data = impl.load_path(sample.path)
+                        payload = json_sanitized(result.data, stringify=stringify, dt=simplified_date)
+                        result.text = runez.represented_json(payload)
+
+                except Exception as e:
+                    result.set_exception(e)
+                    result.text = result.error
+
+                fname = "%s-%s.text" % (impl.name, sample.basename)
                 generated_files[-1].extend([fname, result])
-                result.json = "error" if result.error else impl.json_representation(result, stringify=stringify)
                 if not compact:
                     with open(fname, "w") as fh:
-                        if result.error:
-                            fh.write("%s\n" % result.error)
-                        else:
-                            fh.write(result.json)
+                        fh.write(result.text)
+                        if not result.text.endswith("\n"):
+                            fh.write("\n")
 
         matches = 0
         failed = 0
@@ -354,9 +366,11 @@ def diff(stacktrace, compact, untyped, implementations, samples):
                 matches += 1
                 failed += 1
                 print("%s: both failed" % sample)
-            elif r1.json == r2.json:
+
+            elif r1.text == r2.text:
                 matches += 1
                 print("%s: OK" % sample)
+
             else:
                 differ += 1
                 if compact:
@@ -364,10 +378,10 @@ def diff(stacktrace, compact, untyped, implementations, samples):
 
         if not compact:
             for sample, n1, r1, n2, r2 in generated_files:
-                if r1.json != r2.json:
-                    output = runez.run("diff", "-br", "-U1", n1, n2, fatal=None, include_error=True)
+                if r1.text != r2.text:
+                    r = runez.run("diff", "-br", "-U1", n1, n2, fatal=None)
                     print("========  %s  ========" % sample)
-                    print(output)
+                    print(r.full_output)
                     print()
 
         print()
@@ -553,7 +567,7 @@ def show(profile, tokens, line_numbers, stacktrace, implementations, samples):
 @implementations_option(default="zyaml,pyyaml_base")
 @samples_arg(default="misc")
 def tokens(stacktrace, implementations, samples):
-    """Refresh expected json for each sample"""
+    """Show tokens for given samples"""
     for sample in samples:
         print("========  %s  ========" % sample)
         with open(sample.path) as fh:
@@ -561,7 +575,7 @@ def tokens(stacktrace, implementations, samples):
         for impl in implementations:
             print("--------  %s  --------" % impl)
             for t in impl.tokens(sample, stacktrace=stacktrace):
-                print(t)
+                print(impl.represented_token(t))
             print()
 
 
@@ -636,7 +650,7 @@ class ParseResult(object):
 
     def set_exception(self, exc):
         self.exception = exc
-        self.error = runez.shortened(runez.short(str(exc)), size=160)
+        self.error = runez.short(exc, size=160)
         if not self.error:
             self.error = exc.__class__.__name__
 
@@ -705,8 +719,10 @@ class YmlImplementation(object):
         result = ParseResult(self, sample)
         try:
             result.data = self.load_path(sample.path)
+
         except Exception as e:
             result.set_exception(e)
+
         return result
 
     def json_representation(self, result, stringify=zyaml.decode):
@@ -717,6 +733,9 @@ class YmlImplementation(object):
         except Exception:
             print("Failed to json serialize %s" % result.sample)
             raise
+
+    def represented_token(self, token):
+        return str(token)
 
 
 class ZyamlImplementation(YmlImplementation):
@@ -764,6 +783,32 @@ class RuamelImplementation(YmlImplementation):
 class PyyamlBaseImplementation(YmlImplementation):
     def _load(self, stream):
         return pyyaml.load_all(stream, Loader=pyyaml.BaseLoader)
+
+    def represented_token(self, token):
+        linenum = token.start_mark.line + 1
+        column = token.start_mark.column + 1
+        result = "%s[%s,%s]" % (token.__class__.__name__, linenum, column)
+        value = getattr(token, "value", None)
+        if value is not None:
+            if token.id == "<scalar>":
+                value = represented_scalar(token.style, value)
+
+            elif token.id == "<anchor>":
+                value = "&%s" % value
+
+            elif token.id == "<alias>":
+                value = "*%s" % value
+
+            elif token.id == "<tag>":
+                assert isinstance(value, tuple)
+                value = "".join(value)
+
+            else:
+                assert False
+
+            result = "%s %s" % (result, value)
+
+        return result
 
     def _tokens(self, stream):
         yaml_loader = pyyaml.BaseLoader(stream)
