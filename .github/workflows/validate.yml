@@ -24,9 +24,9 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install build tools
       run: |
-        /usr/bin/python3 --version
-        pwd
-        pip install tox
+        pip install -U pip tox
+        which -a tox
+        tox -e style
         ls -la
         # python -m pip install --upgrade pip
         # pip install flake8 pytest

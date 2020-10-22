@@ -2,6 +2,7 @@
 
 ```
 $ pwd
+/home/runner/work/sandbox/sandbox
 
 $ ls -la
 
@@ -26,6 +27,7 @@ $ /usr/bin/python --version
 Python 2.7.17
 
 $ /usr/bin/python3 --version
+Python 3.6.9
 
 $ python --version
 Python 3.7.9
