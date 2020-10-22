@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 
-"""
-url: https://github.com/zsimic
-download_url: archive/v{version}.tar.gz
-"""
-
 from setuptools import setup
 
 
