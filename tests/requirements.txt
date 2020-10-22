@@ -1,4 +1,5 @@
 click
+perfplot
 poyo
 pyprof2calltree
 pytest-cov

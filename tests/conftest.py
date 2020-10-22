@@ -110,60 +110,77 @@ def json_sanitized(value, stringify=zyaml.decode, dt=str):
     return stringify(value)
 
 
-class BenchmarkRunner(object):
-    def __init__(self, functions, target_name=None, iterations=100):
-        self.functions = functions
-        self.target_name = target_name
+class BenchmarkedFunction(object):
+    def __init__(self, name, function, iterations):
+        self.name = name
+        self.function = function
         self.iterations = iterations
-        self.fastest = None
-        self.seconds = {}
-        self.outcome = {}
+        self.error = None
+        self.seconds = None
 
-    def add(self, name, seconds, message=None):
-        if seconds is None:
-            if not message:
-                message = "failed"
-            else:
-                message = message.strip().replace("\n", " ")
-                message = re.sub(r"\s+", " ", message)
-                message = "failed: %s..." % message[:180]
-            self.outcome[name] = message
-            return
-        if self.fastest is None or self.fastest > seconds:
-            self.fastest = seconds
-        self.seconds[name] = seconds
+    def __repr__(self):
+        return self.report()
 
     def run(self, stacktrace=False):
-        for name, func in self.functions.items():
-            t = timeit.Timer(stmt=func)
-            if stacktrace:
-                self.add(name, t.timeit(self.iterations))
-                continue
+        t = timeit.Timer(stmt=self.function)
+        if stacktrace:
+            self.seconds = t.timeit(self.iterations)
+            return
 
-            try:
-                self.add(name, t.timeit(self.iterations))
+        try:
+            self.seconds = t.timeit(self.iterations)
 
-            except Exception as e:
-                self.add(name, None, message=runez.shortened(str(e)))
+        except Exception as e:
+            self.error = runez.short(e)
 
-        for name, seconds in self.seconds.items():
-            info = "" if seconds == self.fastest else " [x %.1f]" % (seconds / self.fastest)
-            unit = "μ"
-            x = seconds / self.iterations * 1000000
-            if x >= 999:
-                x = x / 1000
-                unit = "m"
-            if x >= 999:
-                x = x / 1000
-                unit = "s"
-            self.outcome[name] = "%.3f %ss/i%s" % (x, unit, info)
+    def report(self, fastest=None, indent=""):
+        if self.error:
+            return "%s: failed: %s..." % (self.name, runez.short(self.error, size=180))
+
+        if self.seconds is None:
+            return self.name
+
+        info = ""
+        if fastest and self.seconds and fastest.seconds and self.seconds != fastest.seconds:
+            info = runez.dim(" [x %.1f]" % (self.seconds / fastest.seconds))
+
+        unit = "μ"
+        x = self.seconds / self.iterations * 1000000
+        if x >= 999:
+            x = x / 1000
+            unit = "m"
+
+        if x >= 999:
+            x = x / 1000
+            unit = "s"
+
+        return "%s%s: %.3f %ss/i%s" % (indent, self.name, x, unit, info)
+
+
+class BenchmarkRunner(object):
+    def __init__(self, functions, target_name=None, iterations=100):
+        self.benchmarks = []
+        for name, func in functions.items():
+            self.benchmarks.append(BenchmarkedFunction(name, func, iterations))
+        self.target_name = target_name
+        self.fastest = None
+
+    def run(self, stacktrace=False):
+        for bench in self.benchmarks:
+            bench.run(stacktrace=stacktrace)
+            if self.fastest is None or self.fastest.seconds > bench.seconds:
+                self.fastest = bench
 
     def report(self):
         result = []
+        indent = ""
         if self.target_name:
+            indent = "  "
             result.append("%s:" % self.target_name)
-        for name, outcome in sorted(self.outcome.items()):
-            result.append("  %s: %s" % (name, outcome))
+
+        for bench in self.benchmarks:
+            result.append(bench.report(fastest=self.fastest, indent=indent))
+
         return "\n".join(result)
 
 
@@ -459,6 +476,31 @@ def _bench1(size):
 
 def _bench2(size):
     return "{}".format(size)
+
+
+@main.command()
+def perfplot():
+    """Convenience entry point to perf-plot different function samples"""
+    import perfplot
+
+    functions = []
+    labels = []
+    for name, func in globals().items():
+        if name.startswith("_bench"):
+            name = name[1:]
+            functions.append(func)
+            labels.append(name)
+
+    perfplot.show(
+        setup=lambda n: n,  # or simply setup=numpy.random.rand
+        kernels=functions,
+        labels=labels,
+        n_range=[2 ** k for k in range(15)],
+        xlabel="len(a)",
+        equality_check=None,
+        target_time_per_measurement=5.0,
+        time_unit="us",  # set to one of ("auto", "s", "ms", "us", or "ns") to force plot units
+    )
 
 
 @main.command()
