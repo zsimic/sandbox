@@ -1,9 +1,10 @@
 import codecs
 import datetime
-import dateutil
 import os
 import re
 import sys
+
+import dateutil
 
 
 PY2 = sys.version_info < (3, 0)
@@ -43,7 +44,7 @@ if PY2:
 
 else:
     import base64
-    from typing import List, Optional, Union
+    from typing import Optional, Union
 
     def cleaned_number(text):
         return text

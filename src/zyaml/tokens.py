@@ -164,7 +164,6 @@ class ColonToken(Token):
         yield ValueToken(scanner, self.linenum, self.indent)
 
 
-
 class TagToken(Token):
     def __init__(self, scanner, linenum, indent, text):
         super(TagToken, self).__init__(scanner, linenum, indent, text)

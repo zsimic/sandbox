@@ -1,7 +1,7 @@
 import collections
 
-from zyaml.stack import *
 from zyaml.loader import *
+from zyaml.stack import *
 
 
 RESERVED = "@`"
@@ -88,7 +88,6 @@ class BlockScanner(object):
             self.nesting_level = token.indent
             self.structures.append(struct)
             yield struct
-
 
     def pass2_pop_structure(self, token):
         i = self.nesting_level

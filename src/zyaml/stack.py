@@ -23,7 +23,7 @@ class StackedDocument(object):
         return dbg(self.__class__.__name__[7], indent, self.represented_decoration())
 
     def represented_decoration(self):
-        return dbg(("&", self.anchor_token), ("!", self.tag_token), (":",  self.is_key))
+        return dbg(("&", self.anchor_token), ("!", self.tag_token), (":", self.is_key))
 
     def check_indentation(self, indent, name, offset=0):
         if indent is not None:
@@ -153,7 +153,7 @@ class StackedMap(StackedDocument):
         self.has_key = False
 
     def represented_decoration(self):
-        return dbg(super(StackedMap, self).represented_decoration(), ("*",  self.last_key))
+        return dbg(super(StackedMap, self).represented_decoration(), ("*", self.last_key))
 
     def check_key_indentation(self, indent):  # type: (Optional[int]) -> None
         if indent is not None and self.indent is not None and indent != self.indent:

@@ -6,6 +6,9 @@ $ pwd
 
 $ ls -la
 
+$ which -a tox
+/opt/hostedtoolcache/Python/3.7.9/x64/bin/tox
+
 $ which -a python
 /opt/hostedtoolcache/Python/3.7.9/x64/bin/python
 /opt/hostedtoolcache/Python/3.7.9/x64/python

@@ -1,6 +1,3 @@
-from zyaml.tokens import *
-
-
 class SimpleLoader(object):
     def __init__(self, scanner):
         self.scanner = scanner
