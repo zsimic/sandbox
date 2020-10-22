@@ -22,16 +22,12 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Install build tools
       run: |
-        set +x
-        which -a python
-        which -a python3
-        which -a pip
-        which -a pip3
-        /usr/bin/python --version
-        python --version
-        python -c 'import sys; print("\n".join("%s: %s" % (x, getattr(sys, x)) for x in dir(sys) if "prefix" in x))'
+        /usr/bin/python3 --version
+        pwd
+        pip install tox
+        ls -la
         # python -m pip install --upgrade pip
         # pip install flake8 pytest
         # if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
