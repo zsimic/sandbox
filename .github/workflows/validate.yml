@@ -9,11 +9,11 @@ on:
     branches: [ master ]
 
 jobs:
-  test:
+  run-tests:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.7, 3.8]
+        python-version: [2.7, 3.8]
     steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-python@v2
@@ -24,5 +24,21 @@ jobs:
     - uses: actions/upload-artifact@v2
       with:
         name: junit-${{ matrix.python-version }}
-        path: .tox/py/junit.xml
+        path: |
+          .tox/.coverage.py
+          .tox/py/junit.xml
       if: ${{ always() }}
+  check-code-style:
+    needs: run-tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+    - uses: actions/download-artifact@v2
+      with:
+        path: .tox/downloaded-artifacts
+    - run: ls -laF .tox/downloaded-artifacts
+    - run: pip install -U pip tox
+    - run: tox -e docs,style
