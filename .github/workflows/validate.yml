@@ -24,9 +24,30 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - run: |
-        env
-        echo ----------------
-        git config --get user.name
+        pwd
+        echo ----
+        mkdir tmp
+        cd tmp
+        pwd
+        echo ---- git config:
+        git config --get user.name || true
+        echo ---- setting git config
+        git config --global user.name tester
+        git config --global user.email tester@example.com
+        echo ---- git config:
+        git config --get user.name || true
+        echo ---- git init
+        git init
+        echo ---- adding foo
+        touch foo
+        git add foo
+        echo ---- committing
+        git commit -m sample
+        git tag -a v1.0 -m "Version 1.0"
+        echo ---- done
+        cd ..
+        rm -rf tmp
+        echo ---- removed tmp
 
     - run: pip install -U pip tox
     - run: tox -e py
