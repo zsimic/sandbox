@@ -2,7 +2,7 @@ name: Simulate publishing to pypi
 
 on:
   release:
-    types: [created]
+    types: [created, published, released]
 
 jobs:
   publish:
