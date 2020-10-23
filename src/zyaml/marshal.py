@@ -5,6 +5,7 @@ import re
 import sys
 
 import dateutil
+import dateutil.tz
 
 
 PY2 = sys.version_info < (3, 0)

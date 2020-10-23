@@ -22,31 +22,6 @@ jobs:
     - uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
-    - run: |
-        git config --global user.name tester
-        git config --global user.email tester@example.com
-    - run: |
-        mkdir -p tmp/origin.git
-        cd tmp
-        echo --- git init in: $PWD
-        git init --bare origin.git
-        echo --- git clone:
-        git clone origin.git work
-        cd work
-        echo --- adding foo:
-        touch foo
-        git add foo
-        echo ---- committing
-        git commit -m sample
-        echo ---- pushing
-        git push origin master
-        echo ---- adding and pushing tag
-        git tag -a v1.0 -m "Version 1.0"
-        git push --tags origin master
-        echo ---- done
-        cd ../..
-        rm -rf tmp
-        echo ---- removed tmp
 
     - run: pip install -U pip tox
     - run: tox -e py
@@ -70,7 +45,7 @@ jobs:
     - uses: actions/checkout@v2
     - uses: actions/setup-python@v2
       with:
-        python-version: 3.8
+        python-version: '3.8'
     - uses: actions/download-artifact@v2
       with:
         path: .tox
