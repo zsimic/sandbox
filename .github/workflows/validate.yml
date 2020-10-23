@@ -24,7 +24,7 @@ jobs:
     - run: |
         mkdir -p .tox/ci-artifacts
         mv .tox/.coverage.py .tox/ci-artifacts/.coverage.${{ matrix.python-version }}
-        mv .tox/py/junit.xml .tox/ci-artifacts/.junit.${{ matrix.python-version }}
+        mv .tox/py/junit.xml .tox/ci-artifacts/junit.${{ matrix.python-version }}.xml
       if: ${{ always() }}
     - uses: actions/upload-artifact@v2
       with:
@@ -41,7 +41,10 @@ jobs:
         python-version: 3.8
     - uses: actions/download-artifact@v2
       with:
-        path: .tox/ci-artifacts
-    - run: ls -laFR .tox/ci-artifacts
+        path: .tox
+    - run: |
+        mv .tox/ci-artifacts*/* .tox/ci-artifacts*/.coverage* .tox/
+        rm -r .tox/ci-artifacts*
+    - run: ls -laFR .tox
     - run: pip install -U pip tox
-    - run: tox -e docs,style
+    - run: tox -e coverage,docs,style
