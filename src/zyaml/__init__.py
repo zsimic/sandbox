@@ -1,6 +1,9 @@
 from zyaml.scanner import *
 
 
+__version__ = "0.1.1"
+
+
 def load(stream):
     """
     :param str|file stream: Stream or contents to load
