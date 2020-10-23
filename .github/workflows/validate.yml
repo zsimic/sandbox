@@ -24,9 +24,13 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - run: |
-        which -a git
-        git --version
-        git status
+        git config -l
+        echo ----------------
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        echo ----------------
+        git config -l
+
     - run: pip install -U pip tox
     - run: tox -e py
     - run: |

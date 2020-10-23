@@ -38,4 +38,11 @@ base_exec_prefix: /opt/hostedtoolcache/Python/3.7.9/x64
 base_prefix: /opt/hostedtoolcache/Python/3.7.9/x64
 exec_prefix: /opt/hostedtoolcache/Python/3.7.9/x64
 prefix: /opt/hostedtoolcache/Python/3.7.9/x64
-```
+
+$ which -a git
+/usr/bin/git
+
+$ git --version
+git version 2.28.0
+
+s```
