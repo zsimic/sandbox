@@ -10,15 +10,23 @@ on:
 
 jobs:
   run-tests:
+
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         python-version: [2.7, 3.8]
+
     steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+
+    - run: |
+        which -a git
+        git --version
+        git status
     - run: pip install -U pip tox
     - run: tox -e py
     - run: |
@@ -31,9 +39,12 @@ jobs:
         name: ci-artifacts-${{ matrix.python-version }}
         path: .tox/ci-artifacts
       if: ${{ always() }}
+
   check-code-style:
+
     needs: run-tests
     runs-on: ubuntu-latest
+
     steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-python@v2
@@ -45,6 +56,6 @@ jobs:
     - run: |
         mv .tox/ci-artifacts*/* .tox/ci-artifacts*/.coverage* .tox/
         rm -r .tox/ci-artifacts*
-    - run: ls -laFR .tox
+
     - run: pip install -U pip tox
     - run: tox -e coverage,docs,style
