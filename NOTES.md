@@ -45,4 +45,22 @@ $ which -a git
 $ git --version
 git version 2.28.0
 
-s```
+$ git config -l
+filter.lfs.required=true
+filter.lfs.clean=git-lfs clean -- %f
+filter.lfs.smudge=git-lfs smudge -- %f
+filter.lfs.process=git-lfs filter-process
+core.repositoryformatversion=0
+core.filemode=true
+core.bare=false
+core.logallrefupdates=true
+remote.origin.url=https://github.com/zsimic/sandbox
+remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*
+gc.auto=0
+http.https://github.com/.extraheader=AUTHORIZATION: basic ***
+branch.master.remote=origin
+branch.master.merge=refs/heads/master
+
+user.name=github-actions
+user.email=github-actions@github.com
+```
