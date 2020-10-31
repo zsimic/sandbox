@@ -24,7 +24,7 @@ jobs:
     - run: pip install -U pip tox
     - run: tox -e py
 
-  linter:
+  linters:
 
     runs-on: ubuntu-latest
 
