@@ -2,10 +2,12 @@ import json
 import math
 
 import pytest
+import runez
 
 import zyaml
 
-from .conftest import get_samples, json_sanitized, UNDEFINED, ZyamlImplementation
+from .conftest import get_samples
+from .ximpl import json_sanitized, ZyamlImplementation
 
 
 pytestmark = pytest.mark.skip("broken after refactor")
@@ -20,9 +22,10 @@ def test_samples(all_samples):
         expected = sample.expected
         payload = json_sanitized(payload)
         expected = json_sanitized(expected)
-        if expected is UNDEFINED:
+        if expected is runez.UNSET:
             skipped += 1
             continue
+
         # jsonify to avoid diffs on inf/nan floats
         jpayload = json.dumps(payload, sort_keys=True, indent=2)
         jexpected = json.dumps(expected, sort_keys=True, indent=2)
