@@ -1,6 +1,5 @@
 import codecs
 import datetime
-import json
 import logging
 import os
 import re
@@ -19,12 +18,12 @@ from .ximpl import implementation_option, ImplementationCollection, json_sanitiz
 
 
 SAMPLE_FOLDER = runez.log.tests_path("samples")
+K_DESERIALIZED = "json"
+K_TOKEN = "token"
 
 
 def ignored_dirs(names):
-    for name in names:
-        if name.startswith("."):
-            yield Sample(name)
+    return [name for name in names if name.startswith(".")]
 
 
 def scan_samples(sample_name):
@@ -36,13 +35,15 @@ def scan_samples(sample_name):
         yield Sample(sample_name)
         return
 
-    folder = SAMPLE_FOLDER
-    if os.path.isdir(sample_name):
-        folder = sample_name
+    folder = os.path.join(SAMPLE_FOLDER, sample_name)
+    if os.path.isdir(folder):
         sample_name = "all"
 
+    else:
+        folder = SAMPLE_FOLDER
+
     for root, dirs, files in os.walk(folder):
-        for dir_name in list(ignored_dirs(dirs)):
+        for dir_name in ignored_dirs(dirs):
             dirs.remove(dir_name)
 
         for fname in files:
@@ -78,6 +79,9 @@ def stacktrace_option():
 
 def samples_arg(option=False, default=None, count=None, **kwargs):
     def _callback(_ctx, _param, value):
+        if not option and not value:
+            value = default
+
         if count == 1 and hasattr(value, "endswith") and not value.endswith("."):
             value += "."
 
@@ -88,29 +92,32 @@ def samples_arg(option=False, default=None, count=None, **kwargs):
         if not s:
             raise click.BadParameter("No samples match %s" % value)
 
-        if count is not None and 0 < count != len(s):
+        if count and count != len(s):
             raise click.BadParameter("Need exactly %s, filter yielded %s" % (runez.plural(count, "sample"), len(s)))
 
         return s
 
-    kwargs["default"] = default
     kwargs.setdefault("metavar", "SAMPLE")
-
     if option:
+        if default:
+            kwargs["default"] = default
+
         kwargs.setdefault("help", "Sample(s) to use")
         kwargs.setdefault("show_default", True)
         return click.option("--samples", "-s", callback=_callback, **kwargs)
 
+    kwargs.setdefault("nargs", count if count and count >= 1 else -1)
     return click.argument("samples", callback=_callback, **kwargs)
 
 
 @runez.click.group()
+@runez.click.color()
 @runez.click.debug()
 @runez.click.dryrun()
 @runez.click.log()
 def main(debug, log):
     """Troubleshooting commands, useful for iterating on this library"""
-    runez.log.setup(debug=debug, file_location=log, locations=None)
+    runez.log.setup(debug=debug, console_level=logging.INFO, file_location=log, locations=None)
     logging.debug("Running with %s %s", runez.short(sys.executable), ".".join(str(s) for s in sys.version_info))
     runez.Anchored.add([runez.log.project_path(), SAMPLE_FOLDER])
 
@@ -151,7 +158,7 @@ def simplified_date(value):
 @click.option("--untyped", "-u", is_flag=True, help="Parse everything as strings")
 @click.option("--tokens", "-t", is_flag=True, help="Compare tokens")
 @implementation_option(count=2)
-@samples_arg(nargs=-1)
+@samples_arg()
 def diff(compact, untyped, tokens, implementation, samples):
     """Compare deserialization of 2 implementations"""
     stringify = str if untyped else zyaml.decode
@@ -225,13 +232,18 @@ def find_samples(samples):
         print(s)
 
 
-def move(source, dest, basename, extension, subfolder=None):
-    if os.path.isfile(source):
-        if subfolder:
-            dest = os.path.join(dest, subfolder)
+def move_sample_file(sample, dest, kind=None):
+    if kind:
+        extension = ".json"
+        source = sample.expected_path(kind)
+        dest = os.path.join(dest, "_xpct-%s" % kind)
 
-        dest = os.path.join(dest, basename + extension)
-        print("Moving %s -> %s" % (runez.short(source), runez.short(dest)))
+    else:
+        extension = ".yml"
+        source = sample.path
+
+    if os.path.isfile(source):
+        dest = os.path.join(dest, sample.basename + extension)
         runez.move(source, dest)
 
 
@@ -249,9 +261,9 @@ def mv(samples, category):
     if not os.path.isdir(dest):
         sys.exit("No folder %s" % runez.short(dest))
 
-    move(sample.path, dest, sample.basename, ".yml")
-    move(sample.expected_path, dest, sample.basename, ".json", subfolder="_xpct-json")
-    move(sample.expected_path, dest, sample.basename, ".txt", subfolder="_xpct-token")
+    move_sample_file(sample, dest)
+    move_sample_file(sample, dest, kind=K_DESERIALIZED)
+    move_sample_file(sample, dest, kind=K_TOKEN)
 
 
 @main.command(name="print")
@@ -314,25 +326,68 @@ def quick_bench(iterations, size):
     print(bench.report())
 
 
-@main.command()
-@stacktrace_option()
-@implementation_option(count=1, default="zyaml")
-@samples_arg(default=TESTED_SAMPLES)
-def refresh(stacktrace, implementation, samples):
-    """Refresh expected json for each sample"""
+def _clean(verbose=True):
+    cleanable = []
     for root, dirs, files in os.walk(SAMPLE_FOLDER):
-        if root.startswith("_xpct-"):
+        if os.path.basename(root).startswith("_xpct-"):
             for fname in files:
                 ypath = os.path.dirname(root)
                 ypath = os.path.join(ypath, "%s.yml" % runez.basename(fname))
                 if not os.path.isfile(ypath):
                     # Delete _xpct-* files that correspond to moved samples
-                    jpath = os.path.join(root, fname)
-                    print("Deleting %s" % runez.short(jpath))
-                    os.unlink(jpath)
+                    cleanable.append(os.path.join(root, fname))
 
+    if not cleanable and verbose:
+        print("No cleanable _xpct- files found")
+        return
+
+    for path in cleanable:
+        runez.delete(path, logger=logging.info)
+
+    print("%s cleaned" % runez.plural(cleanable, "file"))
+
+
+@main.command()
+def clean():
+    _clean(verbose=True)
+
+
+@main.command()
+@click.option("--tokens", "-t", is_flag=True, help="Refresh tokens only")
+@samples_arg(default=TESTED_SAMPLES)
+def replay(tokens, samples):
+    kinds = []
+    if tokens:
+        kinds.append(K_TOKEN)
+
+    skipped = 0
     for sample in samples:
-        sample.refresh(impl=implementation, stacktrace=stacktrace)
+        report = sample.replay(*kinds)
+        if report is runez.UNSET:
+            skipped += 1
+            report = " %s" % runez.yellow("skipped")
+
+        elif report:
+            report = "\n%s" % "\n".join("  %s" % s for s in report.splitlines())
+
+        else:
+            report = " %s" % runez.green("OK")
+
+        print("** %s:%s" % (runez.bold(sample.name), report))
+
+
+@main.command()
+@click.option("--tokens", "-t", is_flag=True, help="Refresh tokens only")
+@samples_arg(default=TESTED_SAMPLES)
+def refresh(tokens, samples):
+    """Refresh expected json for each sample"""
+    kinds = []
+    if tokens:
+        kinds.append(K_TOKEN)
+
+    _clean(verbose=False)
+    for sample in samples:
+        sample.refresh(*kinds)
 
 
 @contextmanager
@@ -440,26 +495,26 @@ class Sample(object):
         self.name = runez.short(self.path)
         self.category = os.path.dirname(self.name)
         self.key = self.name if "/" in self.name else "./%s" % self.name
-        self._expected = None
+        self._expected = {}
 
     def __repr__(self):
         return self.name
 
-    @property
-    def expected_path(self):
-        return os.path.join(self.folder, "_expected", "%s.json" % self.basename)
+    def expected_path(self, kind):
+        return os.path.join(self.folder, "_xpct-%s" % kind, "%s.json" % self.basename)
 
-    @property
-    def expected(self):
-        if self._expected is None:
-            try:
-                with open(self.expected_path) as fh:
-                    self._expected = json.load(fh)
+    def expected_content(self, kind):
+        path = self.expected_path(kind)
+        content = self._expected.get(kind)
+        if content is not None:
+            return content
 
-            except (OSError, IOError):
-                return runez.UNSET
+        content = runez.UNSET
+        if os.path.exists(path):
+            content = runez.read_json(path)
 
-        return self._expected
+        self._expected[kind] = content
+        return content
 
     def is_match(self, name):
         if name == "all":
@@ -480,19 +535,110 @@ class Sample(object):
         if self.basename.startswith(name) or self.basename.endswith(name):
             return True
 
-    def refresh(self, impl, stacktrace=None):
-        """
-        :param YmlImplementation impl: Implementation to use
-        :param bool stacktrace: If True, don't catch parsing exceptions
-        """
-        result = impl.load(self, stacktrace=stacktrace)
-        rep = impl.json_representation(result)
-        folder = os.path.dirname(self.expected_path)
-        if not os.path.isdir(folder):
-            os.mkdir(folder)
+    def deserialized(self, kind):
+        try:
+            if kind == K_TOKEN:
+                with open(self.path) as fh:
+                    tokens = zyaml.Scanner(fh).tokens()
+                    actual = [str(t) for t in tokens]
 
-        with open(self.expected_path, "w") as fh:
-            fh.write(rep)
+            else:
+                actual = zyaml.load_path(self.path)
+                actual = json_sanitized(actual)
+
+        except zyaml.ParseError as e:
+            actual = {"_error": runez.short(e, size=160)}
+
+        return actual
+
+    def replay(self, *kinds):
+        """
+        Args:
+            kinds: Kinds to replay (json and/or token)
+
+        Returns:
+            (str | runez.UNSET | None): Message explaining why replay didn't yield expected (UNSET if no baseline available)
+        """
+        if not kinds:
+            kinds = (K_DESERIALIZED, K_TOKEN)
+
+        problem = runez.UNSET
+        for kind in kinds:
+            expected = self.expected_content(kind)
+            if expected is not None and expected is not runez.UNSET:
+                actual = self.deserialized(kind)
+                problem = textual_diff(kind, actual, expected)
+                if problem:
+                    return problem
+
+        return problem
+
+    def refresh(self, *kinds):
+        """
+        Args:
+            kinds: Kinds to replay (json and/or token)
+        """
+        if not kinds:
+            kinds = (K_DESERIALIZED, K_TOKEN)
+
+        for kind in kinds:
+            actual = self.deserialized(kind)
+            path = self.expected_path(kind)
+            runez.save_json(actual, path, keep_none=True)
+
+
+def diff_overview(kind, actual, expected, message):
+    report = ["[%s] %s" % (kind, message)]
+    if actual is not None:
+        report.append("actual: %s" % actual)
+
+    if expected is not None:
+        report.append("expected: %s" % expected)
+
+    return "\n".join(report)
+
+
+def textual_diff(kind, actual, expected):
+    actual_error = isinstance(actual, dict) and actual.get("_error") or None
+    expected_error = isinstance(expected, dict) and expected.get("_error") or None
+    if actual_error != expected_error:
+        if actual_error:
+            return diff_overview(kind, actual_error, expected_error, "deserialization failed")
+
+        return diff_overview(kind, actual_error, expected_error, "deserialization did NOT yield expected error")
+
+    if type(actual) != type(expected):
+        return diff_overview(kind, type(actual), type(expected), "differing types")
+
+    if kind == K_TOKEN:
+        actual = "\n".join(actual)
+        expected = "\n".join(expected)
+
+    else:
+        actual = runez.represented_json(actual, keep_none=True)
+        expected = runez.represented_json(expected, keep_none=True)
+
+    if actual != expected:
+        with runez.TempFolder(dryrun=False):
+            runez.write("actual", actual)
+            runez.write("expected", expected)
+            r = runez.run("diff", "-br", "-U1", "expected", "actual", fatal=None, dryrun=False)
+            return formatted_diff(r.full_output)
+
+
+def formatted_diff(text):
+    if text:
+        result = []
+        for line in text.splitlines():
+            if line.startswith("--- expected"):
+                line = "--- expected"
+
+            elif line.startswith("+++ actual"):
+                line = "+++ actual"
+
+            result.append(line.strip())
+
+        return "\n".join(result)
 
 
 if __name__ == "__main__":

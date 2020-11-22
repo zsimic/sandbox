@@ -1,4 +1,3 @@
-import json
 import math
 
 import pytest
@@ -6,41 +5,19 @@ import runez
 
 import zyaml
 
-from .conftest import get_samples
-from .ximpl import json_sanitized, ZyamlImplementation
-
 
 pytestmark = pytest.mark.skip("broken after refactor")
 
 
 def test_samples(all_samples):
-    skipped = 0
-    impl = ZyamlImplementation()
+    skipped = []
     for sample in all_samples:
-        result = impl.load(sample, stacktrace=False)
-        payload = result.json_payload()
-        expected = sample.expected
-        payload = json_sanitized(payload)
-        expected = json_sanitized(expected)
-        if expected is runez.UNSET:
-            skipped += 1
-            continue
-
-        # jsonify to avoid diffs on inf/nan floats
-        jpayload = json.dumps(payload, sort_keys=True, indent=2)
-        jexpected = json.dumps(expected, sort_keys=True, indent=2)
-        assert jpayload == jexpected, "Failed sample %s" % sample
+        problem = sample.replay()
+        assert not problem
+        if problem is runez.UNSET:
+            skipped.append(sample)
 
     assert skipped == 0, "Skipped %s tests, please refresh" % skipped
-
-
-def test_load():
-    for sample in get_samples("2.1"):
-        data = zyaml.load_path(sample.path)
-        data = json_sanitized(data)
-        expected = sample.expected
-        expected = json_sanitized(expected)
-        assert data == expected
 
 
 def loaded(text):

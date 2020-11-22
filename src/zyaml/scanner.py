@@ -113,8 +113,11 @@ class FlowScanner(object):
 
 
 class Scanner(object):
-    def __init__(self, contents):
-        self.generator = enumerate(contents.splitlines(), start=1)
+    def __init__(self, stream):
+        if hasattr(stream, "splitlines"):
+            stream = stream.splitlines()
+
+        self.generator = enumerate(stream, start=1)
         self.block_scanner = BlockScanner(self)
         self.flow_scanner = FlowScanner(self)
         self.is_block_mode = True
