@@ -59,6 +59,7 @@ def trace(message, *args):
     if DEBUG:
         if args:
             message = message.format(*args)
+
         sys.stderr.write(":: %s\n" % message)
         sys.stderr.flush()
 
@@ -67,6 +68,7 @@ def shortened(text, size=32):  # type: (str, int) -> str
     text = str(text)
     if not text or len(text) < size:
         return text
+
     return "%s..." % text[:size]
 
 
@@ -79,6 +81,7 @@ def decode(value):
     """Python 2/3 friendly decoding of output"""
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="ignore")
+
     return value
 
 
@@ -86,7 +89,9 @@ def _dbg_repr(value):
     if isinstance(value, tuple):
         if value[1] is None or value[1] is False:
             return "" if len(value) < 3 else value[2]
+
         return value[0]
+
     return str(value)
 
 
@@ -98,10 +103,13 @@ def represented_scalar(style, value):
     if style == "'":
         return "'%s'" % value.replace("'", "''").replace("\n", "\\n")
 
-    if style is None or style == '"':
+    if style == '"':
         return double_quoted(value)
 
-    return "%s %s" % (style, double_quoted(value))
+    if style:
+        return "%s %s" % (style, double_quoted(value))
+
+    return str(value)
 
 
 class ParseError(Exception):
@@ -115,44 +123,55 @@ class ParseError(Exception):
         coords = ""
         if self.linenum is not None:
             coords += " line %s" % self.linenum
+
         if self.column is not None:
             coords += " column %s" % self.column
+
         if coords:
             coords = ",%s" % coords
+
         return "".join((self.message, coords))
 
     def complete_coordinates(self, linenum, column):
         if self.linenum is None and isinstance(linenum, int):
             self.linenum = linenum
+
         if self.column is None and isinstance(column, int):
             self.column = column
 
     def auto_complete(self, *context):
         if not context:
             return
+
         if len(context) == 2:
             self.complete_coordinates(context[0], context[1] + 1 if isinstance(context[1], int) else None)
             return
+
         for c in context:
             column = getattr(c, "column", None)
             if column is None:
                 column = getattr(c, "indent", None)
                 if column is not None:
                     column = column + 1
+
             self.complete_coordinates(getattr(c, "linenum", None), column)
 
 
 def to_float(text):  # type: (str) -> float
     try:
         return float(text)
+
     except ValueError:
         if len(text) >= 3:
             if text[0] == "0":
                 if text[1] == "o":
                     return int(text, base=8)
+
                 if text[1] == "x":
                     return int(text, base=16)
+
             return float(text.replace(".", ""))  # Edge case: "-.inf"
+
         raise
 
 
@@ -160,6 +179,7 @@ def to_number(text):  # type: (str) -> Union[int, float]
     text = cleaned_number(text)
     try:
         return int(text)
+
     except ValueError:
         return to_float(text)
 
@@ -167,8 +187,10 @@ def to_number(text):  # type: (str) -> Union[int, float]
 def get_tzinfo(text):  # type: (str) -> Optional[datetime.tzinfo]
     if text is None:
         return None
+
     if text == "Z":
         return UTC
+
     hours, _, minutes = text.partition(":")
     minutes = int(minutes) if minutes else 0
     offset = int(hours) * 3600 + minutes * 60
@@ -178,22 +200,28 @@ def get_tzinfo(text):  # type: (str) -> Optional[datetime.tzinfo]
 def default_marshal(text):  # type: (Optional[str]) -> Union[str, int, float, list, dict, datetime.date, datetime.datetime]
     if not text:
         return text
+
     match = RE_SIMPLE_SCALAR.match(text)
     if match is None:
         return text
+
     _, constant, number, _, _, y, m, d, _, hh, mm, ss, sf, _, tz, _, _ = match.groups()
     if constant is not None:
         return CONSTANTS.get(constant.lower(), text)
+
     if number is not None:
         try:
             return to_number(number)
+
         except ValueError:
             return text
+
     y = int(y)
     m = int(m)
     d = int(d)
     if hh is None:
         return datetime.date(y, m, d)
+
     hh = int(hh)
     mm = int(mm)
     ss = int(ss)
@@ -204,14 +232,17 @@ def default_marshal(text):  # type: (Optional[str]) -> Union[str, int, float, li
 def _checked_scalar(value):
     if isinstance(value, list):
         raise ParseError("scalar needed, got list instead")
+
     if isinstance(value, dict):
         raise ParseError("scalar needed, got map instead")
+
     return value
 
 
 def _checked_type(value, expected_type):
     if not isinstance(value, expected_type):
         raise ParseError("Expecting %s, got %s" % (expected_type.__name__, type(value).__name__))
+
     return value
 
 
@@ -220,6 +251,7 @@ class DefaultMarshaller:
     def get_marshaller(name):
         if not name:
             return DefaultMarshaller.non_specific
+
         return getattr(DefaultMarshaller, name, None)
 
     @staticmethod
@@ -234,11 +266,14 @@ class DefaultMarshaller:
     def omap(value):
         if isinstance(value, dict):
             return value
+
         if isinstance(value, list):
             result = {}
             for item in value:
                 result.update(item)
+
             return result
+
         raise ParseError("Can't transform %s to an ordered map" % type(value).__name__)
 
     @staticmethod
@@ -249,6 +284,7 @@ class DefaultMarshaller:
     def set(value):
         if isinstance(value, dict):
             value = list(value.keys())
+
         return set(_checked_type(value, list))
 
     @staticmethod
@@ -269,6 +305,7 @@ class DefaultMarshaller:
         value = CONSTANTS.get(_checked_scalar(value).lower())
         if isinstance(value, bool):
             return value
+
         raise ValueError()
 
     @staticmethod
@@ -280,6 +317,7 @@ class DefaultMarshaller:
         value = default_marshal(_checked_scalar(value))
         if isinstance(value, datetime.datetime) or isinstance(value, datetime.date):
             return value
+
         raise ValueError()
 
     @staticmethod
@@ -294,6 +332,7 @@ class Marshallers(object):
     def get_marshaller(cls, text):
         if text.startswith("!"):
             text = text[1:]
+
         prefix, _, name = text.partition("!")
         provider = cls.providers.get(prefix)
         if provider:

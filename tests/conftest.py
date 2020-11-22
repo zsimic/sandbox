@@ -337,8 +337,10 @@ def _clean(verbose=True):
                     # Delete _xpct-* files that correspond to moved samples
                     cleanable.append(os.path.join(root, fname))
 
-    if not cleanable and verbose:
-        print("No cleanable _xpct- files found")
+    if not cleanable:
+        if verbose:
+            print("No cleanable _xpct- files found")
+
         return
 
     for path in cleanable:
