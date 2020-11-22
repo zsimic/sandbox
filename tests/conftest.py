@@ -106,6 +106,7 @@ def samples_arg(option=False, default=None, count=None, **kwargs):
 
 @runez.click.group()
 @runez.click.debug()
+@runez.click.dryrun()
 @runez.click.log()
 def main(debug, log):
     """Troubleshooting commands, useful for iterating on this library"""
@@ -249,7 +250,8 @@ def mv(samples, category):
         sys.exit("No folder %s" % runez.short(dest))
 
     move(sample.path, dest, sample.basename, ".yml")
-    move(sample.expected_path, dest, sample.basename, ".json", subfolder="_expected")
+    move(sample.expected_path, dest, sample.basename, ".json", subfolder="_xpct-json")
+    move(sample.expected_path, dest, sample.basename, ".txt", subfolder="_xpct-token")
 
 
 @main.command(name="print")
@@ -319,12 +321,12 @@ def quick_bench(iterations, size):
 def refresh(stacktrace, implementation, samples):
     """Refresh expected json for each sample"""
     for root, dirs, files in os.walk(SAMPLE_FOLDER):
-        if root.endswith("_expected"):
+        if root.startswith("_xpct-"):
             for fname in files:
                 ypath = os.path.dirname(root)
-                ypath = os.path.join(ypath, fname.replace(".json", ".yml"))
+                ypath = os.path.join(ypath, "%s.yml" % runez.basename(fname))
                 if not os.path.isfile(ypath):
-                    # Delete _expected json files for yml files that have been moved
+                    # Delete _xpct-* files that correspond to moved samples
                     jpath = os.path.join(root, fname)
                     print("Deleting %s" % runez.short(jpath))
                     os.unlink(jpath)

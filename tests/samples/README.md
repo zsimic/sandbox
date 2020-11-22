@@ -19,20 +19,22 @@ Regular `test_` files are exercised on each commit.
 There is an extra `./run` command that provides useful things while developing, see `./run --help`:
 - all commands can use various other python yaml implementations (such as ruamel, pyyaml, poyo and strictyaml)
 - all commands can be scoped to a subset of samples
-- commands: 
+- commands:
     - **benchmark**: compare how long it takes to deserialize yaml files using the different python yaml libs
     - **diff**: see diff on how 2 python yaml implementations deserialize a sample
     - **find-samples**: see which samples are used (given a filter)
-    - **refresh**: regenerate `test/samples/*/_expected/*.json`
+    - **refresh**: regenerate `test/samples/*/_xpct-*`
     - **show**: show how given sample(s) are deserialized (json representation)
     - **tokens**: see parse tokens (implemented for pyyaml and zyaml only for now)
 
 Tests exercise all samples, and verify that the outcome is as expected
 - each `.yml` sample is deserialized with this library
 - then serialized back to json
-- that deserialization is then compared with the recorded corresponding `./_expected/sample-N.n.json`
+- that deserialization is then compared with the recorded corresponding:
+  - `./_xpct-json/sample-N.n.json`
+  - `./_xpct-token/sample-N.n.txt`
 
-If outcome is expected to change, one can run `./run refresh` to refresh all `*/_expected/*.json` files.
+If outcome is expected to change, one can run `./run refresh` to refresh all `*/_xpct-*` files.
 Verify that the new outcome is correct with `git diff`.
 
 # Examples
