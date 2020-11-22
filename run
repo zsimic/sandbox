@@ -11,35 +11,33 @@ import sys
 
 SCRIPT_PATH = os.path.abspath(__file__)
 PROJECT_FOLDER = os.path.dirname(SCRIPT_PATH)
-TESTS_FOLDER = os.path.join(PROJECT_FOLDER, "tests")
+RECURSION_MARKER = "--qqnr"
 
+if "__PYVENV_LAUNCHER__" in os.environ:
+    del os.environ["__PYVENV_LAUNCHER__"]  # See https://github.com/python/cpython/pull/9516
 
-def try_venv(*paths):
-    """Conveniently rerun this script from a venv, if possible (otherwise complain)"""
-    for path in paths:
+if not sys.exec_prefix.startswith(PROJECT_FOLDER):
+    # We're not running from venv
+    if RECURSION_MARKER in sys.argv:
+        sys.exit("Something's wrong, recursive call")
+
+    venvs = (".venv", ".tox/py39", ".tox/py27")
+    for path in venvs:
         folder = os.path.join(PROJECT_FOLDER, path)
         pyexe = os.path.join(folder, "bin", "python")
         if os.path.isfile(pyexe):
-            args = [pyexe, SCRIPT_PATH] + sys.argv[1:]
-            r = subprocess.run(args)
-            sys.exit(r.returncode)
-    sys.exit("Please build a venv first in one of: %s" % ", ".join(paths))
+            args = [pyexe, SCRIPT_PATH, RECURSION_MARKER] + sys.argv[1:]
+            p = subprocess.Popen(args)
+            p.communicate()
+            sys.exit(p.returncode)
 
+    sys.exit("Please build a venv first in one of: %s" % ", ".join(venvs))
 
-if not sys.exec_prefix.startswith(PROJECT_FOLDER):
-    try_venv(".venv", ".tox/py37", ".tox/py36", ".tox/py27")
+if PROJECT_FOLDER not in sys.path:
+    sys.path.append(PROJECT_FOLDER)
 
+if RECURSION_MARKER in sys.argv:
+    sys.argv.remove(RECURSION_MARKER)
 
-if TESTS_FOLDER not in sys.path:
-    venv = os.path.join(sys.base_prefix, "bin")
-    os.environ["PATH"] = "%s:%s" % (venv, os.environ["PATH"])
-    sys.path.append(TESTS_FOLDER)
-
-
-try:
-    from . import conftest
-except (ImportError, ValueError):
-    import conftest
-
-
-conftest.main()
+from tests.conftest import main  # noqa
+main()
