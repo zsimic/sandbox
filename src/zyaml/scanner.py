@@ -140,7 +140,7 @@ class Scanner(object):
         self.mode = self.block_scanner
         self.line_regex = RE_BLOCK_SEP
         self.flow_ender = collections.deque()
-        self.started_doc = False
+        self.started_doc = None
         self.simple_key = None
         self.tokenizer_map = {
             "!": TagToken,
@@ -172,8 +172,8 @@ class Scanner(object):
 
     def pass2_docstart(self, token, pop_simple_key=True):
         if not self.started_doc:
-            self.started_doc = True
-            yield DocumentStartToken(self, token.linenum, 0)
+            self.started_doc = token if isinstance(token, DocumentStartToken) else DocumentStartToken(self, token.linenum, 0)
+            yield self.started_doc
 
         s = self.simple_key
         if s is not None and (pop_simple_key or token.indent < s.indent):
@@ -186,12 +186,11 @@ class Scanner(object):
             self.simple_key = None
 
         if self.started_doc:
-            self.started_doc = False
+            self.started_doc = None
             for t in self.block_scanner.pass2_pop_all(token):
                 yield t
 
-            if not isinstance(token, DocumentEndToken):
-                yield DocumentEndToken(self, token.linenum + 1, 0)
+            yield token if isinstance(token, DocumentEndToken) else DocumentEndToken(self, token.linenum + 1, 0)
 
     def push_flow_ender(self, ender):
         if self.is_block_mode:

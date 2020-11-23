@@ -85,9 +85,6 @@ class DirectiveToken(Token):
 
         return self.name
 
-    def second_pass(self, scanner):
-        yield self
-
 
 class FlowMapToken(Token):
     mnemonic = "{"
@@ -209,8 +206,8 @@ class AliasToken(Token):
         super(AliasToken, self).__init__(scanner, linenum, indent)
         self.anchor = text[1:]
 
-    def represented_value(self):
-        return "*%s" % self.anchor
+    def __repr__(self):
+        return "AliasToken[%s,%s] *%s" % (self.linenum, self.column, self.anchor)
 
     def resolved_value(self, clean):
         if not clean:

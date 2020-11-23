@@ -23,6 +23,12 @@ def tokens(text, ignored=None, stringify=str):
         return str(e)
 
 
+def test_anchors():
+    assert tokens("*foo") == "AliasToken[1,1] *foo"
+    assert tokens("&foo") == "AnchorToken[1,1] &foo"
+    assert tokens("!foo") == "TagToken[1,1] !foo"
+
+
 def test_directives():
     assert tokens("%YAML") == "DirectiveToken[1,1] YAML"
     assert tokens("%YAML   1.2") == "DirectiveToken[1,1] YAML 1.2"
@@ -35,7 +41,50 @@ def test_directives():
     assert tokens("%YAML foo # bar") == "DirectiveToken[1,1] YAML foo"
 
 
-def test_flow():
+def test_document_markers():
+    assert tokens("---\n...", ignored=[]) == [
+        "StreamStartToken[1,1]",
+        "DocumentStartToken[1,1]",
+        "DocumentEndToken[2,1]",
+        "StreamEndToken[2,1]",
+    ]
+    assert tokens("foo", ignored=[]) == [
+        "StreamStartToken[1,1]",
+        "DocumentStartToken[1,1]",
+        "ScalarToken[1,1] foo",
+        "DocumentEndToken[2,1]",
+        "StreamEndToken[2,1]",
+    ]
+    assert tokens("foo\n---\nbar", ignored=[]) == [
+        "StreamStartToken[1,1]",
+        "DocumentStartToken[1,1]",
+        "ScalarToken[1,1] foo",
+        "DocumentEndToken[3,1]",
+        "DocumentStartToken[2,1]",
+        "ScalarToken[3,1] bar",
+        "DocumentEndToken[3,1]",
+        "StreamEndToken[3,1]",
+    ]
+    assert tokens("foo\n...\n---\nbar", ignored=[]) == [
+        "StreamStartToken[1,1]",
+        "DocumentStartToken[1,1]",
+        "ScalarToken[1,1] foo",
+        "DocumentEndToken[2,1]",
+        "DocumentStartToken[3,1]",
+        "ScalarToken[4,1] bar",
+        "DocumentEndToken[4,1]",
+        "StreamEndToken[4,1]",
+    ]
+    assert tokens("---\nfoo\n...", ignored=[]) == [
+        "StreamStartToken[1,1]",
+        "DocumentStartToken[1,1]",
+        "ScalarToken[2,1] foo",
+        "DocumentEndToken[3,1]",
+        "StreamEndToken[3,1]",
+    ]
+
+
+def test_flow_tokens():
     assert tokens("-") == ["BlockSeqToken[1,2]", "DashToken[1,1]", "BlockEndToken[1,2]"]
     assert tokens("a: b") == [
         "BlockMapToken[1,1]",
@@ -75,23 +124,30 @@ def test_flow():
         "FlowEndToken[1,14] ]",
     ]
 
+
+def test_invalid():
+    assert tokens(": foo") == "Incomplete explicit mapping pair"
+    assert tokens("...") == "Document end without start"
+
+
+def test_partial():
+    assert tokens("foo") == "ScalarToken[1,1] foo"
+    assert tokens("'foo'") == "ScalarToken[1,2] 'foo'"
+    assert tokens("a:") == [
+        "BlockMapToken[1,1]",
+        "KeyToken[1,1]",
+        "ScalarToken[1,1] a",
+        "ValueToken[1,2]",
+        "BlockEndToken[1,1]"
+    ]
+    assert tokens("", ignored=[]) == [
+        "StreamStartToken[1,1]",
+        "StreamEndToken[1,1]"
+    ]
     # Invalid document, but valid tokenization
     assert tokens("[a, -") == [
         'FlowSeqToken[1,1] [',
         'ScalarToken[1,2] a',
         'CommaToken[1,3] ,',
         'ScalarToken[1,5] -',
-    ]
-
-    # Including stream/document flow
-    assert tokens("", ignored=[]) == [
-        "StreamStartToken[1,1]",
-        "StreamEndToken[1,1]"
-    ]
-    assert tokens("foo", ignored=[]) == [
-        "StreamStartToken[1,1]",
-        "DocumentStartToken[1,1]",
-        "ScalarToken[1,1] foo",
-        "DocumentEndToken[2,1]",
-        "StreamEndToken[2,1]",
     ]
