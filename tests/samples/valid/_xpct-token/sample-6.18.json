@@ -1,0 +1,13 @@
+[
+  "StreamStartToken[1,1]",
+  "DocumentStartToken[2,1]",
+  "TagToken[2,1] !foo",
+  "ScalarToken[2,7] \"bar\"",
+  "DocumentEndToken[3,1]",
+  "DirectiveToken[5,1] TAG ! tag:example.com,2000:app/",
+  "DocumentStartToken[6,1]",
+  "TagToken[7,1] !foo",
+  "ScalarToken[7,7] \"bar\"",
+  "DocumentEndToken[8,1]",
+  "StreamEndToken[8,1]"
+]

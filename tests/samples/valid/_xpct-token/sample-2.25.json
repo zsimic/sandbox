@@ -1,0 +1,15 @@
+[
+  "StreamStartToken[1,1]",
+  "DocumentStartToken[4,1]",
+  "TagToken[4,5] !!set",
+  "BlockSeqToken[5,1]",
+  "KeyToken[5,1]",
+  "ScalarToken[5,3] Mark McGwire",
+  "KeyToken[6,1]",
+  "ScalarToken[6,3] Sammy Sosa",
+  "KeyToken[7,1]",
+  "ScalarToken[7,3] Ken Griff",
+  "BlockEndToken[7,1]",
+  "DocumentEndToken[8,1]",
+  "StreamEndToken[8,1]"
+]

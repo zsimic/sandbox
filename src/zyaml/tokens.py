@@ -5,7 +5,7 @@ RE_COMMENT = re.compile(r"\s+#.*$")
 
 
 class Token(object):
-    """Scanned token, visitor pattern is used for parsing"""
+    """Represents one scanned token"""
 
     def __init__(self, scanner, linenum, indent, value=None):
         self.linenum = linenum
@@ -29,7 +29,8 @@ class Token(object):
 
     def second_pass(self, scanner):
         """
-        :param zyaml.Scanner scanner: Groom tokens like doc start/end, block start/end, validate indentation etc
+        Args:
+            scanner (zyaml.Scanner): Groom tokens like doc start/end, block start/end, validate indentation etc
         """
         for t in scanner.pass2_docstart(self):
             yield t
@@ -85,6 +86,18 @@ class DirectiveToken(Token):
 
         return self.name
 
+    def second_pass(self, scanner):
+        if scanner.started_doc:
+            raise ParseError("Directives allowed only at document start")
+
+        if self.name == "YAML":
+            if scanner.yaml_directive:
+                raise ParseError("Only one YAML directive is allowed")
+
+            scanner.yaml_directive = self
+
+        yield self
+
 
 class FlowMapToken(Token):
     mnemonic = "{"
@@ -113,7 +126,14 @@ class CommaToken(Token):
 
 
 class ExplicitMapToken(Token):
-    pass
+    def second_pass(self, scanner):
+        for t in scanner.pass2_docstart(self):
+            yield t
+
+        for t in scanner.mode.pass2_structure(self, BlockSeqToken):
+            yield t
+
+        yield KeyToken(scanner, self.linenum, self.indent)
 
 
 class BlockEndToken(Token):
@@ -220,6 +240,7 @@ class ScalarToken(Token):
     def __init__(self, scanner, linenum, indent, text, style=None):
         super(ScalarToken, self).__init__(scanner, linenum, indent, text)
         self.style = style
+        self.multiline = False
 
     def represented_value(self):
         return represented_scalar(self.style, self.value)
@@ -239,14 +260,11 @@ class ScalarToken(Token):
             self.value = text
 
         elif text:
+            self.multiline = True
             self.value = "%s %s" % (self.value, text)
 
     def second_pass(self, scanner):
         for t in scanner.pass2_docstart(self, pop_simple_key=self.style is not None):
             yield t
 
-        if self.style is not None:
-            yield self
-
-        else:
-            scanner.add_simple_key(self)
+        scanner.add_simple_key(self)

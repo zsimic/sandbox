@@ -1,0 +1,7 @@
+[
+  "StreamStartToken[1,1]",
+  "DocumentStartToken[2,1]",
+  "ScalarToken[2,3] | \"\\\\//||\\\\/||\\n\\n// ||  ||__\\n\"",
+  "DocumentEndToken[3,1]",
+  "StreamEndToken[3,1]"
+]

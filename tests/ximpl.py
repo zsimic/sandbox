@@ -306,7 +306,11 @@ class PyyamlBaseImplementation(YmlImplementation):
 
             elif token.id == "<tag>":
                 assert isinstance(value, tuple)
-                value = "".join(value)
+                value = " ".join(str(s) for s in runez.flattened(value))
+
+            elif token.id == "<directive>":
+                result += " %s" % token.name
+                value = " ".join(str(s) for s in runez.flattened(value))
 
             else:
                 assert False

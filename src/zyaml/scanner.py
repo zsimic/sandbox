@@ -16,13 +16,16 @@ RE_CONTENT = re.compile(r"\s*(.*?)\s*$")
 
 def yaml_lines(lines, text=None, indent=None, folded=None, keep=False, continuations=False):
     """
-    :param list lines: Lines to concatenate together
-    :param str|None text: Initial line (optional)
-    :param int|None indent: If not None, we're doing a block scalar
-    :param bool folded: If True, we're doing a folded block scalar (marked by `>`)
-    :param bool keep: If True, keep trailing newlines
-    :param bool continuations: If True, respect end-of-line continuations (marked by `\\`)
-    :return str: Concatenated string, with yaml's weird convention
+    Args:
+        lines (list): Lines to concatenate together
+        text (str | None): Initial line (optional)
+        indent (int | None): If not None, we're doing a block scalar
+        folded (bool): If True, we're doing a folded block scalar (marked by `>`)
+        keep (bool): If True, keep trailing newlines
+        continuations (bool): If True, respect end-of-line continuations (marked by `\\`)
+
+    Returns:
+        (str): Concatenated string, with yaml's weird convention
     """
     empty = 0
     was_over_indented = False
@@ -140,6 +143,8 @@ class Scanner(object):
         self.mode = self.block_scanner
         self.line_regex = RE_BLOCK_SEP
         self.flow_ender = collections.deque()
+        self.yaml_directive = None
+        self.directives = None
         self.started_doc = None
         self.simple_key = None
         self.tokenizer_map = {
@@ -168,6 +173,9 @@ class Scanner(object):
     def popped_simple_key(self):
         s = self.simple_key
         self.simple_key = None
+        if s is not None and s.multiline:
+            raise ParseError("Keys must be single line")
+
         return s
 
     def pass2_docstart(self, token, pop_simple_key=True):
@@ -273,6 +281,7 @@ class Scanner(object):
                     if lines is not None:
                         lines.append(text)
                         text = yaml_lines(lines, keep=True)
+                        token.multiline = True
 
                     token.value = text.replace("''", "'")
                     m = RE_CONTENT.match(line_text, quote_pos + 1)

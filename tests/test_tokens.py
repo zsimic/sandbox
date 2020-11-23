@@ -126,12 +126,13 @@ def test_flow_tokens():
 
 
 def test_invalid():
+    assert tokens(":") == "Incomplete explicit mapping pair"
     assert tokens(": foo") == "Incomplete explicit mapping pair"
     assert tokens("...") == "Document end without start"
 
 
 def test_partial():
-    assert tokens("foo") == "ScalarToken[1,1] foo"
+    assert tokens(",") == "ScalarToken[1,1] ,"
     assert tokens("'foo'") == "ScalarToken[1,2] 'foo'"
     assert tokens("a:") == [
         "BlockMapToken[1,1]",
@@ -140,7 +141,16 @@ def test_partial():
         "ValueToken[1,2]",
         "BlockEndToken[1,1]"
     ]
+    assert tokens("[,]") == [
+        "FlowSeqToken[1,1] [",
+        "CommaToken[1,2] ,",
+        "FlowEndToken[1,3] ]",
+    ]
     assert tokens("", ignored=[]) == [
+        "StreamStartToken[1,1]",
+        "StreamEndToken[1,1]"
+    ]
+    assert tokens("# Comment only", ignored=[]) == [
         "StreamStartToken[1,1]",
         "StreamEndToken[1,1]"
     ]
