@@ -65,25 +65,25 @@ class DocumentEndToken(Token):
 
 class DirectiveToken(Token):
     def __init__(self, scanner, linenum, indent, text):
+        if indent != 1:
+            raise ParseError("Directive must not be indented")
+
+        text = text[1:]
         m = RE_COMMENT.search(text)
         if m is not None:
             text = text[:m.start()]
 
-        if text.startswith("%YAML"):
-            self.name = "%YAML"
-            text = text[5:].strip()
+        self.name, _, text = text.partition(" ")
+        if not self.name:
+            raise ParseError("Invalid directive")
 
-        elif text.startswith("%TAG"):
-            self.name = "%TAG"
-            text = text[4:].strip()
-
-        else:
-            self.name, _, text = text.partition(" ")
-
-        super(DirectiveToken, self).__init__(scanner, linenum, indent, text.strip())
+        super(DirectiveToken, self).__init__(scanner, linenum, 0, text.strip())
 
     def represented_value(self):
-        return "%s %s" % (self.name, self.value)
+        if self.value:
+            return "%s %s" % (self.name, self.value)
+
+        return self.name
 
     def second_pass(self, scanner):
         yield self

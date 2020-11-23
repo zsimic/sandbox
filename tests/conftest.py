@@ -278,11 +278,13 @@ def print_(tokens, stacktrace, implementation, text):
     print("--- raw:\n%s" % text)
     for impl in implementation:
         assert isinstance(impl, YmlImplementation)
-        if tokens and impl.name == "zyaml":
+        header = "%s" % impl
+        if tokens:
             result = "\n".join(str(s) for s in impl.tokens(text, stacktrace=stacktrace))
-            print("---- %s tokens:\n%s" % (impl, result))
+            header += " tokens"
+            rtype = ""
 
-        if stacktrace:
+        elif stacktrace:
             data = impl.load_string(text)
             rtype = data.__class__.__name__ if data is not None else "None"
             result = impl.json_representation(ParseResult(impl, None, data=data))[:-1]
@@ -299,7 +301,7 @@ def print_(tokens, stacktrace, implementation, text):
                 result = re.sub(r"\s+", " ", result)
                 result = runez.short(result)
 
-        print("---- %s: %s\n%s" % (impl, rtype, result))
+        print("---- %s: %s\n%s" % (header, rtype, result))
 
 
 def _bench1(size):

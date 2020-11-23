@@ -471,6 +471,7 @@ class Scanner(object):
 
             elif matched[-1] == "%":
                 yield None, DirectiveToken(self, linenum, end, line_text)
+                line_text = None
 
             else:
                 assert matched[-1] == "#"
