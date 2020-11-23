@@ -42,8 +42,10 @@ class StackedDocument(object):
     def under_ranks(self, indent):
         if indent is None:
             return self.indent is not None
+
         elif self.indent is None:
             return False
+
         return self.indent > indent
 
     def consume_dash(self, token):
@@ -53,8 +55,10 @@ class StackedDocument(object):
         value = self.value
         if self.tag_token is not None:
             value = self.tag_token.marshalled(value)
+
         if self.anchor_token is not None:
             self.root.anchors[self.anchor_token.value] = value
+
         return value
 
     def mark_open(self, token):
@@ -68,11 +72,13 @@ class StackedDocument(object):
         self.root.pop_until(ei)
         if self.root.head.indent != ei:
             self.root.push(StackedMap(ei))
+
         self.root.head.take_key(element)
 
     def take_value(self, element):
         if self.value is not None:
             raise ParseError("Document separator expected", element)
+
         self.check_value_indentation(element.indent)
         self.value = element.resolved_value()
 
@@ -101,6 +107,7 @@ class StackedScalar(StackedDocument):
     def consume_scalar(self, token):
         if self.prev.indent is None:
             raise ParseError("Missing comma between scalars in flow", self.token)
+
         self.root.pop()
         self.root.push(StackedScalar(token))
 
@@ -119,8 +126,10 @@ class StackedList(StackedDocument):
         i = self.indent
         if i is None:
             raise ParseError("Block not allowed in flow")
+
         if i == token.indent:
             return
+
         self.root.push(StackedList(token.indent))
 
     def mark_as_key(self, token):
@@ -133,13 +142,16 @@ class StackedList(StackedDocument):
         self.root.pop_until(ei)
         if self.root.head.indent != ei:
             self.root.push(StackedMap(ei))
+
         if self.root.head is self:
             raise ParseError("List values are not allowed here")
+
         self.root.head.take_key(element)
 
     def take_value(self, element):
         if self.closed:
             raise ParseError("Missing comma in list")
+
         self.value.append(element.resolved_value())
         self.closed = self.indent is None
 
@@ -166,19 +178,23 @@ class StackedMap(StackedDocument):
         i = self.indent
         if i is None:
             raise ParseError("Block not allowed in flow")
+
         if i >= token.indent:
             raise ParseError("Bad sequence entry indentation")
+
         self.root.push(StackedList(token.indent))
 
     def resolved_value(self):
         if self.has_key:
             self.add_key_value(self.last_key, None)
+
         return super(StackedMap, self).resolved_value()
 
     def mark_open(self, token):
         if self.has_key:
             self.root.push(new_stacked_scalar(token))
             self.root.pop()
+
         self.closed = False
 
     def mark_as_key(self, token):
@@ -189,10 +205,13 @@ class StackedMap(StackedDocument):
     def add_key_value(self, key, value):
         if self.closed:
             raise ParseError("Missing comma in map")
+
         try:
             self.value[key] = value
+
         except TypeError:
             raise ParseError("Key '%s' is not hashable" % shortened(str(key)))
+
         self.closed = self.indent is None
         self.last_key = None
         self.has_key = False
@@ -203,9 +222,12 @@ class StackedMap(StackedDocument):
             # We're pushing a sub-map of the form "a:\n  b: ..."
             if not self.has_key and ei > self.indent:
                 raise ParseError("Mapping values are not allowed here")
+
             return super(StackedMap, self).take_key(element)
+
         if self.has_key and ei == self.indent:
             self.add_key_value(self.last_key, None)
+
         self.check_key_indentation(ei)
         self.last_key = element.resolved_value()
         self.has_key = True
@@ -214,6 +236,7 @@ class StackedMap(StackedDocument):
         if self.has_key:
             self.check_value_indentation(element.indent)
             self.add_key_value(self.last_key, element.resolved_value())
+
         else:
             self.check_key_indentation(element.indent)
             self.add_key_value(element.resolved_value(), None)
@@ -238,10 +261,12 @@ class ScannerStack(object):
         while head is not None:
             stack.append(head.dbg_representation())
             head = head.prev
+
         result = " / ".join(stack)
         deco = self.represented_decoration()
         if deco:
             result = "%s [%s]" % (result, deco)
+
         return result
 
     def represented_decoration(self):
@@ -259,6 +284,7 @@ class ScannerStack(object):
             setattr(target, name, tag)
             if linenum is not None:
                 target.indent = min(target.indent, tag.indent)
+
             setattr(self, name, getattr(self, secondary_name))
             setattr(self, secondary_name, None)
 
@@ -272,12 +298,15 @@ class ScannerStack(object):
         if tag is not None:
             if tag.linenum == token.linenum or getattr(self, secondary_name) is not None:
                 raise ParseError("Too many %ss" % name.replace("_", " "), token)
+
             setattr(self, secondary_name, tag)
+
         setattr(self, name, token)
 
     def DirectiveToken(self, token):
         if self.directive is not None:
             raise ParseError("Duplicate directive")
+
         self.directive = token
 
     def FlowMapToken(self, token):
@@ -317,6 +346,7 @@ class ScannerStack(object):
     def AliasToken(self, token):
         if token.anchor not in self.anchors:
             raise ParseError("Undefined anchor &%s" % token.anchor)
+
         token.value = self.anchors.get(token.anchor)
         self.head.consume_scalar(token)
 
@@ -335,9 +365,11 @@ class ScannerStack(object):
         popped = self.head
         if popped.prev is None:
             raise ParseError("Premature end of document")
+
         self.head = popped.prev
         if popped.is_key:
             self.head.take_key(popped)
+
         else:
             self.head.take_value(popped)
 
@@ -348,14 +380,18 @@ class ScannerStack(object):
     def DocumentEndToken(self, token):
         if self.tag_token and self.tag_token.linenum == token.linenum - 1:  # last line finished with a tag (but no value)
             self.push(new_stacked_scalar(self.tag_token))
+
         if self.head.prev is None and self.head.value is None:  # doc was empty, no tokens
             self.docs.append(None)
+
         else:
             while self.head.prev is not None:
                 self.pop()
+
             if self.head.value is not None:
                 self.docs.append(self.head.value)
                 # trace("---\n{}\n---", self.head.value)
                 self.head.value = None
+
         self.anchors = {}
         self.directive = None

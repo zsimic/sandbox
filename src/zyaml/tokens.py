@@ -8,8 +8,6 @@ class Token(object):
     """Scanned token, visitor pattern is used for parsing"""
 
     def __init__(self, scanner, linenum, indent, value=None):
-        assert scanner.__class__.__name__ == "Scanner"
-        self.scanner = scanner
         self.linenum = linenum
         self.indent = indent
         self.value = value
@@ -19,6 +17,7 @@ class Token(object):
         result = "%s[%s,%s]" % (self.__class__.__name__, self.linenum, self.column)
         if self.value is not None:
             result = "%s %s" % (result, self.represented_value())
+
         return result
 
     @property
@@ -34,6 +33,7 @@ class Token(object):
         """
         for t in scanner.pass2_docstart(self):
             yield t
+
         yield self
 
 
@@ -49,6 +49,7 @@ class DocumentStartToken(Token):
     def second_pass(self, scanner):
         for t in scanner.pass2_docend(self):
             yield t
+
         for t in scanner.pass2_docstart(self):
             yield t
 
@@ -57,6 +58,7 @@ class DocumentEndToken(Token):
     def second_pass(self, scanner):
         if not scanner.started_doc:
             raise ParseError("Document end without start")
+
         for t in scanner.pass2_docend(self):
             yield t
 
@@ -66,14 +68,18 @@ class DirectiveToken(Token):
         m = RE_COMMENT.search(text)
         if m is not None:
             text = text[:m.start()]
+
         if text.startswith("%YAML"):
             self.name = "%YAML"
             text = text[5:].strip()
+
         elif text.startswith("%TAG"):
             self.name = "%TAG"
             text = text[4:].strip()
+
         else:
             self.name, _, text = text.partition(" ")
+
         super(DirectiveToken, self).__init__(scanner, linenum, indent, text.strip())
 
     def represented_value(self):
@@ -135,8 +141,10 @@ class DashToken(Token):
     def second_pass(self, scanner):
         for t in scanner.pass2_docstart(self, pop_simple_key=True):
             yield t
+
         for t in scanner.mode.pass2_structure(self, BlockSeqToken):
             yield t
+
         yield self
 
 
@@ -152,15 +160,19 @@ class ColonToken(Token):
     def second_pass(self, scanner):
         for t in scanner.pass2_docstart(self, pop_simple_key=False):
             yield t
+
         cs = scanner.popped_simple_key()
         if scanner.is_block_mode:
             if cs is None:
                 raise ParseError("Incomplete explicit mapping pair")
+
             for t in scanner.mode.pass2_structure(cs, BlockMapToken):
                 yield t
+
         if cs is not None:
             yield KeyToken(scanner, cs.linenum, cs.indent)
             yield cs
+
         yield ValueToken(scanner, self.linenum, self.indent)
 
 
@@ -172,11 +184,14 @@ class TagToken(Token):
     def marshalled(self, value):
         if self.marshaller is None:
             return value
+
         try:
             return self.marshaller(value)
+
         except ParseError as e:
             e.auto_complete(self)
             raise
+
         except ValueError:
             raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.value), self)
 
@@ -200,6 +215,7 @@ class AliasToken(Token):
     def resolved_value(self, clean):
         if not clean:
             raise ParseError("Alias should not have any properties")
+
         return self.value
 
 
@@ -215,20 +231,25 @@ class ScalarToken(Token):
         value = self.value
         if self.style is None and value is not None:
             value = value.strip()
+
         if clean and self.style is None:
             value = default_marshal(value)
+
         return value
 
     def append_line(self, text):
         if not self.value:
             self.value = text
+
         elif text:
             self.value = "%s %s" % (self.value, text)
 
     def second_pass(self, scanner):
         for t in scanner.pass2_docstart(self, pop_simple_key=self.style is not None):
             yield t
+
         if self.style is not None:
             yield self
+
         else:
             scanner.add_simple_key(self)
