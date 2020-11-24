@@ -131,12 +131,32 @@ class FlowScanner(object):
         return "flow"
 
 
-class Scanner(object):
-    def __init__(self, stream):
-        if hasattr(stream, "splitlines"):
-            stream = stream.splitlines()
+def _readline_generator(readline):
+    while True:
+        try:
+            line = readline()
+            if not line:
+                return
 
-        self.generator = enumerate(stream, start=1)
+            yield line
+        except StopIteration:
+            return
+
+
+class Scanner(object):
+    def __init__(self, source):
+        if hasattr(source, "__next__"):
+            self.generator = enumerate(source, start=1)
+
+        elif hasattr(source, "splitlines"):
+            self.generator = enumerate(source.splitlines(), start=1)
+
+        elif hasattr(source, "readline"):
+            self.generator = enumerate(_readline_generator(source.readline), start=1)
+
+        else:
+            raise ParseError("Invalid source provided: %s" % source)
+
         self.block_scanner = BlockScanner(self)
         self.flow_scanner = FlowScanner(self)
         self.is_block_mode = True

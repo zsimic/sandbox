@@ -164,28 +164,32 @@ class YmlImplementation(object):
     def _load(self, stream):
         return []
 
-    def tokens(self, sample, stacktrace=False):
-        if hasattr(sample, "path"):
-            with open(sample.path) as fh:
-                contents = fh.read()
-
-        else:
-            contents = sample
-
+    def tokens(self, source, stacktrace=False):
         if stacktrace:
-            for t in self._tokens(contents):
+            for t in self._tokenize(source):
                 yield t
 
             return
 
         try:
-            for t in self._tokens(contents):
+            for t in self._tokenize(source):
                 yield t
 
         except Exception as e:
             yield "Error: %s" % e
 
-    def _tokens(self, contents):
+    def _tokenize(self, source):
+        if hasattr(source, "path"):
+            with open(source.path) as fh:
+                for t in self._tokens(fh):
+                    yield t
+
+            return
+
+        for t in self._tokens(source):
+            yield t
+
+    def _tokens(self, stream):
         raise Exception("not implemented")
 
     def _simplified(self, value):
@@ -239,7 +243,7 @@ class YmlImplementation(object):
 
 class ZyamlImplementation(YmlImplementation):
     def _load(self, stream):
-        return zyaml.load(stream)
+        return zyaml.load_string(stream)
 
     def _tokens(self, stream):
         return zyaml.Scanner(stream).tokens()
