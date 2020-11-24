@@ -63,8 +63,9 @@ class BenchmarkRunner(object):
     def run(self, stacktrace=False):
         for bench in self.benchmarks:
             bench.run(stacktrace=stacktrace)
-            if self.fastest is None or self.fastest.seconds > bench.seconds:
-                self.fastest = bench
+            if bench.seconds is not None:
+                if self.fastest is None or self.fastest.seconds > bench.seconds:
+                    self.fastest = bench
 
     def report(self):
         result = []

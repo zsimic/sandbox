@@ -190,8 +190,7 @@ class YmlImplementation(object):
         return self._tokens_from_string(source)
 
     def _tokens_from_path(self, path):
-        with open(path) as fh:
-            return self._tokens_from_stream(fh)
+        not_implemented()
 
     def _tokens_from_stream(self, stream):
         not_implemented()
@@ -325,6 +324,13 @@ class RuamelImplementation(YmlImplementation):
         ruamel.yaml.add_multi_constructor('', ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
         return y.load_all(text)
 
+    def _tokens_from_path(self, path):
+        with open(path) as fh:
+            return list(ruamel.yaml.main.scan(fh))
+
+    def _tokens_from_string(self, text):
+        return ruamel.yaml.main.scan(text)
+
 
 class PyyamlBaseImplementation(YmlImplementation):
     def _load_string(self, text):
@@ -362,10 +368,7 @@ class PyyamlBaseImplementation(YmlImplementation):
 
     def _tokens_from_path(self, path):
         with open(path) as fh:
-            return self._tokens_from_string(fh.read())
-
-    def _tokens_from_stream(self, stream):
-        not_implemented()
+            return list(self._tokens_from_string(fh))
 
     def _tokens_from_string(self, text):
         yaml_loader = pyyaml.BaseLoader(text)

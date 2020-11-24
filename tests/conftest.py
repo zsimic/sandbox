@@ -135,7 +135,7 @@ def benchmark(stacktrace, iterations, tokens, implementation, samples):
             impls = dict((i.name, partial(i.tokens, sample)) for i in implementation)
 
         else:
-            impls = dict((i.name, partial(i.load, sample)) for i in implementation)
+            impls = dict((i.name, partial(i.load_sample, sample)) for i in implementation)
 
         bench = BenchmarkRunner(impls, target_name=sample.name, iterations=iterations)
         bench.run(stacktrace)
@@ -269,17 +269,10 @@ def mv(samples, category):
 @main.command(name="print")
 @click.option("--tokens", "-t", is_flag=True, help="Show zyaml tokens as well")
 @stacktrace_option()
-@implementation_option(default=None)
+@implementation_option(default="zyaml,ruamel")
 @click.argument("text", nargs=-1)
 def print_(tokens, stacktrace, implementation, text):
     """Deserialize given argument as yaml"""
-    if implementation is None:
-        if tokens:
-            implementation = ImplementationCollection("zyaml,pyyaml_base")
-
-        else:
-            implementation = ImplementationCollection("zyaml,ruamel")
-
     text = " ".join(text)
     text = codecs.decode(text, "unicode_escape")
     print("--- raw:\n%s" % text)
