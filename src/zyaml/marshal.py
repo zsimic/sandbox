@@ -113,11 +113,10 @@ def represented_scalar(style, value):
 
 
 class ParseError(Exception):
-    def __init__(self, message, *context):
+    def __init__(self, message, linenum=None, column=None):
         self.message = message
-        self.linenum = None
-        self.column = None
-        self.auto_complete(*context)
+        self.linenum = linenum
+        self.column = column
 
     def __str__(self):
         coords = ""
@@ -133,28 +132,11 @@ class ParseError(Exception):
         return "".join((self.message, coords))
 
     def complete_coordinates(self, linenum, column):
-        if self.linenum is None and isinstance(linenum, int):
+        if self.linenum is None:
             self.linenum = linenum
 
-        if self.column is None and isinstance(column, int):
+        if self.column is None:
             self.column = column
-
-    def auto_complete(self, *context):
-        if not context:
-            return
-
-        if len(context) == 2:
-            self.complete_coordinates(context[0], context[1] + 1 if isinstance(context[1], int) else None)
-            return
-
-        for c in context:
-            column = getattr(c, "column", None)
-            if column is None:
-                column = getattr(c, "indent", None)
-                if column is not None:
-                    column = column + 1
-
-            self.complete_coordinates(getattr(c, "linenum", None), column)
 
 
 def to_float(text):  # type: (str) -> float

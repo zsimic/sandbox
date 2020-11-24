@@ -178,7 +178,7 @@ def diff(compact, untyped, tokens, implementation, samples):
                         result.text = "\n".join(impl.represented_token(t) for t in result.data)
 
                     else:
-                        result.data = impl.load_path(sample.path)
+                        result.data = impl.load_sample(sample)
                         payload = json_sanitized(result.data, stringify=stringify, dt=simplified_date)
                         result.text = runez.represented_json(payload)
 
@@ -269,10 +269,17 @@ def mv(samples, category):
 @main.command(name="print")
 @click.option("--tokens", "-t", is_flag=True, help="Show zyaml tokens as well")
 @stacktrace_option()
-@implementation_option(default="zyaml,ruamel")
+@implementation_option(default=None)
 @click.argument("text", nargs=-1)
 def print_(tokens, stacktrace, implementation, text):
     """Deserialize given argument as yaml"""
+    if implementation is None:
+        if tokens:
+            implementation = ImplementationCollection("zyaml,pyyaml_base")
+
+        else:
+            implementation = ImplementationCollection("zyaml,ruamel")
+
     text = " ".join(text)
     text = codecs.decode(text, "unicode_escape")
     print("--- raw:\n%s" % text)
@@ -448,7 +455,7 @@ def show(profile, tokens, line_numbers, stacktrace, implementation, samples):
 
                 print("--------  %s  --------" % impl)
                 assert isinstance(impl, YmlImplementation)
-                result = impl.load(sample, stacktrace=stacktrace)
+                result = impl.load_sample(sample, stacktrace=stacktrace)
                 if is_profiling:
                     return
 
@@ -542,9 +549,8 @@ class Sample(object):
     def deserialized(self, kind):
         try:
             if kind == K_TOKEN:
-                with open(self.path) as fh:
-                    tokens = zyaml.Scanner(fh).tokens()
-                    actual = [str(t) for t in tokens]
+                tokens = zyaml.tokens_from_path(self.path)
+                actual = [str(t) for t in tokens]
 
             else:
                 actual = zyaml.load_path(self.path)

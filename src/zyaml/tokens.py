@@ -205,12 +205,8 @@ class TagToken(Token):
         try:
             return self.marshaller(value)
 
-        except ParseError as e:
-            e.auto_complete(self)
-            raise
-
         except ValueError:
-            raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.value), self)
+            raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.value))
 
 
 class AnchorToken(Token):

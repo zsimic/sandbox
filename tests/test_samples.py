@@ -21,8 +21,13 @@ def test_samples(all_samples):
 
 
 def loaded(text):
+    """
+    Returns:
+        (list | dict | str | float | int | datetime.datetime): Deserialized object
+    """
     try:
         return zyaml.load_string(text)
+
     except zyaml.ParseError as e:
         return str(e)
 

@@ -131,32 +131,9 @@ class FlowScanner(object):
         return "flow"
 
 
-def _readline_generator(readline):
-    while True:
-        try:
-            line = readline()
-            if not line:
-                return
-
-            yield line
-        except StopIteration:
-            return
-
-
 class Scanner(object):
-    def __init__(self, source):
-        if hasattr(source, "__next__"):
-            self.generator = enumerate(source, start=1)
-
-        elif hasattr(source, "splitlines"):
-            self.generator = enumerate(source.splitlines(), start=1)
-
-        elif hasattr(source, "readline"):
-            self.generator = enumerate(_readline_generator(source.readline), start=1)
-
-        else:
-            raise ParseError("Invalid source provided: %s" % source)
-
+    def __init__(self, stream):
+        self.generator = enumerate(stream, start=1)
         self.block_scanner = BlockScanner(self)
         self.flow_scanner = FlowScanner(self)
         self.is_block_mode = True
@@ -508,19 +485,19 @@ class Scanner(object):
         yield (linenum, start, end, line_text), None
 
     def tokens(self):
-        t2 = StreamStartToken(self, 1, 0)
-        yield t2
-        for t1 in self.first_pass():
-            for t2 in t1.second_pass(self):
-                yield t2
+        token = StreamStartToken(self, 1, 0)
+        yield token
+        for t in self._raw_tokens():
+            for token in t.second_pass(self):
+                yield token
 
-        for t2 in self.pass2_docend(t2):
-            yield t2
+        for token in self.pass2_docend(token):
+            yield token
 
-        yield StreamEndToken(self, t2.linenum, 0)
+        yield StreamEndToken(self, token.linenum, 0)
 
-    def first_pass(self):
-        """Yield raw tokens as-is, don't try to interpret simple keys, look at indentation etc"""
+    def _raw_tokens(self):
+        """Yield raw tokens as-is, don't try to interpret simple keys, nor look at indentation etc"""
         start = end = offset = 0
         linenum = 1
         upcoming = None
@@ -564,7 +541,7 @@ class Scanner(object):
                             yield ScalarToken(self, linenum, offset, text)
 
         except ParseError as error:
-            error.auto_complete(linenum, offset)
+            error.complete_coordinates(linenum, offset + 1)
             raise
 
     def deserialized(self, loader=SimpleLoader):
@@ -580,5 +557,7 @@ class Scanner(object):
             return loader.docs
 
         except ParseError as error:
-            error.auto_complete(token)
+            if token is not None:
+                error.complete_coordinates(token.linenum, token.column)
+
             raise

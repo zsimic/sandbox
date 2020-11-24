@@ -1,3 +1,8 @@
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from io import StringIO
+
 import zyaml
 
 
@@ -7,7 +12,7 @@ def tokens(text, ignored=None, stringify=str):
 
     try:
         tokens = []
-        for t in zyaml.Scanner(text).tokens():
+        for t in zyaml.tokens_from_string(text):
             if not ignored or t.__class__ not in ignored:
                 if stringify:
                     t = stringify(t)
@@ -161,3 +166,12 @@ def test_partial():
         'CommaToken[1,3] ,',
         'ScalarToken[1,5] -',
     ]
+
+
+def test_stream():
+    s = StringIO()
+    s.write("--")
+    s.seek(0)
+    x = list(zyaml.tokens_from_stream(s))
+    assert len(x) == 5
+    assert str(x[2]) == "ScalarToken[1,1] --"

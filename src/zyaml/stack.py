@@ -31,7 +31,7 @@ class StackedDocument(object):
             if si is not None and si >= 0:
                 si = si + offset
                 if indent < si:
-                    raise ParseError("%s must be indented at least %s columns" % (name, si + 1), None, indent)
+                    raise ParseError("%s must be indented at least %s columns" % (name, si + 1))
 
     def check_value_indentation(self, indent):
         self.check_indentation(indent, "Value")
@@ -77,7 +77,7 @@ class StackedDocument(object):
 
     def take_value(self, element):
         if self.value is not None:
-            raise ParseError("Document separator expected", element)
+            raise ParseError("Document separator expected")
 
         self.check_value_indentation(element.indent)
         self.value = element.resolved_value()
@@ -102,11 +102,11 @@ class StackedScalar(StackedDocument):
 
     def take_value(self, element):
         if element.indent is None:
-            raise ParseError("Missing comma between %s and %s in flow" % (self.type_name(), element.type_name()), self.token)
+            raise ParseError("Missing comma between %s and %s in flow" % (self.type_name(), element.type_name()))
 
     def consume_scalar(self, token):
         if self.prev.indent is None:
-            raise ParseError("Missing comma between scalars in flow", self.token)
+            raise ParseError("Missing comma between scalars in flow")
 
         self.root.pop()
         self.root.push(StackedScalar(token))
@@ -169,7 +169,7 @@ class StackedMap(StackedDocument):
 
     def check_key_indentation(self, indent):  # type: (Optional[int]) -> None
         if indent is not None and self.indent is not None and indent != self.indent:
-            raise ParseError("Key is not indented properly", None, indent)
+            raise ParseError("Key is not indented properly")
 
     def check_value_indentation(self, indent):  # type: (Optional[int]) -> None
         self.check_indentation(indent, "Value", offset=1)
@@ -297,7 +297,7 @@ class ScannerStack(object):
         tag = getattr(self, name)
         if tag is not None:
             if tag.linenum == token.linenum or getattr(self, secondary_name) is not None:
-                raise ParseError("Too many %ss" % name.replace("_", " "), token)
+                raise ParseError("Too many %ss" % name.replace("_", " "))
 
             setattr(self, secondary_name, tag)
 

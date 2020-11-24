@@ -13,17 +13,24 @@ import zyaml
 from zyaml.marshal import represented_scalar
 
 
+def not_implemented():
+    raise NotImplementedError(runez.brown("not implemented"))
+
+
 def implementation_option(option=True, default="zyaml,ruamel", count=None, **kwargs):
     """
-    :param bool option: If True, make this an option
-    :param str default: Default implementation(s) to use
-    :param int|None count: Exact number of implementations needed (when applicable)
-    :param kwargs: Passed-through to click
-    :return ImplementationCollection: Implementations to use
+    Args:
+        option (bool): If True, make this an option
+        default (str | None): Default implementation(s) to use
+        count (int | None): Exact number of implementations needed (when applicable)
+        **kwargs: Passed-through to click
     """
     kwargs["default"] = default
 
     def _callback(_ctx, _param, value):
+        if not value:
+            return None
+
         implementations = ImplementationCollection(value, default=default)
         if implementations.unknown:
             raise click.BadParameter("Unknown implementation(s): %s" % ", ".join(implementations.unknown))
@@ -161,36 +168,36 @@ class YmlImplementation(object):
     def name(self):
         return "_".join(s.lower() for s in re.findall("[A-Z][^A-Z]*", self.__class__.__name__.replace("Implementation", "")))
 
-    def _load(self, stream):
-        return []
-
     def tokens(self, source, stacktrace=False):
-        if stacktrace:
-            for t in self._tokenize(source):
-                yield t
+        if hasattr(source, "path"):
+            tokens, exc = self._protected_call(self._tokens_from_path, source.path, stacktrace)
 
-            return
+        else:
+            tokens, exc = self._protected_call(self._tokens_from_string, source, stacktrace)
 
-        try:
-            for t in self._tokenize(source):
-                yield t
+        if tokens is None:
+            tokens = []
 
-        except Exception as e:
-            yield "Error: %s" % e
+        if exc:
+            tokens.append(exc)
+
+        return tokens
 
     def _tokenize(self, source):
         if hasattr(source, "path"):
-            with open(source.path) as fh:
-                for t in self._tokens(fh):
-                    yield t
+            return self._tokens_from_path(source.path)
 
-            return
+        return self._tokens_from_string(source)
 
-        for t in self._tokens(source):
-            yield t
+    def _tokens_from_path(self, path):
+        with open(path) as fh:
+            return self._tokens_from_stream(fh)
 
-    def _tokens(self, stream):
-        raise Exception("not implemented")
+    def _tokens_from_stream(self, stream):
+        not_implemented()
+
+    def _tokens_from_string(self, text):
+        not_implemented()
 
     def _simplified(self, value):
         if isinstance(value, list) and len(value) == 1:
@@ -198,34 +205,55 @@ class YmlImplementation(object):
 
         return value
 
-    def load_string(self, contents):
-        data = self._load(contents)
-        if data is not None and inspect.isgenerator(data):
-            data = list(data)
+    def _load_string(self, text):
+        not_implemented()
 
-        return self._simplified(data)
-
-    def load_path(self, path):
+    def _load_path(self, path):
         with open(path) as fh:
-            return self.load_string(fh.read())
+            return self._load_string(fh.read())
 
-    def load(self, sample, stacktrace=True):
-        """
-        :param Sample sample: Sample to load
-        :param bool stacktrace: If True, don't catch parsing exceptions
-        :return ParseResult: Parsed sample
-        """
+    def _unprotected_call(self, func, target):
+        value = func(target)
+        if value is not None and inspect.isgenerator(value):
+            value = list(value)
+
+        value = self._simplified(value)
+        return value
+
+    def _protected_call(self, func, target, stacktrace):
         if stacktrace:
-            return ParseResult(self, sample, self.load_path(sample.path))
+            value = self._unprotected_call(func, target)
+            return value, None
 
-        result = ParseResult(self, sample)
         try:
-            result.data = self.load_path(sample.path)
+            value = self._unprotected_call(func, target)
+            return value, None
 
         except Exception as e:
-            result.set_exception(e)
+            return None, e
+
+    def load_sample(self, sample, stacktrace=True):
+        """
+        Args:
+            sample (Sample): Sample to load
+            stacktrace (bool): If True, don't catch parsing exceptions
+
+        Returns:
+            (ParseResult): Parsed sample
+        """
+        data, exc = self._protected_call(self._load_path, sample.path, stacktrace)
+        result = ParseResult(self, sample, data)
+        if exc:
+            result.set_exception(exc)
 
         return result
+
+    def load_string(self, text, stacktrace=True):
+        data, exc = self._protected_call(self._load_string, text, stacktrace)
+        if exc:
+            return exc
+
+        return data
 
     def json_representation(self, result, stringify=zyaml.decode, dt=str):
         try:
@@ -242,11 +270,20 @@ class YmlImplementation(object):
 
 
 class ZyamlImplementation(YmlImplementation):
-    def _load(self, stream):
-        return zyaml.load_string(stream)
+    def _load_string(self, text):
+        return zyaml.load_string(text)
 
-    def _tokens(self, stream):
-        return zyaml.Scanner(stream).tokens()
+    def _load_path(self, path):
+        return zyaml.load_path(path)
+
+    def _tokens_from_path(self, path):
+        return zyaml.tokens_from_path(path)
+
+    def _tokens_from_stream(self, stream):
+        return zyaml.tokens_from_stream(stream)
+
+    def _tokens_from_string(self, text):
+        return zyaml.tokens_from_string(text)
 
     def _simplified(self, value):
         return value
@@ -283,15 +320,15 @@ class RuamelImplementation(YmlImplementation):
 
         return value
 
-    def _load(self, stream):
+    def _load_string(self, text):
         y = ruamel.yaml.YAML(typ="safe")
         ruamel.yaml.add_multi_constructor('', ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
-        return y.load_all(stream)
+        return y.load_all(text)
 
 
 class PyyamlBaseImplementation(YmlImplementation):
-    def _load(self, stream):
-        return pyyaml.load_all(stream, Loader=pyyaml.BaseLoader)
+    def _load_string(self, text):
+        return pyyaml.load_all(text, Loader=pyyaml.BaseLoader)
 
     def represented_token(self, token):
         linenum = token.start_mark.line + 1
@@ -323,8 +360,15 @@ class PyyamlBaseImplementation(YmlImplementation):
 
         return result
 
-    def _tokens(self, stream):
-        yaml_loader = pyyaml.BaseLoader(stream)
+    def _tokens_from_path(self, path):
+        with open(path) as fh:
+            return self._tokens_from_string(fh.read())
+
+    def _tokens_from_stream(self, stream):
+        not_implemented()
+
+    def _tokens_from_string(self, text):
+        yaml_loader = pyyaml.BaseLoader(text)
         curr = yaml_loader.get_token()
         while curr is not None:
             yield curr
@@ -332,20 +376,20 @@ class PyyamlBaseImplementation(YmlImplementation):
 
 
 class PyyamlSafeImplementation(YmlImplementation):
-    def _load(self, stream):
-        return pyyaml.load_all(stream, Loader=pyyaml.SafeLoader)
+    def _load_string(self, text):
+        return pyyaml.load_all(text, Loader=pyyaml.SafeLoader)
 
 
 class PyyamlFullImplementation(YmlImplementation):
-    def _load(self, stream):
-        return pyyaml.load_all(stream, Loader=pyyaml.FullLoader)
+    def _load_string(self, text):
+        return pyyaml.load_all(text, Loader=pyyaml.FullLoader)
 
 
 class PoyoImplementation(YmlImplementation):
-    def _load(self, stream):
-        return [poyo.parse_string(stream.read())]
+    def _load_string(self, text):
+        return [poyo.parse_string(text)]
 
 
 class StrictImplementation(YmlImplementation):
-    def _load(self, stream):
-        return strictyaml.load(stream.read())
+    def _load_string(self, text):
+        return strictyaml.load(text)
