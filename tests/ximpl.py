@@ -168,7 +168,7 @@ class YmlImplementation(object):
     def name(self):
         return "_".join(s.lower() for s in re.findall("[A-Z][^A-Z]*", self.__class__.__name__.replace("Implementation", "")))
 
-    def tokens(self, source, stacktrace=False):
+    def tokens(self, source, stacktrace=True):
         if hasattr(source, "path"):
             tokens, exc = self._protected_call(self._tokens_from_path, source.path, stacktrace)
 
@@ -265,6 +265,9 @@ class YmlImplementation(object):
             raise
 
     def represented_token(self, token):
+        if isinstance(token, Exception):
+            return runez.red(token)
+
         return str(token)
 
 
@@ -337,6 +340,9 @@ class PyyamlBaseImplementation(YmlImplementation):
         return pyyaml.load_all(text, Loader=pyyaml.BaseLoader)
 
     def represented_token(self, token):
+        if isinstance(token, Exception):
+            return runez.red(token)
+
         linenum = token.start_mark.line + 1
         column = token.start_mark.column + 1
         result = "%s[%s,%s]" % (token.__class__.__name__, linenum, column)

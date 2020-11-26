@@ -113,7 +113,7 @@ class StackedScalar(StackedDocument):
 
 
 def new_stacked_scalar(token, text=""):
-    return StackedScalar(ScalarToken(token.scanner, token.linenum, token.indent, text))
+    return StackedScalar(ScalarToken(token.linenum, token.indent, text))
 
 
 class StackedList(StackedDocument):

@@ -4,7 +4,7 @@ import os
 import re
 import sys
 
-import dateutil
+import dateutil  # TODO: find stdlib equivalent
 import dateutil.tz
 
 
@@ -72,9 +72,12 @@ def shortened(text, size=32):  # type: (str, int) -> str
     return "%s..." % text[:size]
 
 
+def unicode_escaped(text):  # type: (str) -> str
+    return decode(codecs.encode(str(text), "unicode_escape")).replace('"', '\\"')
+
+
 def double_quoted(text):  # type: (str) -> str
-    text = decode(codecs.encode(str(text), "unicode_escape"))
-    return '"%s"' % text.replace('"', '\\"')
+    return '"%s"' % unicode_escaped(text)
 
 
 def decode(value):
@@ -109,7 +112,7 @@ def represented_scalar(style, value):
     if style:
         return "%s %s" % (style, double_quoted(value))
 
-    return str(value)
+    return unicode_escaped(value)
 
 
 class ParseError(Exception):
@@ -166,7 +169,7 @@ def to_number(text):  # type: (str) -> Union[int, float]
         return to_float(text)
 
 
-def get_tzinfo(text):  # type: (str) -> Optional[datetime.tzinfo]
+def to_timezone(text):  # type: (str) -> Optional[datetime.tzinfo]
     if text is None:
         return None
 
@@ -208,7 +211,7 @@ def default_marshal(text):  # type: (Optional[str]) -> Union[str, int, float, li
     mm = int(mm)
     ss = int(ss)
     sf = int(round(float(sf or 0) * 1000000))
-    return datetime.datetime(y, m, d, hh, mm, ss, sf, get_tzinfo(tz))
+    return datetime.datetime(y, m, d, hh, mm, ss, sf, to_timezone(tz))
 
 
 def _checked_scalar(value):
