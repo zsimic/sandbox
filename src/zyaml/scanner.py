@@ -181,21 +181,18 @@ class ModalScanner(object):
         self.stack = collections.deque()
 
     def __repr__(self):
-        stacks = " / ".join("%s%s" % (s.value, s.indent) for s in self.stack)
+        stacks = " / ".join("%s%s" % (s.short_name, s.indent) for s in self.stack)
         return "%s - %s" % (self.mode_name.lower(), stacks)
 
     @property
     def mode_name(self):
         return self.__class__.__name__.replace("Scanner", "")
 
-    @property
-    def current_type(self):
-        """Current underlying type of token at top of stack"""
-        name = self.mode_name
-        if self.stack:
-            name = self.stack[-1].__class__.__name__.replace("Token", "").replace(name, "")
-
-        return name.lower().replace("seq", "list")
+    def track_same_line_value(self, token):
+        """
+        Args:
+            token (Token): Track same-line values for mapping/sequence blocks
+        """
 
     def auto_push(self, token, block):
         """
@@ -220,46 +217,54 @@ class ModalScanner(object):
 class BlockScanner(ModalScanner):
     """Scan tokens for block mode (default, exclusive with flow mode started by '[' or '{')"""
 
-    nesting_level = None  # type: int
+    top_block = None  # type: Optional[Token]
     line_regex = re.compile(r"""(#|\?\s|[!&*][^\s:\[\]{}]+|[:\[\]{}])\s*(\S?)""")
+
+    def track_same_line_value(self, token):
+        tb = self.top_block
+        if tb is not None and token.same_line_value is True:
+            tb.same_line_value = token
 
     def auto_push(self, token, block):
         if block is None:
             raise ParseError("Internal error: flow pushed onto block")
 
-        i = self.nesting_level
-        while i is not None and i > token.indent:
+        tb = self.top_block
+        while tb is not None and tb.indent > token.indent:
             try:
-                struct = self.stack.pop()
-                i = struct.indent
-                if i > token.indent:
-                    yield BlockEndToken(token.linenum, i)
-
-                else:
-                    self.stack.append(struct)
+                yield BlockEndToken(token.linenum, tb.indent)
+                self.stack.pop()
+                self.top_block = tb = self.stack[-1]
 
             except IndexError:
-                i = None
+                # Top-most block can't be popped: it sets the minimum indentation for the entire document
+                raise ParseError("Misaligned indentation", column=token.column)
 
-        self.nesting_level = i
-        ti = token.indent
-        if i != ti:
-            struct = block(token.linenum, ti)
-            self.nesting_level = ti
-            self.stack.append(struct)
-            yield struct
+        if tb is None:
+            self.top_block = tb = block(token.linenum, token.indent)
+            self.stack.append(tb)
+            yield tb
+
+        elif tb.same_line_value is not None:
+            if token.indent != tb.indent:
+                raise ParseError("Misaligned indentation", column=token.column)
+
+            tb.same_line_value = None
+
+        elif tb.indent != token.indent:
+            self.top_block = tb = block(token.linenum, token.indent)
+            self.stack.append(tb)
+            yield tb
 
     def auto_pop(self, token):
-        i = self.nesting_level
-        while i is not None and i < token.indent:
+        tb = self.top_block
+        while tb is not None and tb.indent < token.indent:
             try:
-                i = self.stack.pop().indent
-                yield BlockEndToken(token.linenum, i)
+                self.top_block = tb = self.stack.pop()
+                yield BlockEndToken(token.linenum, tb.indent)
 
             except IndexError:
-                i = None
-
-        self.nesting_level = i
+                self.top_block = tb = None
 
     def auto_pop_all(self, token):
         while self.stack:
@@ -305,7 +310,6 @@ class Scanner(object):
         self.directives = None
         self.started_doc = None
         self.simple_key = None  # type: Optional[ScalarToken]
-        self.pending_value = False
         self.tokenizer_map = {
             "!": TagToken,
             "&": AnchorToken,
@@ -324,8 +328,8 @@ class Scanner(object):
 
     def check_indentation(self, token):
         if self.mode is self.block_scanner:
-            mi = self.block_scanner.nesting_level
-            if mi is not None and token.indent < mi:
+            tb = self.block_scanner.top_block
+            if tb is not None and token.indent < tb.indent:
                 raise ParseError("Misaligned indentation")
 
     def top_modal_token(self):
@@ -339,7 +343,6 @@ class Scanner(object):
         sk = self.simple_key
         if sk is not None:
             sk.apply_multiline()
-            self.pending_value = False
             self.simple_key = None
 
         return sk
@@ -527,6 +530,7 @@ class Scanner(object):
                 if token.pop_simple_key:
                     sk = self.popped_simple_key()
                     if sk is not None:
+                        self.mode.track_same_line_value(sk)
                         yield sk
 
                 if token.auto_filler is not None:
@@ -534,6 +538,7 @@ class Scanner(object):
                         yield token
 
                 else:
+                    self.mode.track_same_line_value(token)
                     yield token
 
             for token in self.auto_pop_all(token):

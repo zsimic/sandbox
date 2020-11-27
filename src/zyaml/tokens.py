@@ -70,6 +70,7 @@ class Token(object):
     auto_start_doc = True  # Does this token imply DocumentStartToken?
     auto_filler = None  # Optional auto-filler (generator called with one argument: the current scanner)
     pop_simple_key = True  # Should pending simple_key be auto-popped by this token?
+    same_line_value = False  # Does this token count as a same-line value for mappings?
 
     def __init__(self, linenum, indent, value=None):
         self.linenum = linenum
@@ -86,6 +87,10 @@ class Token(object):
     @property
     def column(self):
         return self.indent + 1
+
+    @property
+    def short_name(self):
+        return self.__class__.__name__.replace("Token", "").replace("Block", "").replace("Flow", "").lower().replace("seq", "list")
 
     def represented_value(self):
         return unicode_escaped(self.value)
@@ -168,12 +173,16 @@ class DirectiveToken(Token):
 
 class FlowMapToken(Token):
 
+    same_line_value = True
+
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self):
             yield t
 
 
 class FlowSeqToken(Token):
+
+    same_line_value = True
 
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self):
@@ -188,23 +197,17 @@ class FlowEndToken(Token):
 
 
 class CommaToken(Token):
-
-    pop_simple_key = False
-
-    def auto_filler(self, scanner):
-        sk = scanner.popped_simple_key()
-        if sk is not None:
-            yield sk
-
-        yield self
+    pass
 
 
 class BlockMapToken(Token):
-    pass
+
+    same_line_value = None
 
 
 class BlockSeqToken(Token):
-    pass
+
+    same_line_value = None
 
 
 class BlockEndToken(Token):
@@ -213,7 +216,14 @@ class BlockEndToken(Token):
 
 class ExplicitMapToken(Token):
 
+    pop_simple_key = False
+    same_line_value = False
+
     def auto_filler(self, scanner):
+        sk = scanner.popped_simple_key()
+        if sk is not None:
+            yield sk
+
         for t in scanner.auto_push(self, BlockMapToken):
             yield t
 
@@ -246,38 +256,22 @@ class ColonToken(Token):
     pop_simple_key = False
 
     def auto_filler(self, scanner):
-        was_pending = scanner.pending_value
-        sk = scanner.popped_simple_key()
-        if scanner.mode is scanner.block_scanner:
-            # Use current simple key as reference token for indentation
-            if sk is None:
+        sk = scanner.simple_key
+        if sk is None:
+            if scanner.mode is scanner.block_scanner:
                 raise ParseError("Incomplete explicit mapping pair")
 
-            top = scanner.top_modal_token()
-            inject = BlockMapToken
-            if isinstance(top, inject):
-                # if sk.indent < top.indent:
-                #     raise ParseError("Misaligned indentation", column=sk.column)
-
-                if was_pending:
-                    if sk.indent == top.indent:
-                        inject = None
-
-                # elif sk.indent != top.indent:
-                #     raise ParseError("Misaligned indentation", column=sk.column)
-
-            if inject is not None:
-                for t in scanner.auto_push(sk, inject):
-                    yield t
-
-        if sk is not None:
+        else:
             if sk.multiline and sk.style is None:
-                raise ParseError("Simple keys must be single line")
+                raise ParseError("Mapping keys must be on a single line")
+
+            for t in scanner.auto_push(sk, BlockMapToken):
+                yield t
 
             yield KeyToken(sk.linenum, sk.indent)
             yield sk
+            scanner.simple_key = None
 
-        scanner.pending_value = True
         yield ValueToken(self.linenum, self.indent)
 
 
@@ -323,6 +317,7 @@ class AliasToken(Token):
 class ScalarToken(Token):
 
     pop_simple_key = False
+    same_line_value = True
 
     def __init__(self, linenum, indent, text, style=None):
         super(ScalarToken, self).__init__(linenum, indent, text)
@@ -370,8 +365,8 @@ class ScalarToken(Token):
         elif self.value and (self.indent < sk.indent or sk.has_comment):
             scanner.check_indentation(sk)
             sk.apply_multiline()
+            scanner.mode.track_same_line_value(sk)
             yield sk
-            scanner.pending_value = False
             scanner.simple_key = self
 
         else:
