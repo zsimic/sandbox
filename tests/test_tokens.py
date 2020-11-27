@@ -34,6 +34,12 @@ def test_anchors():
     assert tokens("!foo") == "TagToken[1,1] !foo"
 
 
+def test_block_tokens():
+    # TODO: remove, only for debugging
+    x = tokens("foo.bar:\n- a: x\n  b:\n   b2: y\n\n\n  c:\n   c2: z")
+    assert isinstance(x, list)
+
+
 def test_directives():
     assert tokens("%YAML") == "DirectiveToken[1,1] YAML"
     assert tokens("%  YAML   1.2") == "DirectiveToken[1,1] YAML 1.2"
@@ -91,23 +97,14 @@ def test_document_markers():
 
 
 def test_edge_cases():
-    assert tokens(":") == [
-        "BlockMapToken[1,1]",
-        "ValueToken[1,1]",
-        "BlockEndToken[1,1]",
-    ]
-    assert tokens(": foo") == [
-        "BlockMapToken[1,1]",
-        "ValueToken[1,1]",
-        "ScalarToken[1,3] foo",
-        "BlockEndToken[1,1]",
-    ]
+    assert tokens(":") == "Incomplete explicit mapping pair, line 1 column 1"
+    assert tokens(": foo") == "Incomplete explicit mapping pair, line 1 column 1"
     assert tokens("a\n#\nb") == [
         "ScalarToken[1,1] a",
         "ScalarToken[3,1] b",
     ]
     assert tokens("a: {\n - b: c}") == [
-        "BlockMapToken[1,2]",
+        "BlockMapToken[1,1]",
         "KeyToken[1,1]",
         "ScalarToken[1,1] a",
         "ValueToken[1,2]",
@@ -117,7 +114,7 @@ def test_edge_cases():
         "ValueToken[2,5]",
         "ScalarToken[2,7] c",
         "FlowEndToken[2,8] }",
-        "BlockEndToken[2,2]",
+        "BlockEndToken[2,1]",
     ]
 
 
@@ -127,12 +124,12 @@ def test_flow_tokens():
         "DashToken[1,1]",
         "BlockEndToken[1,2]"
     ]
-    assert tokens("a: b") == [
+    assert tokens(" a: b") == [
         "BlockMapToken[1,2]",
-        "KeyToken[1,1]",
-        "ScalarToken[1,1] a",
-        "ValueToken[1,2]",
-        "ScalarToken[1,4] b",
+        "KeyToken[1,2]",
+        "ScalarToken[1,2] a",
+        "ValueToken[1,3]",
+        "ScalarToken[1,5] b",
         "BlockEndToken[1,2]",
     ]
     assert tokens("{a: b}") == [
@@ -167,6 +164,9 @@ def test_flow_tokens():
 
 
 def test_invalid():
+    assert tokens("a: b\n c: d") == "Misaligned indentation, line 2 column 2"
+    assert tokens("a: b\n cc: d") == "Misaligned indentation, line 2 column 2"
+    assert tokens("  a: b\n c: d") == "Misaligned indentation, line 2 column 2"
     assert tokens("[a, -") == "Expected flow map end, line 1 column 5"
 
 
@@ -174,11 +174,11 @@ def test_partial():
     assert tokens(",") == "ScalarToken[1,1] ,"
     assert tokens("'foo'") == "ScalarToken[1,2] 'foo'"
     assert tokens("a:") == [
-        "BlockMapToken[1,2]",
+        "BlockMapToken[1,1]",
         "KeyToken[1,1]",
         "ScalarToken[1,1] a",
         "ValueToken[1,2]",
-        "BlockEndToken[1,2]"
+        "BlockEndToken[1,1]"
     ]
     assert tokens("[,]") == [
         "FlowSeqToken[1,1] [",

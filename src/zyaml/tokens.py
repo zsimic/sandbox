@@ -169,14 +169,14 @@ class DirectiveToken(Token):
 class FlowMapToken(Token):
 
     def auto_filler(self, scanner):
-        for t in scanner.auto_push_flow(self):
+        for t in scanner.auto_push(self):
             yield t
 
 
 class FlowSeqToken(Token):
 
     def auto_filler(self, scanner):
-        for t in scanner.auto_push_flow(self):
+        for t in scanner.auto_push(self):
             yield t
 
 
@@ -214,7 +214,7 @@ class BlockEndToken(Token):
 class ExplicitMapToken(Token):
 
     def auto_filler(self, scanner):
-        for t in scanner.auto_push_block(self, BlockMapToken):
+        for t in scanner.auto_push(self, BlockMapToken):
             yield t
 
         yield KeyToken(self.linenum, self.indent)
@@ -227,7 +227,7 @@ class DashToken(Token):
         return self.indent
 
     def auto_filler(self, scanner):
-        for t in scanner.auto_push_block(self, BlockSeqToken):
+        for t in scanner.auto_push(self, BlockSeqToken):
             yield t
 
         yield self
@@ -246,12 +246,30 @@ class ColonToken(Token):
     pop_simple_key = False
 
     def auto_filler(self, scanner):
-        if not scanner.is_within_map_block():
-            if scanner.mode is scanner.block_scanner:
-                for t in scanner.auto_push_block(self, BlockMapToken):
+        was_pending = scanner.pending_value
+        sk = scanner.popped_simple_key()
+        if scanner.mode is scanner.block_scanner:
+            # Use current simple key as reference token for indentation
+            if sk is None:
+                raise ParseError("Incomplete explicit mapping pair")
+
+            top = scanner.top_modal_token()
+            inject = BlockMapToken
+            if isinstance(top, inject):
+                # if sk.indent < top.indent:
+                #     raise ParseError("Misaligned indentation", column=sk.column)
+
+                if was_pending:
+                    if sk.indent == top.indent:
+                        inject = None
+
+                # elif sk.indent != top.indent:
+                #     raise ParseError("Misaligned indentation", column=sk.column)
+
+            if inject is not None:
+                for t in scanner.auto_push(sk, inject):
                     yield t
 
-        sk = scanner.popped_simple_key()
         if sk is not None:
             if sk.multiline and sk.style is None:
                 raise ParseError("Simple keys must be single line")
@@ -259,6 +277,7 @@ class ColonToken(Token):
             yield KeyToken(sk.linenum, sk.indent)
             yield sk
 
+        scanner.pending_value = True
         yield ValueToken(self.linenum, self.indent)
 
 
@@ -348,9 +367,11 @@ class ScalarToken(Token):
         if sk is None:
             scanner.simple_key = self
 
-        elif self.indent < sk.indent or sk.has_comment:
+        elif self.value and (self.indent < sk.indent or sk.has_comment):
+            scanner.check_indentation(sk)
             sk.apply_multiline()
             yield sk
+            scanner.pending_value = False
             scanner.simple_key = self
 
         else:

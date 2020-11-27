@@ -357,9 +357,10 @@ def clean():
 
 
 @main.command()
-@click.option("--tokens", "-t", is_flag=True, help="Refresh tokens only")
+@click.option("--existing", is_flag=True, help="Replay existing case only")
+@click.option("--tokens", "-t", is_flag=True, help="Replay tokens only")
 @samples_arg(default=TESTED_SAMPLES)
-def replay(tokens, samples):
+def replay(existing, tokens, samples):
     kinds = []
     if tokens:
         kinds.append(K_TOKEN)
@@ -369,7 +370,7 @@ def replay(tokens, samples):
         report = sample.replay(*kinds)
         if report is runez.UNSET:
             skipped += 1
-            report = " %s" % runez.yellow("skipped")
+            report = None if existing else " %s" % runez.yellow("skipped")
 
         elif report:
             report = "\n%s" % "\n".join("  %s" % s for s in report.splitlines())
@@ -377,13 +378,18 @@ def replay(tokens, samples):
         else:
             report = " %s" % runez.green("OK")
 
-        print("** %s:%s" % (runez.bold(sample.name), report))
+        if report is not None:
+            print("** %s:%s" % (runez.bold(sample.name), report))
+
+    if skipped:
+        print(runez.dim("-- %s skipped" % runez.plural(skipped, "sample")))
 
 
 @main.command()
+@click.option("--existing", is_flag=True, help="Refresh existing case only")
 @click.option("--tokens", "-t", is_flag=True, help="Refresh tokens only")
 @samples_arg(default=TESTED_SAMPLES)
-def refresh(tokens, samples):
+def refresh(existing, tokens, samples):
     """Refresh expected json for each sample"""
     kinds = []
     if tokens:
@@ -391,7 +397,7 @@ def refresh(tokens, samples):
 
     _clean(verbose=False)
     for sample in samples:
-        sample.refresh(*kinds)
+        sample.refresh(*kinds, existing=existing)
 
 
 @contextmanager
@@ -550,7 +556,7 @@ class Sample(object):
                 actual = json_sanitized(actual)
 
         except zyaml.ParseError as e:
-            actual = {"_error": runez.short(e, size=160)}
+            actual = {"_error": runez.short(e)}
 
         return actual
 
@@ -576,18 +582,24 @@ class Sample(object):
 
         return problem
 
-    def refresh(self, *kinds):
+    def refresh(self, *kinds, **kwargs):
         """
         Args:
             kinds: Kinds to replay (json and/or token)
         """
+        existing = kwargs.pop("existing", False)
         if not kinds:
             kinds = (K_DESERIALIZED, K_TOKEN)
 
         for kind in kinds:
+            if existing:
+                expected = self.expected_content(kind)
+                if expected is runez.UNSET:
+                    continue
+
             actual = self.deserialized(kind)
             path = self.expected_path(kind)
-            runez.save_json(actual, path, keep_none=True)
+            runez.save_json(actual, path, keep_none=True, logger=logging.info)
 
 
 def diff_overview(kind, actual, expected, message):
@@ -614,8 +626,8 @@ def textual_diff(kind, actual, expected):
         return diff_overview(kind, type(actual), type(expected), "differing types")
 
     if kind == K_TOKEN:
-        actual = "\n".join(actual)
-        expected = "\n".join(expected)
+        actual = "%s\n" % "\n".join(actual)
+        expected = "%s\n" % "\n".join(expected)
 
     else:
         actual = runez.represented_json(actual, keep_none=True)

@@ -6,8 +6,7 @@
   "ScalarToken[1,1] key",
   "ValueToken[1,4]",
   "ScalarToken[3,3] value",
-  "ScalarToken[4,1] ",
-  "BlockEndToken[3,1]",
-  "DocumentEndToken[4,1]",
-  "StreamEndToken[4,1]"
+  "BlockEndToken[4,1]",
+  "DocumentEndToken[5,1]",
+  "StreamEndToken[5,1]"
 ]

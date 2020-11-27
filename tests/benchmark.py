@@ -29,7 +29,7 @@ class BenchmarkedFunction(object):
 
     def report(self, fastest=None, indent=""):
         if self.error:
-            return "%s: failed: %s..." % (self.name, runez.short(self.error, size=180))
+            return "%s: failed: %s" % (self.name, runez.short(self.error))
 
         if self.seconds is None:
             return self.name

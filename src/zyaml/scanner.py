@@ -197,10 +197,23 @@ class ModalScanner(object):
 
         return name.lower().replace("seq", "list")
 
+    def auto_push(self, token, block):
+        """
+        Args:
+            token (Token): Token that is requesting the push
+            block (type | None): Block mode to start when applicable
+        """
+
     def auto_pop(self, token):
         """
         Args:
-            token (Token): Token to pop
+            token (Token): Token that is requesting the pop
+        """
+
+    def auto_pop_all(self, token):
+        """
+        Args:
+            token (Token): Token that is requesting the pop
         """
 
 
@@ -211,6 +224,9 @@ class BlockScanner(ModalScanner):
     line_regex = re.compile(r"""(#|\?\s|[!&*][^\s:\[\]{}]+|[:\[\]{}])\s*(\S?)""")
 
     def auto_push(self, token, block):
+        if block is None:
+            raise ParseError("Internal error: flow pushed onto block")
+
         i = self.nesting_level
         while i is not None and i > token.indent:
             try:
@@ -226,9 +242,10 @@ class BlockScanner(ModalScanner):
                 i = None
 
         self.nesting_level = i
-        if i != token.indent:
-            struct = block(token.linenum, token.indent)
-            self.nesting_level = token.indent
+        ti = token.indent
+        if i != ti:
+            struct = block(token.linenum, ti)
+            self.nesting_level = ti
             self.stack.append(struct)
             yield struct
 
@@ -255,6 +272,11 @@ class FlowScanner(ModalScanner):
     line_regex = re.compile(r"""(#|[!&*][^\s:,\[\]{}]+|[:,\[\]{}])\s*(\S?)""")
     flow_closers = {"]": FlowSeqToken, "}": FlowMapToken}
 
+    def auto_push(self, token, block):
+        if block is None and token is not None:
+            self.stack.append(token)
+            yield token
+
     def auto_pop(self, token):
         try:
             popped = self.stack.pop()
@@ -268,6 +290,9 @@ class FlowScanner(ModalScanner):
 
         yield token
 
+    def auto_pop_all(self, token):
+        raise ParseError("Expected flow map end", token.linenum, token.column)
+
 
 class Scanner(object):
     def __init__(self, stream, comments=False):
@@ -280,6 +305,7 @@ class Scanner(object):
         self.directives = None
         self.started_doc = None
         self.simple_key = None  # type: Optional[ScalarToken]
+        self.pending_value = False
         self.tokenizer_map = {
             "!": TagToken,
             "&": AnchorToken,
@@ -296,28 +322,44 @@ class Scanner(object):
     def __repr__(self):
         return str(self.mode)
 
-    def is_within_map_block(self):
-        if not self.mode.stack:
-            return False
-
-        top = self.mode.stack[-1]
+    def check_indentation(self, token):
         if self.mode is self.block_scanner:
-            return isinstance(top, BlockMapToken)
+            mi = self.block_scanner.nesting_level
+            if mi is not None and token.indent < mi:
+                raise ParseError("Misaligned indentation")
 
-        return isinstance(top, FlowMapToken)
+    def top_modal_token(self):
+        try:
+            return self.mode.stack[-1]
+
+        except IndexError:
+            return None
 
     def popped_simple_key(self):
         sk = self.simple_key
         if sk is not None:
             sk.apply_multiline()
+            self.pending_value = False
             self.simple_key = None
 
         return sk
 
-    def auto_pop_all(self, token):
-        if self.mode is self.flow_scanner:
-            raise ParseError("Expected flow map end", token.linenum, token.column)
+    def auto_push(self, token, block=None):
+        if block is None and self.mode is self.block_scanner:
+            # Pushing a flow opener: '{' or '[' character, automatically switch to flow mode
+            self.mode = self.flow_scanner
 
+        for t in self.mode.auto_push(token, block):
+            yield t
+
+    def auto_pop(self, token):
+        for t in self.mode.auto_pop(token):
+            yield t
+
+        if self.mode is self.flow_scanner and not self.mode.stack:
+            self.mode = self.block_scanner
+
+    def auto_pop_all(self, token):
         sk = self.popped_simple_key()
         if sk is not None:
             yield sk
@@ -330,28 +372,7 @@ class Scanner(object):
             if not isinstance(token, DocumentEndToken):
                 yield DocumentEndToken(token.linenum + 1, 0)
 
-    def auto_push_flow(self, token):
-        if self.mode is self.block_scanner:
-            self.mode = self.flow_scanner
-
-        self.flow_scanner.stack.append(token)
-        yield token
-
-    def auto_push_block(self, token, block):
-        if self.mode is self.flow_scanner:
-            raise ParseError("Internal error: block mode needed")
-
-        for t in self.block_scanner.auto_push(token, block):
-            yield t
-
-    def auto_pop(self, token):
-        for t in self.mode.auto_pop(token):
-            yield t
-
-        if self.mode is self.flow_scanner and not self.mode.stack:
-            self.mode = self.block_scanner
-
-    def next_match(self, start, end, line_text):
+    def next_match(self, linenum, start, end, line_text):
         rstart = start
         seen_colon = False
         while start < end:
@@ -366,7 +387,13 @@ class Scanner(object):
                 if line_text[mstart - 1] not in " \t":
                     continue
 
-                yield None, start, line_text[start:mstart]
+                sk = self.simple_key
+                if sk is not None:
+                    sk.has_comment = True  # Mark simple key as interrupted by comment
+
+                if self.comments:
+                    yield CommentToken(linenum, start, line_text[start:]), None, None
+
                 return
 
             if matched == ":":  # ':' only applicable once, either at end of line or followed by a space
@@ -398,7 +425,13 @@ class Scanner(object):
                 if start < mstart:
                     yield None, start, line_text[start:mstart].rstrip()
 
-                yield matched, mstart, line_text[mstart:mend]
+                tokenizer = self.tokenizer_map.get(matched)
+                if tokenizer is not None:
+                    yield tokenizer(linenum, mstart, line_text[mstart:mend]), None, None
+
+                else:
+                    yield None, mstart, line_text[mstart:mend]
+
                 start = rstart
 
         if start < end:
@@ -527,27 +560,26 @@ class Scanner(object):
 
             linenum, start, end, line_text = upcoming
             upcoming = None
-            for matched, offset, text in self.next_match(start, end, line_text):
-                tokenizer = self.tokenizer_map.get(matched)
-                if tokenizer is not None:
-                    yield tokenizer(linenum, offset, text)
+            for token, offset, text in self.next_match(linenum, start, end, line_text):
+                if token is not None:
+                    yield token
                     continue
 
-                matched = text[0]
-                if matched in RESERVED:
-                    raise ParseError("Character '%s' is reserved" % matched, linenum, offset)
+                first_char = text[0]
+                if first_char in RESERVED:
+                    raise ParseError("Character '%s' is reserved" % first_char, linenum, offset)
 
-                if matched == '"':
+                if first_char == '"':
                     linenum, start, end, upcoming, token = _double_quoted(self.generator, linenum, offset + 1, end, line_text)
                     yield token
                     break
 
-                if matched == "'":
+                if first_char == "'":
                     linenum, start, end, upcoming, token = _single_quoted(self.generator, linenum, offset + 1, end, line_text)
                     yield token
                     break
 
-                if matched in '|>':
+                if first_char in '|>':
                     linenum, start, end, upcoming, token = _consume_literal(self.generator, linenum, offset, text)
                     yield token
                     break

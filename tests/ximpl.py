@@ -150,7 +150,7 @@ class ParseResult(object):
 
     def set_exception(self, exc):
         self.exception = exc
-        self.error = runez.short(exc, size=160)
+        self.error = runez.short(exc)
         if not self.error:
             self.error = exc.__class__.__name__
 
