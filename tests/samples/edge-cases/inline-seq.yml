@@ -2,3 +2,29 @@ foo.bar:
 - - - a  # Triple nested sequence
 - - b
 - c
+
+a:  b
+
+ c
+# comment
+x: y
+# comment
+
+- a: x
+  # comment
+  b:
+   b2: y
+
+# comment
+
+  c:
+   c2: z
+
+- d
+# comment
+# comment
+a.b: true
+
+# comment
+
+# comment

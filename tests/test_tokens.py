@@ -6,13 +6,16 @@ except ImportError:
 import zyaml
 
 
-def tokens(text, ignored=None, stringify=str):
+def tokens(content=None, ignored=None, stringify=str, generator=None):
     if ignored is None:
         ignored = [zyaml.StreamStartToken, zyaml.DocumentStartToken, zyaml.DocumentEndToken, zyaml.StreamEndToken]
 
     try:
         tokens = []
-        for t in zyaml.tokens_from_string(text):
+        if generator is None:
+            generator = zyaml.tokens_from_string(content)
+
+        for t in generator:
             if not ignored or t.__class__ not in ignored:
                 if stringify:
                     t = stringify(t)
@@ -97,11 +100,40 @@ def test_document_markers():
 
 
 def test_edge_cases():
+    assert tokens("a{x") == "ScalarToken[1,1] a{x"
+    assert tokens("\n\na::#b") == "ScalarToken[3,1] a::#b"
+    assert tokens("--- a") == "ScalarToken[1,5] a"
+    assert tokens("...\ta") == "ScalarToken[1,5] a"
+    assert tokens("---a") == "ScalarToken[1,1] ---a"
+    assert tokens("...a") == "ScalarToken[1,1] ...a"
     assert tokens("-  a\n b") == [
         "BlockSeqToken[1,1]",
         "DashToken[1,1]",
         "ScalarToken[1,4] a b",
         "BlockEndToken[2,1]",
+    ]
+    assert tokens("- a: b\n\n#") == [
+        "BlockSeqToken[1,1]",
+        "DashToken[1,1]",
+        "BlockMapToken[1,3]",
+        "KeyToken[1,3]",
+        "ScalarToken[1,3] a",
+        "ValueToken[1,4]",
+        "ScalarToken[1,6] b",
+        "BlockEndToken[2,3]",
+        "BlockEndToken[2,1]",
+    ]
+    assert tokens("a:  b\n c\nx: y") == [
+        "BlockMapToken[1,1]",
+        "KeyToken[1,1]",
+        "ScalarToken[1,1] a",
+        "ValueToken[1,2]",
+        "ScalarToken[1,5] b c",
+        "KeyToken[3,1]",
+        "ScalarToken[3,1] x",
+        "ValueToken[3,2]",
+        "ScalarToken[3,4] y",
+        "BlockEndToken[3,1]",
     ]
     assert tokens("a: {\n - b: c}") == [
         "BlockMapToken[1,1]",
@@ -115,6 +147,14 @@ def test_edge_cases():
         "ScalarToken[2,7] c",
         "FlowEndToken[2,8] }",
         "BlockEndToken[2,1]",
+    ]
+
+    s = zyaml.Scanner(["a # commented item", "# comment line"], comments=True)
+    assert str(s) == "block - "
+    assert str(s.flow_scanner) == "flow - "
+    assert tokens(generator=s.tokens()) == [
+        "CommentToken[1,1] a # commented item",
+        "CommentToken[2,1] # comment line",
     ]
 
 
@@ -166,6 +206,8 @@ def test_flow_tokens():
 def test_invalid():
     assert tokens(":") == "Incomplete explicit mapping pair, line 1 column 1"
     assert tokens(": foo") == "Incomplete explicit mapping pair, line 1 column 1"
+    assert tokens("foo: @b") == "Character '@' is reserved, line 1 column 6"
+    assert tokens("a: : b") == "Nested mappings are not allowed in compact mappings, line 1 column 4"
     assert tokens("a\n#\nb") == "Trailing content after comment, line 3 column 1"
     assert tokens("- a\nb") == "Scalar under-indented relative to previous sequence, line 2 column 1"
     assert tokens("-  a: x\n b: y") == "Scalar is under-indented relative to map, line 2 column 2"
@@ -173,6 +215,7 @@ def test_invalid():
     assert tokens("a: b\n cc: d") == "Scalar is over-indented relative to map, line 2 column 2"
     assert tokens("  a: b\n c: d") == "Document contains trailing content, line 2 column 2"
     assert tokens("[a, -") == "Expected flow map end, line 1 column 5"
+    assert tokens("a: [}") == "Unexpected flow closing character '}', line 1 column 5"
 
 
 def test_partial():

@@ -206,6 +206,7 @@ class ModalScanner(object):
         Args:
             token (Token): Token that is requesting the pop
         """
+        yield None
 
     def auto_pop_all(self, token):
         """
@@ -252,16 +253,6 @@ class BlockScanner(ModalScanner):
             self.top_block = tb = block(token.linenum, token.indent)
             self.stack.append(tb)
             yield tb
-
-    def auto_pop(self, token):
-        tb = self.top_block
-        while tb is not None and tb.indent < token.indent:
-            try:
-                self.top_block = tb = self.stack.pop()
-                yield BlockEndToken(token.linenum, tb.indent)
-
-            except IndexError:
-                self.top_block = tb = None
 
     def auto_pop_all(self, token):
         while self.stack:
@@ -327,20 +318,19 @@ class Scanner(object):
     def accumulate_scalar(self, scalar):
         sk = self.simple_key
         if sk is None:
-            self.simple_key = scalar
+            self.simple_key = scalar if scalar.value else None
             return
 
         acc = self.accumulated_scalar
         if acc is None:
             self.mode.track_same_line_value(sk)
-            self.accumulated_scalar = self.simple_key
-            self.simple_key = scalar
+            self.accumulated_scalar = sk
+            self.simple_key = scalar if scalar.value else None
             return
 
-        if not sk.has_comment or sk.value:
-            acc.add_line(sk.value)
-
-        sk.value = scalar.value
+        acc.has_comment = acc.has_comment or sk.has_comment
+        acc.add_line(sk.value)
+        self.simple_key = scalar if scalar.value else None
 
     def popped_scalar(self, with_simple_key=True):
         acc = self.accumulated_scalar
@@ -408,10 +398,7 @@ class Scanner(object):
                 if line_text[mstart - 1] not in " \t":
                     continue
 
-                sk = self.simple_key
-                if sk is not None:
-                    sk.has_comment = True  # Mark simple key as interrupted by comment
-
+                self.mark_comment()
                 if self.comments:
                     yield CommentToken(linenum, start, line_text[start:]), None, None
 
@@ -447,24 +434,22 @@ class Scanner(object):
                     yield None, start, line_text[start:mstart].rstrip()
 
                 tokenizer = self.tokenizer_map.get(matched)
-                if tokenizer is not None:
-                    yield tokenizer(linenum, mstart, line_text[mstart:mend]), None, None
-
-                else:
-                    yield None, mstart, line_text[mstart:mend]
-
+                yield tokenizer(linenum, mstart, line_text[mstart:mend]), None, None
                 start = rstart
 
         if start < end:
             yield None, start, line_text[start:end]
 
     def headers(self, linenum, start, line_text):
-        end = None
         while True:
             if line_text is None:
                 try:
                     linenum, line_text = next(self.generator)
                     line_text = line_text.rstrip("\r\n")
+                    if not line_text and self.accumulated_scalar is None and self.simple_key is None:
+                        line_text = None
+                        continue
+
                     start = 0
 
                 except StopIteration:
@@ -509,7 +494,7 @@ class Scanner(object):
             matched = line_text[start:end]
             if matched[0] == "-":
                 yield None, DocumentStartToken(linenum, 0)
-                if matched[-1] == " ":
+                if matched[-1] in " \t":
                     start = end
 
                 else:
@@ -517,7 +502,7 @@ class Scanner(object):
 
             elif matched[0] == ".":
                 yield None, DocumentEndToken(linenum, 0)
-                if matched[-1] == " ":
+                if matched[-1] in " \t":
                     start = end
 
                 else:
@@ -527,20 +512,22 @@ class Scanner(object):
                 yield None, DirectiveToken(linenum, end, line_text)
                 line_text = None
 
-            elif matched[-1] == "#":
-                sk = self.simple_key
-                if sk is not None:
-                    sk.has_comment = True  # Mark simple key as interrupted by comment
-
+            else:  # Matching a '#' comment
+                self.mark_comment()
                 if self.comments:
                     yield None, CommentToken(linenum, start, line_text[start:])
 
                 line_text = None
 
-            else:
-                raise ParseError("Unexpected character '%s'" % matched, linenum=linenum, indent=start)
+    def mark_comment(self):
+        sk = self.simple_key
+        if sk is not None and sk.value:
+            sk.has_comment = True
+            return
 
-        yield (linenum, start, end, line_text), None
+        sk = self.accumulated_scalar
+        if sk is not None and sk.value:
+            sk.has_comment = True
 
     # noinspection PyAssignmentToLoopOrWithParameter
     def tokens(self):
