@@ -1,6 +1,5 @@
 import collections
 
-from zyaml.loader import *
 from zyaml.tokens import *
 
 
@@ -636,11 +635,9 @@ class Scanner(object):
 
                 yield ScalarToken(linenum, offset, text)
 
-    def deserialized(self, loader=SimpleLoader):
-        loader = loader(self)
+    def deserialized(self, visitor):
+        visitor = visitor()
         for token in self.tokens():
-            func = getattr(loader, token.__class__.__name__, None)
-            if func is not None:
-                func(token)
+            visitor.consume(token)
 
-        return loader.docs
+        return visitor.documents()

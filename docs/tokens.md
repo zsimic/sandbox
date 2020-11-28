@@ -24,7 +24,7 @@ The scanner has a simple equivalent of a 2-pass approach (see `Scanner().tokens(
 - Pass 1 (see `_raw_tokens()`) yields `*Token` objects, as seen from input.
 - Each token can optionally yield more "auto-filled" tokens (see the `auto_*` fields)
 - Example "auto-filled" token: `DocumentStartToken` is always yielded, even if not explicitly in the input
-- This ensures a consistent sequence of tokens coming in to the `*Loader`
+- This ensures a consistent sequence of tokens coming in to the `TokenVisitor` implementations
 
 Quick overview of `Token`-s with custom auto-fill behavior:
 
