@@ -61,7 +61,7 @@ def get_samples(sample_name):
     return sorted(result, key=lambda x: x.key)
 
 
-TESTED_SAMPLES = "flex,invalid,minor,valid"
+TESTED_SAMPLES = "edge-cases,flex,invalid,minor,valid"
 
 
 @pytest.fixture
@@ -275,7 +275,7 @@ def print_(tokens, stacktrace, implementation, text):
     """Deserialize given argument as yaml"""
     text = " ".join(text)
     text = codecs.decode(text, "unicode_escape")
-    print("--- raw:\n%s" % text)
+    show_lines(text)
     for impl in implementation:
         assert isinstance(impl, YmlImplementation)
         header = "%s" % impl
@@ -430,22 +430,14 @@ def profiled(enabled):
 @main.command()
 @click.option("--profile", is_flag=True, help="Enable profiling")
 @click.option("--tokens", "-t", is_flag=True, help="Show zyaml tokens as well")
-@click.option("--line-numbers", "-n", is_flag=True, help="Show line numbers when showing original yaml")
 @stacktrace_option()
 @implementation_option(default="zyaml,ruamel")
 @samples_arg(default="misc")
-def show(profile, tokens, line_numbers, stacktrace, implementation, samples):
+def show(profile, tokens, stacktrace, implementation, samples):
     """Show deserialized yaml objects as json"""
     with profiled(profile) as is_profiling:
         for sample in samples:
-            print("========  %s  ========" % sample)
-            with open(sample.path) as fh:
-                if line_numbers:
-                    print("".join("%4s: %s" % (n + 1, s) for n, s in enumerate(fh.readlines())))
-
-                else:
-                    print("".join(fh.readlines()))
-
+            show_lines(sample)
             assert isinstance(implementation, ImplementationCollection)
             for impl in implementation:
                 if tokens and impl.name == "zyaml":
@@ -459,7 +451,7 @@ def show(profile, tokens, line_numbers, stacktrace, implementation, samples):
                     return
 
                 if result.error:
-                    rep = "Error: %s\n" % result.error
+                    rep = runez.red(result.error)
                     implementation.track_result_combination(impl, "error")
 
                 else:
@@ -477,6 +469,28 @@ def show(profile, tokens, line_numbers, stacktrace, implementation, samples):
                 print()
 
 
+def show_lines(content, line_numbers=None, header=None):
+    if hasattr(content, "path"):
+        header = header or str(content)
+        content = runez.readlines(content.path)
+
+    elif hasattr(content, "splitlines"):
+        content = content.splitlines()
+
+    if line_numbers is None:
+        line_numbers = len(content) > 3
+
+    result = []
+    for n, line in enumerate(content, start=1):
+        line = line.rstrip("\n")
+        result.append("%s%s" % (runez.dim("%3s: " % n) if line_numbers else "", line))
+
+    if header:
+        print("========  %s  ========" % header)
+
+    print("\n".join(result))
+
+
 @main.command()
 @stacktrace_option()
 @implementation_option(default="zyaml,pyyaml_base")
@@ -484,10 +498,7 @@ def show(profile, tokens, line_numbers, stacktrace, implementation, samples):
 def tokens(stacktrace, implementation, samples):
     """Show tokens for given samples"""
     for sample in samples:
-        print("========  %s  ========" % sample)
-        with open(sample.path) as fh:
-            print("".join(fh.readlines()))
-
+        show_lines(sample)
         for impl in implementation:
             print("--------  %s  --------" % impl)
             for t in impl.tokens(sample, stacktrace=stacktrace):

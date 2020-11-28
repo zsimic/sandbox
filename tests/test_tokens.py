@@ -97,11 +97,11 @@ def test_document_markers():
 
 
 def test_edge_cases():
-    assert tokens(":") == "Incomplete explicit mapping pair, line 1 column 1"
-    assert tokens(": foo") == "Incomplete explicit mapping pair, line 1 column 1"
-    assert tokens("a\n#\nb") == [
-        "ScalarToken[1,1] a",
-        "ScalarToken[3,1] b",
+    assert tokens("-  a\n b") == [
+        "BlockSeqToken[1,1]",
+        "DashToken[1,1]",
+        "ScalarToken[1,4] a b",
+        "BlockEndToken[2,1]",
     ]
     assert tokens("a: {\n - b: c}") == [
         "BlockMapToken[1,1]",
@@ -120,9 +120,9 @@ def test_edge_cases():
 
 def test_flow_tokens():
     assert tokens("-") == [
-        "BlockSeqToken[1,2]",
+        "BlockSeqToken[1,1]",
         "DashToken[1,1]",
-        "BlockEndToken[1,2]"
+        "BlockEndToken[1,1]"
     ]
     assert tokens(" a: b") == [
         "BlockMapToken[1,2]",
@@ -164,9 +164,14 @@ def test_flow_tokens():
 
 
 def test_invalid():
-    assert tokens("a: b\n c: d") == "Misaligned indentation, line 2 column 2"
-    assert tokens("a: b\n cc: d") == "Misaligned indentation, line 2 column 2"
-    assert tokens("  a: b\n c: d") == "Misaligned indentation, line 2 column 2"
+    assert tokens(":") == "Incomplete explicit mapping pair, line 1 column 1"
+    assert tokens(": foo") == "Incomplete explicit mapping pair, line 1 column 1"
+    assert tokens("a\n#\nb") == "Trailing content after comment, line 3 column 1"
+    assert tokens("- a\nb") == "Scalar under-indented relative to previous sequence, line 2 column 1"
+    assert tokens("-  a: x\n b: y") == "Scalar is under-indented relative to map, line 2 column 2"
+    assert tokens("a: b\n c: d") == "Scalar is over-indented relative to map, line 2 column 2"
+    assert tokens("a: b\n cc: d") == "Scalar is over-indented relative to map, line 2 column 2"
+    assert tokens("  a: b\n c: d") == "Document contains trailing content, line 2 column 2"
     assert tokens("[a, -") == "Expected flow map end, line 1 column 5"
 
 

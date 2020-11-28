@@ -6,7 +6,7 @@ from zyaml.tokens import *
 
 RESERVED = "@`"
 RE_HEADERS = re.compile(r"^(\s*#|%|(---|\.\.\.)(\s|$))")
-RE_BLOCK_SEQUENCE = re.compile(r"\s*((-\s+\S)|-\s*$)")
+RE_BLOCK_SEQUENCE = re.compile(r"\s*(-\s+(\S)|-\s*$)")
 RE_DOUBLE_QUOTE_END = re.compile(r'(^\s*"|[^\\]")\s*(.*?)\s*$')
 RE_SINGLE_QUOTE_END = re.compile(r"(^\s*'|[^']'([^']|$))")
 RE_CONTENT = re.compile(r"\s*(.*?)\s*$")
@@ -15,7 +15,7 @@ RE_CONTENT = re.compile(r"\s*(.*?)\s*$")
 def _get_literal_styled_token(linenum, start, style):
     original = style
     if len(style) > 3:
-        raise ParseError("Invalid literal style '%s', should be less than 3 chars" % style, linenum, start)
+        raise ParseError("Invalid literal style '%s', should be less than 3 chars" % style, linenum=linenum, indent=start)
 
     keep = None
     if "-" in style:
@@ -24,7 +24,7 @@ def _get_literal_styled_token(linenum, start, style):
 
     if "+" in style:
         if keep is not None:
-            raise ParseError("Ambiguous literal style '%s'" % original, linenum, start)
+            raise ParseError("Ambiguous literal style '%s'" % original, linenum=linenum, indent=start)
 
         keep = True
         style = style.replace("+", "", 1)
@@ -34,11 +34,11 @@ def _get_literal_styled_token(linenum, start, style):
         indent = style[1]
         style = style[0]
         if not indent.isdigit():
-            raise ParseError("Invalid literal style '%s'" % original, linenum, start)
+            raise ParseError("Invalid literal style '%s'" % original, linenum=linenum, indent=start)
 
         indent = int(indent)
         if indent < 1:
-            raise ParseError("Indent must be between 1 and 9", linenum, start)
+            raise ParseError("Indent must be between 1 and 9", linenum=linenum, indent=start)
 
     return style == ">", keep, indent, ScalarToken(linenum, indent, None, style=original)
 
@@ -65,7 +65,7 @@ def _consume_literal(generator, linenum, start, style):
 
         if start < indent:
             if not lines:
-                raise ParseError("Bad literal indentation")
+                raise ParseError("Bad literal indentation", linenum=linenum, indent=start)
 
             text = yaml_lines(lines, indent=indent, folded=folded, keep=keep)
             if keep is None:
@@ -181,7 +181,7 @@ class ModalScanner(object):
         self.stack = collections.deque()
 
     def __repr__(self):
-        stacks = " / ".join("%s%s" % (s.short_name, s.indent) for s in self.stack)
+        stacks = " / ".join("%s%s" % (s.short_name[0], s.indent) for s in self.stack)
         return "%s - %s" % (self.mode_name.lower(), stacks)
 
     @property
@@ -191,7 +191,7 @@ class ModalScanner(object):
     def track_same_line_value(self, token):
         """
         Args:
-            token (Token): Track same-line values for mapping/sequence blocks
+            token (Token): Track same-line values for mapping blocks
         """
 
     def auto_push(self, token, block):
@@ -222,36 +222,33 @@ class BlockScanner(ModalScanner):
 
     def track_same_line_value(self, token):
         tb = self.top_block
-        if tb is not None and token.same_line_value is True:
-            tb.same_line_value = token
+        if tb is not None and token.produces_value:
+            tb.track_same_line_value(token)
 
     def auto_push(self, token, block):
-        if block is None:
-            raise ParseError("Internal error: flow pushed onto block")
-
         tb = self.top_block
+        last_popped = None
         while tb is not None and tb.indent > token.indent:
             try:
                 yield BlockEndToken(token.linenum, tb.indent)
-                self.stack.pop()
+                last_popped = self.stack.pop()
                 self.top_block = tb = self.stack[-1]
 
             except IndexError:
                 # Top-most block can't be popped: it sets the minimum indentation for the entire document
-                raise ParseError("Misaligned indentation", column=token.column)
+                raise ParseError("Document contains trailing content", token=token)
 
         if tb is None:
             self.top_block = tb = block(token.linenum, token.indent)
             self.stack.append(tb)
             yield tb
+            return
 
-        elif tb.same_line_value is not None:
-            if token.indent != tb.indent:
-                raise ParseError("Misaligned indentation", column=token.column)
+        if token.produces_value:
+            tb.track_same_line_value(token)
 
-            tb.same_line_value = None
-
-        elif tb.indent != token.indent:
+        if tb.indent != token.indent:
+            verify_indentation(last_popped, token)
             self.top_block = tb = block(token.linenum, token.indent)
             self.stack.append(tb)
             yield tb
@@ -296,7 +293,7 @@ class FlowScanner(ModalScanner):
         yield token
 
     def auto_pop_all(self, token):
-        raise ParseError("Expected flow map end", token.linenum, token.column)
+        raise ParseError("Expected flow map end", token=token)
 
 
 class Scanner(object):
@@ -309,6 +306,7 @@ class Scanner(object):
         self.yaml_directive = None
         self.directives = None
         self.started_doc = None
+        self.accumulated_scalar = None  # type: Optional[ScalarToken]
         self.simple_key = None  # type: Optional[ScalarToken]
         self.tokenizer_map = {
             "!": TagToken,
@@ -326,26 +324,45 @@ class Scanner(object):
     def __repr__(self):
         return str(self.mode)
 
-    def check_indentation(self, token):
-        if self.mode is self.block_scanner:
-            tb = self.block_scanner.top_block
-            if tb is not None and token.indent < tb.indent:
-                raise ParseError("Misaligned indentation")
-
-    def top_modal_token(self):
-        try:
-            return self.mode.stack[-1]
-
-        except IndexError:
-            return None
-
-    def popped_simple_key(self):
+    def accumulate_scalar(self, scalar):
         sk = self.simple_key
-        if sk is not None:
-            sk.apply_multiline()
-            self.simple_key = None
+        if sk is None:
+            self.simple_key = scalar
+            return
 
-        return sk
+        acc = self.accumulated_scalar
+        if acc is None:
+            self.mode.track_same_line_value(sk)
+            self.accumulated_scalar = self.simple_key
+            self.simple_key = scalar
+            return
+
+        if not sk.has_comment or sk.value:
+            acc.add_line(sk.value)
+
+        sk.value = scalar.value
+
+    def popped_scalar(self, with_simple_key=True):
+        acc = self.accumulated_scalar
+        if with_simple_key:
+            sk = self.simple_key
+            if acc is None:
+                acc = sk
+                self.simple_key = None
+
+            elif sk is not None:
+                if acc.has_comment:
+                    raise ParseError("Trailing content after comment", token=sk)
+
+                self.mode.track_same_line_value(sk)
+                acc.add_line(sk.value)
+                self.simple_key = None
+
+        if acc is not None:
+            acc.apply_multiline()
+            self.accumulated_scalar = None
+
+        return acc
 
     def auto_push(self, token, block=None):
         if block is None and self.mode is self.block_scanner:
@@ -363,8 +380,9 @@ class Scanner(object):
             self.mode = self.block_scanner
 
     def auto_pop_all(self, token):
-        sk = self.popped_simple_key()
+        sk = self.popped_scalar()
         if sk is not None:
+            self.mode.track_same_line_value(sk)
             yield sk
 
         for t in self.mode.auto_pop_all(token):
@@ -411,7 +429,7 @@ class Scanner(object):
 
                 if actionable:
                     if seen_colon:
-                        raise ParseError("Nested mappings are not allowed in compact mappings")
+                        raise ParseError("Nested mappings are not allowed in compact mappings", linenum=linenum, indent=mstart)
 
                     seen_colon = True
 
@@ -441,6 +459,7 @@ class Scanner(object):
             yield None, start, line_text[start:end]
 
     def headers(self, linenum, start, line_text):
+        end = None
         while True:
             if line_text is None:
                 try:
@@ -457,19 +476,24 @@ class Scanner(object):
                 m = RE_HEADERS.match(line_text)
 
             if m is None:
+                # No headers, look for block sequence starts
                 if self.mode is self.block_scanner:
                     m = RE_BLOCK_SEQUENCE.match(line_text, start)
 
                 while m is not None:
-                    start = m.span(1)[0] + 1
+                    start = m.span(1)[0]
                     yield None, DashToken(linenum, start)
-                    first_non_blank = m.span(2)[1] - 1
-                    if first_non_blank > 0 and line_text[first_non_blank] != "-":
-                        start = first_non_blank
+                    start = m.span(2)[1] - 1  # Next first non-black character
+                    if start < 0:
+                        line_text = None
                         break
 
                     m = RE_BLOCK_SEQUENCE.match(line_text, start)
 
+                if line_text is None:
+                    continue
+
+                # Done with block sequence starts, look at line content
                 m = RE_CONTENT.match(line_text, start)
                 first_non_blank, end = m.span(1)
                 if start == 0 and first_non_blank == end and self.simple_key is not None:
@@ -480,6 +504,7 @@ class Scanner(object):
                 yield (linenum, first_non_blank, end, line_text), None
                 return
 
+            # Headers were present
             start, end = m.span(1)
             matched = line_text[start:end]
             if matched[0] == "-":
@@ -513,7 +538,7 @@ class Scanner(object):
                 line_text = None
 
             else:
-                raise ParseError("Unexpected character '%s'" % matched)
+                raise ParseError("Unexpected character '%s'" % matched, linenum=linenum, indent=start)
 
         yield (linenum, start, end, line_text), None
 
@@ -527,11 +552,13 @@ class Scanner(object):
                     self.started_doc = True
                     yield DocumentStartToken(token.linenum, 0)
 
-                if token.pop_simple_key:
-                    sk = self.popped_simple_key()
-                    if sk is not None:
-                        self.mode.track_same_line_value(sk)
-                        yield sk
+                injected = token.auto_injected(self)
+                if injected is not None:
+                    if injected is True:
+                        continue
+
+                    self.mode.track_same_line_value(injected)
+                    yield injected
 
                 if token.auto_filler is not None:
                     for token in token.auto_filler(self):
@@ -572,7 +599,7 @@ class Scanner(object):
 
                 first_char = text[0]
                 if first_char in RESERVED:
-                    raise ParseError("Character '%s' is reserved" % first_char, linenum, offset)
+                    raise ParseError("Character '%s' is reserved" % first_char, linenum=linenum, indent=offset)
 
                 if first_char == '"':
                     linenum, start, end, upcoming, token = _double_quoted(self.generator, linenum, offset + 1, end, line_text)

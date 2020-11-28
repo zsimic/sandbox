@@ -1,0 +1,4 @@
+foo.bar:
+- - - a  # Triple nested sequence
+- - b
+- c

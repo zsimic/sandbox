@@ -116,10 +116,15 @@ def represented_scalar(style, value):
 
 
 class ParseError(Exception):
-    def __init__(self, message, linenum=None, column=None):
+    def __init__(self, message, linenum=None, indent=None, token=None):
         self.message = message
-        self.linenum = linenum
-        self.column = column
+        if token is not None:
+            self.linenum = token.linenum
+            self.column = token.column
+
+        else:
+            self.linenum = linenum
+            self.column = None if indent is None else indent + 1
 
     def __str__(self):
         coords = ""

@@ -4,6 +4,20 @@ from zyaml.marshal import *
 RE_COMMENT = re.compile(r"\s+#.*$")
 
 
+def is_significant(token):
+    if isinstance(token, ScalarToken):
+        return token.value
+
+
+def verify_indentation(reference, token, over=True, under=True):
+    if reference is not None and token is not None:
+        if under and token.indent < reference.indent and is_significant(token):
+            raise ParseError("%s is under-indented relative to %s" % (token.short_name, reference.short_name.lower()), token=token)
+
+        if over and token.indent > reference.indent and is_significant(token):
+            raise ParseError("%s is over-indented relative to %s" % (token.short_name, reference.short_name.lower()), token=token)
+
+
 def yaml_lines(lines, text=None, indent=None, folded=None, keep=False, continuations=False):
     """
     Args:
@@ -69,8 +83,7 @@ class Token(object):
 
     auto_start_doc = True  # Does this token imply DocumentStartToken?
     auto_filler = None  # Optional auto-filler (generator called with one argument: the current scanner)
-    pop_simple_key = True  # Should pending simple_key be auto-popped by this token?
-    same_line_value = False  # Does this token count as a same-line value for mappings?
+    produces_value = False  # Does this token produce a value?
 
     def __init__(self, linenum, indent, value=None):
         self.linenum = linenum
@@ -90,10 +103,17 @@ class Token(object):
 
     @property
     def short_name(self):
-        return self.__class__.__name__.replace("Token", "").replace("Block", "").replace("Flow", "").lower().replace("seq", "list")
+        return self.__class__.__name__.replace("Token", "").replace("Block", "").replace("Flow", "").replace("Sequence", "List")
 
     def represented_value(self):
         return unicode_escaped(self.value)
+
+    def auto_injected(self, scanner):
+        """Optional token to automatically inject"""
+        return scanner.popped_scalar()
+
+    def track_same_line_value(self, token):
+        """Used to track same-line values for mapping blocks"""
 
 
 class CommentToken(Token):
@@ -139,7 +159,7 @@ class DirectiveToken(Token):
 
     def __init__(self, linenum, indent, text):
         if indent != 1:
-            raise ParseError("Directive must not be indented")
+            raise ParseError("Directive must not be indented", token=self)
 
         text = text[1:]
         m = RE_COMMENT.search(text)
@@ -148,7 +168,7 @@ class DirectiveToken(Token):
 
         self.name, _, text = text.strip().partition(" ")
         if not self.name:
-            raise ParseError("Invalid directive")
+            raise ParseError("Invalid directive", token=self)
 
         super(DirectiveToken, self).__init__(linenum, 0, text.strip())
 
@@ -160,11 +180,11 @@ class DirectiveToken(Token):
 
     def auto_filler(self, scanner):
         if scanner.started_doc:
-            raise ParseError("Directives allowed only at document start")
+            raise ParseError("Directives allowed only at document start", token=self)
 
         if self.name == "YAML":
             if scanner.yaml_directive:
-                raise ParseError("Only one YAML directive is allowed")
+                raise ParseError("Only one YAML directive is allowed", token=self)
 
             scanner.yaml_directive = self
 
@@ -173,7 +193,7 @@ class DirectiveToken(Token):
 
 class FlowMapToken(Token):
 
-    same_line_value = True
+    produces_value = True
 
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self):
@@ -182,7 +202,7 @@ class FlowMapToken(Token):
 
 class FlowSeqToken(Token):
 
-    same_line_value = True
+    produces_value = True
 
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self):
@@ -202,12 +222,23 @@ class CommaToken(Token):
 
 class BlockMapToken(Token):
 
-    same_line_value = None
+    current_line_value = None
+
+    def track_same_line_value(self, token):
+        if self.linenum == token.linenum:
+            verify_indentation(self, token, over=False)
+            self.current_line_value = token
+
+        elif self.current_line_value is not None:
+            verify_indentation(self, token)
+            self.current_line_value = None
 
 
 class BlockSeqToken(Token):
 
-    same_line_value = None
+    def track_same_line_value(self, token):
+        if token.indent <= self.indent and is_significant(token):
+            raise ParseError("%s under-indented relative to previous sequence" % token.short_name, token=token)
 
 
 class BlockEndToken(Token):
@@ -216,11 +247,11 @@ class BlockEndToken(Token):
 
 class ExplicitMapToken(Token):
 
-    pop_simple_key = False
-    same_line_value = False
+    def auto_injected(self, scanner):
+        return None
 
     def auto_filler(self, scanner):
-        sk = scanner.popped_simple_key()
+        sk = scanner.popped_scalar()
         if sk is not None:
             yield sk
 
@@ -231,10 +262,6 @@ class ExplicitMapToken(Token):
 
 
 class DashToken(Token):
-
-    @property
-    def column(self):
-        return self.indent
 
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self, BlockSeqToken):
@@ -253,24 +280,28 @@ class ValueToken(Token):
 
 class ColonToken(Token):
 
-    pop_simple_key = False
+    def auto_injected(self, scanner):
+        return None
 
     def auto_filler(self, scanner):
-        sk = scanner.simple_key
+        sk = scanner.popped_scalar(with_simple_key=False)
+        if sk is not None:
+            yield sk
+
+        sk = scanner.popped_scalar()
         if sk is None:
             if scanner.mode is scanner.block_scanner:
-                raise ParseError("Incomplete explicit mapping pair")
+                raise ParseError("Incomplete explicit mapping pair", token=self)
 
         else:
             if sk.multiline and sk.style is None:
-                raise ParseError("Mapping keys must be on a single line")
+                raise ParseError("Mapping keys must be on a single line", token=self)
 
             for t in scanner.auto_push(sk, BlockMapToken):
                 yield t
 
             yield KeyToken(sk.linenum, sk.indent)
             yield sk
-            scanner.simple_key = None
 
         yield ValueToken(self.linenum, self.indent)
 
@@ -288,7 +319,7 @@ class TagToken(Token):
             return self.marshaller(value)
 
         except ValueError:
-            raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.value))
+            raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.value), token=self)
 
 
 class AnchorToken(Token):
@@ -309,25 +340,20 @@ class AliasToken(Token):
 
     def resolved_value(self, clean):
         if not clean:
-            raise ParseError("Alias should not have any properties")
+            raise ParseError("Alias should not have any properties", token=self)
 
         return self.value
 
 
 class ScalarToken(Token):
 
-    pop_simple_key = False
-    same_line_value = True
+    produces_value = True
 
     def __init__(self, linenum, indent, text, style=None):
         super(ScalarToken, self).__init__(linenum, indent, text)
         self.style = style
         self.multiline = None
         self.has_comment = False
-
-    @property
-    def has_value(self):
-        return self.value or self.multiline
 
     def represented_value(self):
         return represented_scalar(self.style, self.value)
@@ -357,17 +383,6 @@ class ScalarToken(Token):
             self.value = yaml_lines(self.multiline)
             self.multiline = True
 
-    def auto_filler(self, scanner):
-        sk = scanner.simple_key
-        if sk is None:
-            scanner.simple_key = self
-
-        elif self.value and (self.indent < sk.indent or sk.has_comment):
-            scanner.check_indentation(sk)
-            sk.apply_multiline()
-            scanner.mode.track_same_line_value(sk)
-            yield sk
-            scanner.simple_key = self
-
-        else:
-            sk.add_line(self.value)
+    def auto_injected(self, scanner):
+        scanner.accumulate_scalar(self)
+        return True
