@@ -1,6 +1,9 @@
+import codecs
 import collections
+import re
 
-from zyaml.tokens import *
+from .marshal import Optional, ParseError
+from .tokens import AliasToken, AnchorToken, BlockEndToken, ColonToken, CommaToken, CommentToken, DashToken, DirectiveToken, DocumentEndToken, DocumentStartToken, ExplicitMapToken, FlowEndToken, FlowMapToken, FlowSeqToken, ScalarToken, StreamEndToken, StreamStartToken, TagToken, Token, verify_indentation, yaml_lines
 
 
 RESERVED = "@`"
@@ -634,10 +637,3 @@ class Scanner(object):
                     break
 
                 yield ScalarToken(linenum, offset, text)
-
-    def deserialized(self, visitor):
-        visitor = visitor()
-        for token in self.tokens():
-            visitor.consume(token)
-
-        return visitor.documents()

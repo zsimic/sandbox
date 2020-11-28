@@ -37,6 +37,8 @@ CONSTANTS = {
 
 
 if PY2:
+    Optional = Union = None
+
     def cleaned_number(text):
         return text.replace("_", "")
 
@@ -86,20 +88,6 @@ def decode(value):
         return value.decode("utf-8", errors="ignore")
 
     return value
-
-
-def _dbg_repr(value):
-    if isinstance(value, tuple):
-        if value[1] is None or value[1] is False:
-            return "" if len(value) < 3 else value[2]
-
-        return value[0]
-
-    return str(value)
-
-
-def dbg(*args):
-    return "".join(_dbg_repr(s) for s in args if s is not None)
 
 
 def represented_scalar(style, value):

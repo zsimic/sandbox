@@ -1,4 +1,6 @@
-from zyaml.marshal import *
+import re
+
+from .marshal import default_marshal, Marshallers, ParseError, represented_scalar, shortened, unicode_escaped
 
 
 RE_COMMENT = re.compile(r"\s+#.*$")

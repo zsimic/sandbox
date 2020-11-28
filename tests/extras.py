@@ -3,7 +3,7 @@ import re
 
 import click
 
-import zyaml
+from zyaml.marshal import ParseError
 
 from .conftest import main
 
@@ -39,7 +39,7 @@ class ScannerMock:
 
             if leader == "%":
                 if leader_start != 0:
-                    raise zyaml.ParseError("Directive must not be indented")
+                    raise ParseError("Directive must not be indented")
 
                 return linenum, start, end, line_text, comments, line_text
 
@@ -66,7 +66,7 @@ class ScannerMock:
 
             if rstart == rend or line_text[mstart + 1] == " ":
                 if seen_colon is None and start == mstart:
-                    raise zyaml.ParseError("Incomplete explicit mapping pair")
+                    raise ParseError("Incomplete explicit mapping pair")
 
                 return True, True
 
@@ -156,7 +156,7 @@ def regex(text):
         s = ScannerMock()
         s.print_matches(text)
 
-    except zyaml.ParseError as e:
+    except ParseError as e:
         print("error: %s" % e)
 
 

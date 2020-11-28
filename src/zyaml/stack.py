@@ -1,4 +1,19 @@
-from zyaml.tokens import *
+from .marshal import Optional, ParseError, shortened, Union
+from .tokens import AnchorToken, ScalarToken, TagToken
+
+
+def _dbg_repr(value):
+    if isinstance(value, tuple):
+        if value[1] is None or value[1] is False:
+            return "" if len(value) < 3 else value[2]
+
+        return value[0]
+
+    return str(value)
+
+
+def dbg(*args):
+    return "".join(_dbg_repr(s) for s in args if s is not None)
 
 
 class StackedDocument(object):

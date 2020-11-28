@@ -1,12 +1,39 @@
+from .tokens import Token
+
+
 class TokenVisitor(object):
 
     def consume(self, token):
+        """
+        Args:
+            token (Token): Token to consume
+        """
+        assert isinstance(token, Token)
         func = getattr(self, token.__class__.__name__, None)
         if func is not None:
             func(token)
 
+    def deserialized(self, tokens):
+        """
+        Args:
+            tokens: Token generator
+
+        Returns:
+            (list): Deserialized documents
+        """
+        for token in tokens:
+            self.consume(token)
+
+        return self.documents()
+
     def documents(self):
-        """list: Parsed documents"""
+        """
+        Args:
+            tokens: Token generator
+
+        Returns:
+            (list): Deserialized documents
+        """
 
 
 class BaseVistor(TokenVisitor):

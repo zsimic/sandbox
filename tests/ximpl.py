@@ -9,8 +9,8 @@ import runez
 import strictyaml
 import yaml as pyyaml
 
-import zyaml
-from zyaml.marshal import represented_scalar
+from zyaml import load_path, load_string, tokens_from_path, tokens_from_stream, tokens_from_string
+from zyaml.marshal import decode, default_marshal, represented_scalar
 
 
 def not_implemented():
@@ -76,7 +76,7 @@ def get_descendants(ancestor, adjust=None, _result=None):
     return _result
 
 
-def json_sanitized(value, stringify=zyaml.decode, dt=str):
+def json_sanitized(value, stringify=decode, dt=str):
     if isinstance(value, strictyaml.representation.YAML):
         return dt(value)
 
@@ -254,7 +254,7 @@ class YmlImplementation(object):
 
         return data
 
-    def json_representation(self, result, stringify=zyaml.decode, dt=str):
+    def json_representation(self, result, stringify=decode, dt=str):
         try:
             payload = result.json_payload()
             payload = json_sanitized(payload, stringify=stringify, dt=dt)
@@ -273,19 +273,19 @@ class YmlImplementation(object):
 
 class ZyamlImplementation(YmlImplementation):
     def _load_string(self, text):
-        return zyaml.load_string(text)
+        return load_string(text)
 
     def _load_path(self, path):
-        return zyaml.load_path(path)
+        return load_path(path)
 
     def _tokens_from_path(self, path):
-        return zyaml.tokens_from_path(path)
+        return tokens_from_path(path)
 
     def _tokens_from_stream(self, stream):
-        return zyaml.tokens_from_stream(stream)
+        return tokens_from_stream(stream)
 
     def _tokens_from_string(self, text):
-        return zyaml.tokens_from_string(text)
+        return tokens_from_string(text)
 
     def _simplified(self, value):
         return value
@@ -309,7 +309,7 @@ def ruamel_passthrough_tags(loader, tag, node):
 
         return result
 
-    return zyaml.default_marshal(node.value)
+    return default_marshal(node.value)
 
 
 class RuamelImplementation(YmlImplementation):

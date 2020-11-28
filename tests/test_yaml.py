@@ -1,9 +1,9 @@
-import zyaml
-import zyaml.marshal
+from zyaml.marshal import default_marshal, ParseError
+from zyaml.tokens import yaml_lines
 
 
 def test_errors():
-    e = zyaml.ParseError("testing")
+    e = ParseError("testing")
     assert str(e) == "testing"
     e.column = 1
     assert str(e) == "testing, column 1"
@@ -15,21 +15,21 @@ def test_errors():
 
 
 def test_lines():
-    assert zyaml.yaml_lines(["a", "b"]) == "a b"
-    assert zyaml.yaml_lines(["a", "", "b"]) == "a\nb"
-    assert zyaml.yaml_lines(["a", "", "", "b"]) == "a\n\nb"
+    assert yaml_lines(["a", "b"]) == "a b"
+    assert yaml_lines(["a", "", "b"]) == "a\nb"
+    assert yaml_lines(["a", "", "", "b"]) == "a\n\nb"
 
 
 def test_scalar():
-    assert zyaml.default_marshal(None) is None
-    assert zyaml.default_marshal("") == ""
-    assert zyaml.default_marshal("foo") == "foo"
-    assert zyaml.default_marshal("null") is None
-    assert zyaml.default_marshal("True") is True
-    assert zyaml.default_marshal("False") is False
-    assert zyaml.default_marshal("0") == 0
-    assert zyaml.default_marshal("10_000") == 10000
-    assert zyaml.default_marshal("0.1") == 0.1
-    assert zyaml.default_marshal("0.1.1") == "0.1.1"
-    assert zyaml.default_marshal("+135.057E+3") == 135057
-    assert zyaml.default_marshal("_") == "_"
+    assert default_marshal(None) is None
+    assert default_marshal("") == ""
+    assert default_marshal("foo") == "foo"
+    assert default_marshal("null") is None
+    assert default_marshal("True") is True
+    assert default_marshal("False") is False
+    assert default_marshal("0") == 0
+    assert default_marshal("10_000") == 10000
+    assert default_marshal("0.1") == 0.1
+    assert default_marshal("0.1.1") == "0.1.1"
+    assert default_marshal("+135.057E+3") == 135057
+    assert default_marshal("_") == "_"

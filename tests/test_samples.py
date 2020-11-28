@@ -3,7 +3,9 @@ import math
 import pytest
 import runez
 
-import zyaml
+from zyaml import load_string
+from zyaml.marshal import ParseError, UTC
+
 
 from .conftest import K_TOKEN
 
@@ -26,9 +28,9 @@ def loaded(text):
         (list | dict | str | float | int | datetime.datetime): Deserialized object
     """
     try:
-        return zyaml.load_string(text)
+        return load_string(text)
 
-    except zyaml.ParseError as e:
+    except ParseError as e:
         return str(e)
 
 
@@ -167,7 +169,7 @@ def test_edge_cases():
 @pytest.mark.skip("broken after refactor")
 def test_types():
     assert loaded("! 2019-01-01 01:02:03Z") == "2019-01-01 01:02:03Z"
-    assert loaded("2019-01-01 01:02:03Z").tzinfo is zyaml.UTC
+    assert loaded("2019-01-01 01:02:03Z").tzinfo is UTC
     assert loaded("!!date 2019-01-01 01:02:03").tzinfo is None
 
     assert loaded("!!set [a]") == {"a"}

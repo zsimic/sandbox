@@ -11,7 +11,8 @@ import click
 import pytest
 import runez
 
-import zyaml
+from zyaml import load_path, tokens_from_path
+from zyaml.marshal import decode, ParseError
 
 from .benchmark import BenchmarkRunner
 from .ximpl import implementation_option, ImplementationCollection, json_sanitized, ParseResult, YmlImplementation
@@ -163,7 +164,7 @@ def simplified_date(value):
 @samples_arg()
 def diff(compact, untyped, tokens, implementation, samples):
     """Compare deserialization of 2 implementations"""
-    stringify = str if untyped else zyaml.decode
+    stringify = str if untyped else decode
     if compact is None:
         compact = len(samples) > 1
 
@@ -285,9 +286,9 @@ def mv(sample, target):
 
 
 @main.command(name="print")
-@click.option("--tokens", "-t", is_flag=True, help="Show zyaml tokens as well")
+@click.option("--tokens", "-t", is_flag=True, help="Show tokens as well")
 @stacktrace_option()
-@implementation_option(default="zyaml,ruamel")
+@implementation_option()
 @click.argument("text", nargs=-1)
 def print_(tokens, stacktrace, implementation, text):
     """Deserialize given argument as yaml"""
@@ -457,9 +458,9 @@ def profiled(enabled):
 
 @main.command()
 @click.option("--profile", is_flag=True, help="Enable profiling")
-@click.option("--tokens", "-t", is_flag=True, help="Show zyaml tokens as well")
+@click.option("--tokens", "-t", is_flag=True, help="Show yaml tokens as well")
 @stacktrace_option()
-@implementation_option(default="zyaml,ruamel")
+@implementation_option()
 @samples_arg()
 def show(profile, tokens, stacktrace, implementation, samples):
     """Show deserialized yaml objects as json"""
@@ -590,14 +591,14 @@ class Sample(object):
     def deserialized(self, kind):
         try:
             if kind == K_TOKEN:
-                tokens = zyaml.tokens_from_path(self.path)
+                tokens = tokens_from_path(self.path)
                 actual = [str(t) for t in tokens]
 
             else:
-                actual = zyaml.load_path(self.path)
+                actual = load_path(self.path)
                 actual = json_sanitized(actual)
 
-        except zyaml.ParseError as e:
+        except ParseError as e:
             actual = {"_error": runez.short(e)}
 
         return actual

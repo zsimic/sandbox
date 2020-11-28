@@ -3,17 +3,19 @@ try:
 except ImportError:
     from io import StringIO
 
-import zyaml
+from zyaml import tokens_from_stream, tokens_from_string
+from zyaml.scanner import Scanner
+from zyaml.tokens import DocumentEndToken, DocumentStartToken, StreamEndToken, StreamStartToken
 
 
 def tokens(content=None, ignored=None, stringify=str, generator=None):
     if ignored is None:
-        ignored = [zyaml.StreamStartToken, zyaml.DocumentStartToken, zyaml.DocumentEndToken, zyaml.StreamEndToken]
+        ignored = [StreamStartToken, DocumentStartToken, DocumentEndToken, StreamEndToken]
 
     try:
         tokens = []
         if generator is None:
-            generator = zyaml.tokens_from_string(content)
+            generator = tokens_from_string(content)
 
         for t in generator:
             if not ignored or t.__class__ not in ignored:
@@ -161,7 +163,7 @@ def test_edge_cases():
         "BlockEndToken[2,1]",
     ]
 
-    s = zyaml.Scanner(["a # commented item", "# comment line"], comments=True)
+    s = Scanner(["a # commented item", "# comment line"], comments=True)
     assert str(s) == "block - "
     assert str(s.flow_scanner) == "flow - "
     assert tokens(generator=s.tokens()) == [
@@ -259,6 +261,6 @@ def test_stream():
     s = StringIO()
     s.write("--")
     s.seek(0)
-    x = list(zyaml.tokens_from_stream(s))
+    x = list(tokens_from_stream(s))
     assert len(x) == 5
     assert str(x[2]) == "ScalarToken[1,1] --"

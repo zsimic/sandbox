@@ -1,5 +1,5 @@
-from zyaml.scanner import *
-from zyaml.visitor import *
+from .scanner import Scanner
+from .visitor import BaseVistor, TokenVisitor
 
 
 __version__ = "0.1.2"
@@ -9,40 +9,51 @@ def load_path(path, visitor=BaseVistor):
     """
     Args:
         path (str): Path to file to deserialize
-        visitor (TokenVisitor): Visitor to use
+        visitor (type(TokenVisitor)): Visitor to use
 
     Returns:
-        (list | dict): Deserialized object
+        (list): Deserialized documents
     """
     with open(path) as fh:
-        scanner = Scanner(fh)
-        return scanner.deserialized(visitor)
+        return deserialized(Scanner(fh), visitor)
 
 
 def load_stream(stream, visitor=BaseVistor):
     """
     Args:
         stream (collections.abc.Iterable): Yaml to deserialize (can be a callable that yields one line at a time)
-        visitor (TokenVisitor): Visitor to use
+        visitor (type(TokenVisitor)): Visitor to use
 
     Returns:
-        (list | dict | None): Deserialized object
+        (list): Deserialized documents
     """
-    scanner = Scanner(stream)
-    return scanner.deserialized(visitor)
+    return deserialized(Scanner(stream), visitor)
 
 
 def load_string(text, visitor=BaseVistor):
     """
     Args:
         text (str): Yaml to deserialize
-        visitor (TokenVisitor): Visitor to use
+        visitor (type(TokenVisitor)): Visitor to use
 
     Returns:
-        (list | dict | None): Deserialized object
+        (list): Deserialized documents
     """
-    scanner = Scanner(text.splitlines())
-    return scanner.deserialized(visitor)
+    return deserialized(Scanner(text.splitlines()), visitor)
+
+
+def deserialized(scanner, visitor):
+    """
+    Args:
+        scanner (Scanner): Token scanner
+        visitor (type(TokenVisitor)): Visitor to use
+
+    Returns:
+        (list): Deserialized documents
+    """
+    visitor = visitor()
+    assert isinstance(visitor, TokenVisitor)
+    return visitor.deserialized(scanner.tokens())
 
 
 def tokens_from_path(path):
