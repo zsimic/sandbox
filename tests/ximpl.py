@@ -324,7 +324,7 @@ class RuamelImplementation(YmlImplementation):
 
     def _load_string(self, text):
         y = ruamel.yaml.YAML(typ="safe")
-        ruamel.yaml.add_multi_constructor('', ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
+        ruamel.yaml.add_multi_constructor("", ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
         return y.load_all(text)
 
     def _tokens_from_path(self, path):

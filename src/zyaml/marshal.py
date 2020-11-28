@@ -43,7 +43,8 @@ if PY2:
         return text.replace("_", "")
 
     def base64_decode(value):
-        return _checked_scalar(value).decode('base64')
+        return _checked_scalar(value).decode("base64")
+
 
 else:
     import base64

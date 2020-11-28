@@ -212,7 +212,6 @@ class FlowSeqToken(Token):
 
 
 class FlowEndToken(Token):
-
     def auto_filler(self, scanner):
         for t in scanner.auto_pop(self):
             yield t
@@ -237,7 +236,6 @@ class BlockMapToken(Token):
 
 
 class BlockSeqToken(Token):
-
     def track_same_line_value(self, token):
         if token.indent <= self.indent and is_significant(token):
             raise ParseError("%s under-indented relative to previous sequence" % token.short_name, token=token)
@@ -248,7 +246,6 @@ class BlockEndToken(Token):
 
 
 class ExplicitMapToken(Token):
-
     def auto_injected(self, scanner):
         return None
 
@@ -269,7 +266,6 @@ class ExplicitMapToken(Token):
 
 
 class DashToken(Token):
-
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self, BlockSeqToken):
             yield t
@@ -286,7 +282,6 @@ class ValueToken(Token):
 
 
 class ColonToken(Token):
-
     def auto_injected(self, scanner):
         return None
 

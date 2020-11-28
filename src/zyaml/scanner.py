@@ -3,7 +3,29 @@ import collections
 import re
 
 from .marshal import Optional, ParseError
-from .tokens import AliasToken, AnchorToken, BlockEndToken, ColonToken, CommaToken, CommentToken, DashToken, DirectiveToken, DocumentEndToken, DocumentStartToken, ExplicitMapToken, FlowEndToken, FlowMapToken, FlowSeqToken, ScalarToken, StreamEndToken, StreamStartToken, TagToken, Token, verify_indentation, yaml_lines
+from .tokens import (
+    AliasToken,
+    AnchorToken,
+    BlockEndToken,
+    ColonToken,
+    CommaToken,
+    CommentToken,
+    DashToken,
+    DirectiveToken,
+    DocumentEndToken,
+    DocumentStartToken,
+    ExplicitMapToken,
+    FlowEndToken,
+    FlowMapToken,
+    FlowSeqToken,
+    ScalarToken,
+    StreamEndToken,
+    StreamStartToken,
+    TagToken,
+    Token,
+    verify_indentation,
+    yaml_lines,
+)
 
 
 RESERVED = "@`"
@@ -440,7 +462,7 @@ class Scanner(object):
                     actionable = line_text[mstart + 1] in " \t"
 
                 else:
-                    actionable = line_text[mstart - 1] in '"\'' or line_text[mstart + 1] in " \t,"
+                    actionable = line_text[mstart - 1] in "\"'" or line_text[mstart + 1] in " \t,"
 
                 if actionable:
                     if seen_colon:
@@ -631,7 +653,7 @@ class Scanner(object):
                     yield token
                     break
 
-                if first_char in '|>':
+                if first_char in "|>":
                     linenum, start, end, upcoming, token = _consume_literal(self.generator, linenum, offset, text)
                     yield token
                     break

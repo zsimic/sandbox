@@ -173,11 +173,7 @@ def test_edge_cases():
 
 
 def test_flow_tokens():
-    assert tokens("-") == [
-        "BlockSeqToken[1,1]",
-        "DashToken[1,1]",
-        "BlockEndToken[1,1]"
-    ]
+    assert tokens("-") == ["BlockSeqToken[1,1]", "DashToken[1,1]", "BlockEndToken[1,1]"]
     assert tokens(" a: b") == [
         "BlockMapToken[1,2]",
         "KeyToken[1,2]",
@@ -195,11 +191,11 @@ def test_flow_tokens():
         "FlowEndToken[1,6] }",
     ]
     assert tokens("[a, b]") == [
-        'FlowSeqToken[1,1] [',
-        'ScalarToken[1,2] a',
-        'CommaToken[1,3] ,',
-        'ScalarToken[1,5] b',
-        'FlowEndToken[1,6] ]',
+        "FlowSeqToken[1,1] [",
+        "ScalarToken[1,2] a",
+        "CommaToken[1,3] ,",
+        "ScalarToken[1,5] b",
+        "FlowEndToken[1,6] ]",
     ]
     assert tokens("[a, {b: c}, d]") == [
         "FlowSeqToken[1,1] [",
@@ -235,26 +231,14 @@ def test_invalid():
 def test_partial():
     assert tokens(",") == "ScalarToken[1,1] ,"
     assert tokens("'foo'") == "ScalarToken[1,2] 'foo'"
-    assert tokens("a:") == [
-        "BlockMapToken[1,1]",
-        "KeyToken[1,1]",
-        "ScalarToken[1,1] a",
-        "ValueToken[1,2]",
-        "BlockEndToken[1,1]"
-    ]
+    assert tokens("a:") == ["BlockMapToken[1,1]", "KeyToken[1,1]", "ScalarToken[1,1] a", "ValueToken[1,2]", "BlockEndToken[1,1]"]
     assert tokens("[,]") == [
         "FlowSeqToken[1,1] [",
         "CommaToken[1,2] ,",
         "FlowEndToken[1,3] ]",
     ]
-    assert tokens("", ignored=[]) == [
-        "StreamStartToken[1,1]",
-        "StreamEndToken[1,1]"
-    ]
-    assert tokens("# Comment only", ignored=[]) == [
-        "StreamStartToken[1,1]",
-        "StreamEndToken[1,1]"
-    ]
+    assert tokens("", ignored=[]) == ["StreamStartToken[1,1]", "StreamEndToken[1,1]"]
+    assert tokens("# Comment only", ignored=[]) == ["StreamStartToken[1,1]", "StreamEndToken[1,1]"]
 
 
 def test_stream():

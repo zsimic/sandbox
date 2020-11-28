@@ -2,7 +2,6 @@ from .tokens import Token
 
 
 class TokenVisitor(object):
-
     def consume(self, token):
         """
         Args:

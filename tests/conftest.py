@@ -70,9 +70,7 @@ def scan_samples(sample_name):
 
 def stacktrace_option():
     return click.option(
-        "--stacktrace", "-x",
-        default=None, is_flag=True,
-        help="Leave exceptions uncaught (to conveniently stop in debugger)"
+        "--stacktrace", "-x", default=None, is_flag=True, help="Leave exceptions uncaught (to conveniently stop in debugger)"
     )
 
 
@@ -436,6 +434,7 @@ def profiled(enabled):
         return
 
     import cProfile
+
     profiler = cProfile.Profile()
     try:
         profiler.enable()

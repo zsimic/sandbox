@@ -40,4 +40,5 @@ if RECURSION_MARKER in sys.argv:
     sys.argv.remove(RECURSION_MARKER)
 
 from tests.conftest import main  # noqa
+
 main()
