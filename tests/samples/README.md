@@ -8,7 +8,7 @@ collection of those examples.
 Samples are organized in folders:
 - [flex](./flex): samples that are correct, but require a bit of flexibility from the parsing lib to be usable
 - [invalid](./invalid): effectively invalid yaml
-- [js](./js): from the javascript world
+- [misc](./misc): miscellaneous edge cases
 - [valid](./valid): those work in [ruamel](https://pypi.org/project/ruamel.yaml/) as well, and deserialize correctly
 
 
@@ -23,7 +23,9 @@ There is an extra `./run` command that provides useful things while developing, 
     - **benchmark**: compare how long it takes to deserialize yaml files using the different python yaml libs
     - **diff**: see diff on how 2 python yaml implementations deserialize a sample
     - **find-samples**: see which samples are used (given a filter)
-    - **refresh**: regenerate `test/samples/*/_xpct-*`
+    - **print**: Deserialize given CLI arg as yml, handy for troubleshooting
+    - **refresh**: regenerate baseline `test/samples/*/_xpct-*`
+    - **replay**: rerun all samples and compare outcome to baseline `test/samples/*/_xpct-*`
     - **show**: show how given sample(s) are deserialized (json representation)
     - **tokens**: see parse tokens (implemented for pyyaml and zyaml only for now)
 

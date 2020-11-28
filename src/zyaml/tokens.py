@@ -253,6 +253,11 @@ class ExplicitMapToken(Token):
     def auto_filler(self, scanner):
         sk = scanner.popped_scalar()
         if sk is not None:
+            decorators = scanner.extracted_decorators(sk)
+            if decorators is not None:
+                for t in decorators:
+                    yield t
+
             yield sk
 
         for t in scanner.auto_push(self, BlockMapToken):
@@ -286,6 +291,11 @@ class ColonToken(Token):
     def auto_filler(self, scanner):
         sk = scanner.popped_scalar(with_simple_key=False)
         if sk is not None:
+            decorators = scanner.extracted_decorators(sk)
+            if decorators is not None:
+                for t in decorators:
+                    yield t
+
             yield sk
 
         sk = scanner.popped_scalar()
@@ -297,10 +307,15 @@ class ColonToken(Token):
             if sk.multiline and sk.style is None:
                 raise ParseError("Mapping keys must be on a single line", token=self)
 
+            decorators = scanner.extracted_decorators(sk)
             for t in scanner.auto_push(sk, BlockMapToken):
                 yield t
 
             yield KeyToken(sk.linenum, sk.indent)
+            if decorators is not None:
+                for t in decorators:
+                    yield t
+
             yield sk
 
         yield ValueToken(self.linenum, self.indent)
@@ -321,6 +336,10 @@ class TagToken(Token):
         except ValueError:
             raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.value), token=self)
 
+    def auto_injected(self, scanner):
+        scanner.decorators.appendleft(self)
+        return True
+
 
 class AnchorToken(Token):
     def __init__(self, linenum, indent, text):
@@ -328,6 +347,10 @@ class AnchorToken(Token):
 
     def represented_value(self):
         return "&%s" % unicode_escaped(self.value)
+
+    def auto_injected(self, scanner):
+        scanner.decorators.appendleft(self)
+        return True
 
 
 class AliasToken(Token):

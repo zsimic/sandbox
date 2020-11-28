@@ -43,6 +43,18 @@ def test_block_tokens():
     assert isinstance(x, list)
 
 
+def test_decorators():
+    assert tokens("!!str a: b") == [
+        "BlockMapToken[1,7]",
+        "KeyToken[1,7]",
+        "TagToken[1,1] !!str",
+        "ScalarToken[1,7] a",
+        "ValueToken[1,8]",
+        "ScalarToken[1,10] b",
+        "BlockEndToken[1,7]",
+    ]
+
+
 def test_directives():
     assert tokens("%YAML") == "DirectiveToken[1,1] YAML"
     assert tokens("%  YAML   1.2") == "DirectiveToken[1,1] YAML 1.2"

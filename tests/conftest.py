@@ -20,6 +20,20 @@ from .ximpl import implementation_option, ImplementationCollection, json_sanitiz
 SAMPLE_FOLDER = runez.log.tests_path("samples")
 K_DESERIALIZED = "json"
 K_TOKEN = "token"
+TESTED_SAMPLES = "flex,invalid,misc,valid"
+
+
+@pytest.fixture
+def all_samples():
+    return get_samples(TESTED_SAMPLES)
+
+
+def get_samples(sample_name):
+    result = []
+    for name in runez.flattened([sample_name], split=","):
+        result.extend(scan_samples(name))
+
+    return sorted(result, key=lambda x: x.key)
 
 
 def ignored_dirs(names):
@@ -53,22 +67,6 @@ def scan_samples(sample_name):
                     yield sample
 
 
-def get_samples(sample_name):
-    result = []
-    for name in runez.flattened([sample_name], split=","):
-        result.extend(scan_samples(name))
-
-    return sorted(result, key=lambda x: x.key)
-
-
-TESTED_SAMPLES = "edge-cases,flex,invalid,minor,valid"
-
-
-@pytest.fixture
-def all_samples():
-    return get_samples(TESTED_SAMPLES)
-
-
 def stacktrace_option():
     return click.option(
         "--stacktrace", "-x",
@@ -95,19 +93,23 @@ def samples_arg(option=False, default=None, count=None, **kwargs):
         if count and count != len(s):
             raise click.BadParameter("Need exactly %s, filter yielded %s" % (runez.plural(count, "sample"), len(s)))
 
+        if count == 1:
+            return s[0]
+
         return s
 
     kwargs.setdefault("metavar", "SAMPLE")
+    name = "sample" if count == 1 else "samples"
     if option:
         if default:
             kwargs["default"] = default
 
         kwargs.setdefault("help", "Sample(s) to use")
         kwargs.setdefault("show_default", True)
-        return click.option("--samples", "-s", callback=_callback, **kwargs)
+        return click.option("--%s" % name, "-s", callback=_callback, **kwargs)
 
     kwargs.setdefault("nargs", count if count and count >= 1 else -1)
-    return click.argument("samples", callback=_callback, **kwargs)
+    return click.argument(name, callback=_callback, **kwargs)
 
 
 @runez.click.group()
@@ -129,7 +131,7 @@ def main(debug, log):
 @implementation_option()
 @samples_arg(default="bench")
 def benchmark(stacktrace, iterations, tokens, implementation, samples):
-    """Run parsing benchmarks"""
+    """Compare parsing speed of same file across yaml implementations"""
     for sample in samples:
         if tokens:
             impls = dict((i.name, partial(i.tokens, sample)) for i in implementation)
@@ -232,7 +234,11 @@ def find_samples(samples):
         print(s)
 
 
-def move_sample_file(sample, dest, kind=None):
+def move_sample_file(sample, new_category, new_basename, kind=None):
+    dest = os.path.join(SAMPLE_FOLDER, new_category)
+    if not os.path.isdir(dest):
+        sys.exit("No folder %s" % runez.red(dest))
+
     if kind:
         extension = ".json"
         source = sample.expected_path(kind)
@@ -243,27 +249,39 @@ def move_sample_file(sample, dest, kind=None):
         source = sample.path
 
     if os.path.isfile(source):
-        dest = os.path.join(dest, sample.basename + extension)
-        runez.move(source, dest)
+        dest = os.path.join(dest, new_basename + extension)
+        runez.move(source, dest, logger=logging.info)
 
 
 @main.command()
 @samples_arg(count=1)
-@click.argument("category", nargs=1)
-def mv(samples, category):
-    """Move a sample to a given category"""
-    sample = samples[0]
-    if sample.category == category:
-        print("%s is already in %s" % (sample, category))
+@click.argument("target", nargs=1)
+def mv(sample, target):
+    """Move a test sample (and its baseline) to a new place"""
+    new_category, _, new_basename = target.partition("/")
+    if "/" in new_basename:
+        sys.exit("Invalid target '%s': use at most one / separator" % runez.red(target))
+
+    if not new_basename:
+        new_basename = sample.basename
+
+    if new_basename.endswith(".yml"):
+        new_basename = new_basename[:-4]
+
+    old_source = os.path.join(sample.category, sample.basename)
+    new_target = os.path.join(new_category, new_basename)
+    if old_source == new_target:
+        print("%s is already in the right spot" % runez.bold(sample))
         sys.exit(0)
 
-    dest = os.path.join(SAMPLE_FOLDER, category)
-    if not os.path.isdir(dest):
-        sys.exit("No folder %s" % runez.short(dest))
+    existing = get_samples(new_target + ".yml")
+    if existing:
+        sys.exit("There is already a sample '%s'" % runez.red(new_target))
 
-    move_sample_file(sample, dest)
-    move_sample_file(sample, dest, kind=K_DESERIALIZED)
-    move_sample_file(sample, dest, kind=K_TOKEN)
+    move_sample_file(sample, new_category, new_basename)
+    move_sample_file(sample, new_category, new_basename, kind=K_DESERIALIZED)
+    move_sample_file(sample, new_category, new_basename, kind=K_TOKEN)
+    _clean()
 
 
 @main.command(name="print")
@@ -328,9 +346,12 @@ def quick_bench(iterations, size):
     print(bench.report())
 
 
-def _clean(verbose=True):
+def _clean(verbose=False):
     cleanable = []
     for root, dirs, files in os.walk(SAMPLE_FOLDER):
+        if not dirs and not files:
+            cleanable.append(root)
+
         if os.path.basename(root).startswith("_xpct-"):
             for fname in files:
                 ypath = os.path.dirname(root)
@@ -348,11 +369,17 @@ def _clean(verbose=True):
     for path in cleanable:
         runez.delete(path, logger=logging.info)
 
+    for root, dirs, files in os.walk(SAMPLE_FOLDER):
+        if not dirs and not files:
+            cleanable.append(root)
+            runez.delete(root, logger=logging.info)
+
     print("%s cleaned" % runez.plural(cleanable, "file"))
 
 
 @main.command()
 def clean():
+    """Clean tests/samples/, remove left-over old baselines"""
     _clean(verbose=True)
 
 
@@ -361,6 +388,7 @@ def clean():
 @click.option("--tokens", "-t", is_flag=True, help="Replay tokens only")
 @samples_arg(default=TESTED_SAMPLES)
 def replay(existing, tokens, samples):
+    """Rerun samples and compare them with their current baseline"""
     kinds = []
     if tokens:
         kinds.append(K_TOKEN)
@@ -390,12 +418,12 @@ def replay(existing, tokens, samples):
 @click.option("--tokens", "-t", is_flag=True, help="Refresh tokens only")
 @samples_arg(default=TESTED_SAMPLES)
 def refresh(existing, tokens, samples):
-    """Refresh expected json for each sample"""
+    """Refresh expected baseline for each test sample"""
     kinds = []
     if tokens:
         kinds.append(K_TOKEN)
 
-    _clean(verbose=False)
+    _clean()
     for sample in samples:
         sample.refresh(*kinds, existing=existing)
 
@@ -432,7 +460,7 @@ def profiled(enabled):
 @click.option("--tokens", "-t", is_flag=True, help="Show zyaml tokens as well")
 @stacktrace_option()
 @implementation_option(default="zyaml,ruamel")
-@samples_arg(default="misc")
+@samples_arg()
 def show(profile, tokens, stacktrace, implementation, samples):
     """Show deserialized yaml objects as json"""
     with profiled(profile) as is_profiling:
@@ -494,7 +522,7 @@ def show_lines(content, line_numbers=None, header=None):
 @main.command()
 @stacktrace_option()
 @implementation_option(default="zyaml,pyyaml_base")
-@samples_arg(default="misc")
+@samples_arg()
 def tokens(stacktrace, implementation, samples):
     """Show tokens for given samples"""
     for sample in samples:
@@ -549,6 +577,9 @@ class Sample(object):
                 return self.basename[-len(name)] == "-"
 
             return False
+
+        if self.name.startswith(name):
+            return True
 
         if self.category.startswith(name):
             return True

@@ -1,3 +1,3 @@
-Samples in this folder are examples of invalid yaml.
+# Legit invalid samples
 
 Tests verify that they stay invalid basically, and a proper error is reported.

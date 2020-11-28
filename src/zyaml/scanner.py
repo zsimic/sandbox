@@ -299,6 +299,7 @@ class Scanner(object):
         self.started_doc = None
         self.accumulated_scalar = None  # type: Optional[ScalarToken]
         self.simple_key = None  # type: Optional[ScalarToken]
+        self.decorators = collections.deque()
         self.tokenizer_map = {
             "!": TagToken,
             "&": AnchorToken,
@@ -332,6 +333,17 @@ class Scanner(object):
         acc.add_line(sk.value)
         self.simple_key = scalar if scalar.value else None
 
+    def extracted_decorators(self, token):
+        result = None
+        while self.decorators and self.decorators[-1].linenum == token.linenum:
+            if result is None:
+                result = []
+
+            result.append(self.decorators.pop())
+
+        if result is not None:
+            return reversed(result)
+
     def popped_scalar(self, with_simple_key=True):
         acc = self.accumulated_scalar
         if with_simple_key:
@@ -355,6 +367,9 @@ class Scanner(object):
         return acc
 
     def auto_push(self, token, block=None):
+        while self.decorators:
+            yield self.decorators.popleft()
+
         if block is None and self.mode is self.block_scanner:
             # Pushing a flow opener: '{' or '[' character, automatically switch to flow mode
             self.mode = self.flow_scanner
@@ -363,6 +378,9 @@ class Scanner(object):
             yield t
 
     def auto_pop(self, token):
+        while self.decorators:
+            yield self.decorators.popleft()
+
         for t in self.mode.auto_pop(token):
             yield t
 
@@ -372,8 +390,16 @@ class Scanner(object):
     def auto_pop_all(self, token):
         sk = self.popped_scalar()
         if sk is not None:
+            decorators = self.extracted_decorators(sk)
+            if decorators is not None:
+                for t in decorators:
+                    yield t
+
             self.mode.track_same_line_value(sk)
             yield sk
+
+        while self.decorators:
+            yield self.decorators.popleft()
 
         for t in self.mode.auto_pop_all(token):
             yield t
@@ -543,6 +569,11 @@ class Scanner(object):
                 if injected is not None:
                     if injected is True:
                         continue
+
+                    decorators = self.extracted_decorators(injected)
+                    if decorators is not None:
+                        for t in decorators:
+                            yield t
 
                     self.mode.track_same_line_value(injected)
                     yield injected
