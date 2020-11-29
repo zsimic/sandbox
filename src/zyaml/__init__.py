@@ -30,7 +30,7 @@ def load_stream(stream, visitor=BaseVisitor):
     return deserialized(Scanner(stream), visitor)
 
 
-def load_string(text, visitor=BaseVisitor):
+def load_string(text, visitor=TokenVisitor):
     """
     Args:
         text (str): Yaml to deserialize

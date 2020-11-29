@@ -46,4 +46,4 @@ Verify that the new outcome is correct with `git diff`.
 - See diff on valid samples: `./run diff valid`
 - See diff on sample 2.24 only: `./run diff 2.24`
 - See how sample 2.24 is rendered by zyaml and ruamel: `./run show 2.24 -i zyaml,ruamel`
-- See how sample 2.24 is rendered by zyaml and pyaml: `./run show 2.24 -i zyaml,pyyaml_base`
+- See how sample 2.24 is rendered by zyaml and pyaml: `./run show 2.24 -i zyaml,pyyaml`

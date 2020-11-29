@@ -1,5 +1,4 @@
 import json
-import re
 
 import click
 import poyo
@@ -62,21 +61,6 @@ def implementation_option(option=True, default="zyaml,ruamel", count=None, **kwa
     return click.argument("implementations", callback=_callback, **kwargs)
 
 
-def get_descendants(ancestor, adjust=None, _result=None):
-    if _result is None:
-        _result = {}
-
-    for m in ancestor.__subclasses__():
-        name = m.__name__
-        if adjust is not None:
-            name = adjust(name)
-
-        _result[name] = m
-        get_descendants(m, adjust=adjust, _result=_result)
-
-    return _result
-
-
 def json_sanitized(value, stringify=decode, dt=str):
     if isinstance(value, strictyaml.representation.YAML):
         return dt(value)
@@ -86,8 +70,8 @@ def json_sanitized(value, stringify=decode, dt=str):
 
 class ImplementationCollection(object):
     def __init__(self, names, default="zyaml,ruamel"):
-        self.available = get_descendants(YmlImplementation, adjust=lambda x: x.replace("Implementation", "").lower())
-        self.available = dict((n, i()) for n, i in self.available.items())
+        av = [ZyamlImplementation, RuamelImplementation, PyyamlBaseImplementation, PoyoImplementation, StrictImplementation]
+        self.available = dict((m.name, m()) for m in av)
         self.unknown = []
         self.selected = []
         if names.startswith("+"):
@@ -162,12 +146,10 @@ class ParseResult(object):
 class YmlImplementation(object):
     """Implementation of loading a yml file"""
 
+    name = None  # type: str
+
     def __repr__(self):
         return self.name
-
-    @property
-    def name(self):
-        return "_".join(s.lower() for s in re.findall("[A-Z][^A-Z]*", self.__class__.__name__.replace("Implementation", "")))
 
     def tokens(self, source):
         if hasattr(source, "path"):
@@ -249,6 +231,8 @@ class YmlImplementation(object):
 
 
 class ZyamlImplementation(YmlImplementation):
+    name = "zyaml"
+
     def _load_string(self, text):
         return load_string(text)
 
@@ -290,6 +274,8 @@ def ruamel_passthrough_tags(loader, tag, node):
 
 
 class RuamelImplementation(YmlImplementation):
+    name = "ruamel"
+
     def _simplified(self, value):
         if not value:
             return None
@@ -313,6 +299,8 @@ class RuamelImplementation(YmlImplementation):
 
 
 class PyyamlBaseImplementation(YmlImplementation):
+    name = "pyyaml"
+
     def _load_string(self, text):
         return pyyaml.load_all(text, Loader=pyyaml.BaseLoader)
 
@@ -361,21 +349,15 @@ class PyyamlBaseImplementation(YmlImplementation):
             curr = yaml_loader.get_token()
 
 
-class PyyamlSafeImplementation(YmlImplementation):
-    def _load_string(self, text):
-        return pyyaml.load_all(text, Loader=pyyaml.SafeLoader)
-
-
-class PyyamlFullImplementation(YmlImplementation):
-    def _load_string(self, text):
-        return pyyaml.load_all(text, Loader=pyyaml.FullLoader)
-
-
 class PoyoImplementation(YmlImplementation):
+    name = "poyo"
+
     def _load_string(self, text):
         return [poyo.parse_string(text)]
 
 
 class StrictImplementation(YmlImplementation):
+    name = "strict"
+
     def _load_string(self, text):
         return strictyaml.load(text)

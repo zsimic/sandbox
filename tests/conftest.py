@@ -485,7 +485,7 @@ def show(profile, tokens, implementation, samples):
 
 
 @main.command()
-@implementation_option(default="zyaml,pyyaml_base")
+@implementation_option(default="zyaml,pyyaml")
 @samples_arg()
 def tokens(implementation, samples):
     """Show tokens for given samples"""

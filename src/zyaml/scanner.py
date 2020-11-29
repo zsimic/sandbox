@@ -246,9 +246,10 @@ class BlockScanner(ModalScanner):
     line_regex = re.compile(r"""(#|\?\s|[!&*][^\s:\[\]{}]+|[:\[\]{}])\s*(\S?)""")
 
     def track_same_line_value(self, token):
-        tb = self.top_block
-        if tb is not None and token.produces_value:
-            tb.track_same_line_value(token)
+        if token.has_same_line_value:
+            tb = self.top_block
+            if tb is not None:
+                tb.track_same_line_value(token)
 
     def auto_push(self, token, block):
         tb = self.top_block
@@ -269,7 +270,7 @@ class BlockScanner(ModalScanner):
             yield tb
             return
 
-        if token.produces_value:
+        if token.has_same_line_value:
             tb.track_same_line_value(token)
 
         if tb.indent != token.indent:
@@ -465,7 +466,7 @@ class Scanner(object):
                     actionable = line_text[mstart - 1] in "\"'" or line_text[mstart + 1] in " \t,"
 
                 if actionable:
-                    if seen_colon:
+                    if seen_colon and self.mode is self.block_scanner:
                         raise ParseError("Nested mappings are not allowed in compact mappings", linenum=linenum, indent=mstart)
 
                     seen_colon = True

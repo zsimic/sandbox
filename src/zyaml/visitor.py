@@ -2,11 +2,59 @@ from .marshal import ParseError
 from .tokens import Token
 
 
+def unpexpected_token(layer, token):
+    pass
+    # raise ParseError("Unexpected token '%s' in %s" % (token.__class__.__name__, layer.short_name), token=token)
+
+
 class DocumentLayer(object):
-    def __init__(self, token=None, parent=None):
-        self.parent = parent
-        self.token = token
-        self.next = None
+
+    token = None  # type: Token
+    root = None   # type: DocumentLayer
+    prev = None   # type: DocumentLayer
+    top = None   # type: DocumentLayer
+
+    def __repr__(self):
+        if self.prev is None or self.top is self:
+            return "[root]"
+
+        short = "" if self.token is None else self.token.short_name
+        if self.prev is not None:
+            short = "%s / %s" % (self.prev, short)
+
+        return short
+
+    @property
+    def short_name(self):
+        return self.__class__.__name__.replace("Layer", "")
+
+    def on_push(self, new_layer):
+        pass
+
+    def push(self, layer, token):
+        if self.prev is None and self.top is not self:
+            return self.top.push(layer, token)
+
+        new_layer = layer()
+        assert isinstance(new_layer, DocumentLayer)
+        new_layer.token = token
+        new_layer.root = self.root
+        new_layer.prev = self
+        self.root.top = new_layer
+        self.on_push(new_layer)
+        return new_layer
+
+    def on_pop(self, value):
+        pass
+
+    def pop(self, token):
+        if self.prev is None and self.top is not self:
+            return self.top.pop(token)
+
+        value = self.wrapped_value()
+        prev = self.prev
+        prev.root.top = prev
+        return prev.on_pop(value)
 
     def wrapped_value(self):
         pass
@@ -14,13 +62,35 @@ class DocumentLayer(object):
     def consume_value(self, value):
         pass
 
+    KeyToken = unpexpected_token
+    CommaToken = unpexpected_token
+    DashToken = unpexpected_token
+    ValueToken = unpexpected_token
 
-class MapLayer(DocumentLayer):
+
+class ContainerLayer(DocumentLayer):
     pass
 
 
-class SeqLayer(DocumentLayer):
-    pass
+class MapLayer(ContainerLayer):
+
+    def KeyToken(self, token):
+        pass
+
+    def CommaToken(self, token):
+        pass
+
+    def ValueToken(self, token):
+        pass
+
+
+class SeqLayer(ContainerLayer):
+
+    def CommaToken(self, token):
+        pass
+
+    def DashToken(self, token):
+        pass
 
 
 class ScalarLayer(DocumentLayer):
@@ -31,20 +101,6 @@ class TokenVisitor(object):
 
     complete = False  # type: bool # If True, require implementation for all tokens
     root = None  # type: DocumentLayer
-    current = None  # type: DocumentLayer
-
-    def push(self, layer):
-        c = self.current
-        layer.parent = c
-        c.next = layer
-        self.current = layer
-
-    def pop(self):
-        popped = self.current
-        c = popped.parent
-        self.current = c
-        value = popped.wrapped_value()
-        c.consume_value(value)
 
     def consume(self, token):
         """
@@ -55,11 +111,11 @@ class TokenVisitor(object):
         tname = token.__class__.__name__
         func = getattr(self, tname, None)
         if func is None:
-            func = getattr(self.current, tname, None)
+            func = getattr(self.root.top, tname, None)
 
         if func is None:
             if self.complete:
-                raise ParseError("Unexpected token '%s'" % tname, token=token)
+                raise ParseError("Unexpected token '%s' in %s" % (tname, self.root.top.short_name), token=token)
 
         else:
             func(token)
@@ -73,42 +129,31 @@ class TokenVisitor(object):
             (list): Deserialized documents
         """
         root = DocumentLayer()
+        root.root = root
+        root.top = root
         self.root = root
-        self.current = root
         for token in tokens:
             self.consume(token)
 
         return root.wrapped_value()
 
     def FlowMapToken(self, token):
-        self.push(MapLayer(token))
+        self.root.push(MapLayer, token)
 
     def FlowSeqToken(self, token):
-        self.push(SeqLayer(token))
+        self.root.push(SeqLayer, token)
 
     def FlowEndToken(self, token):
-        self.pop()
-
-    def CommaToken(self, token):
-        pass
+        self.root.pop(token)
 
     def BlockMapToken(self, token):
-        self.push(MapLayer(token))
+        self.root.push(MapLayer, token)
 
     def BlockSeqToken(self, token):
-        self.push(SeqLayer(token))
+        self.root.push(SeqLayer, token)
 
     def BlockEndToken(self, token):
-        self.pop()
-
-    def DashToken(self, token):
-        pass
-
-    def KeyToken(self, token):
-        pass
-
-    def ValueToken(self, token):
-        pass
+        self.root.pop(token)
 
     def TagToken(self, token):
         pass
@@ -120,7 +165,7 @@ class TokenVisitor(object):
         pass
 
     def ScalarToken(self, token):
-        self.push(ScalarLayer(token))
+        self.root.push(ScalarLayer, token)
 
 
 class BaseVisitor(TokenVisitor):

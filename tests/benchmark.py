@@ -17,8 +17,13 @@ class BenchmarkedFunction(object):
     def __repr__(self):
         return self.report()
 
+    def resolved_call(self):
+        result = self.function()
+        if result.exception:
+            raise result.exception
+
     def run(self):
-        t = timeit.Timer(stmt=self.function)
+        t = timeit.Timer(stmt=self.resolved_call)
         if TestSettings.stacktrace:
             self.seconds = t.timeit(self.iterations)
             return
@@ -31,7 +36,7 @@ class BenchmarkedFunction(object):
 
     def report(self, fastest=None, indent=""):
         if self.error:
-            return "%s: failed: %s" % (self.name, runez.short(self.error))
+            return "%s%s: %s" % (indent, self.name, runez.red(self.error))
 
         if self.seconds is None:
             return self.name

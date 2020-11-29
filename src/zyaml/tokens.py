@@ -85,7 +85,7 @@ class Token(object):
 
     auto_start_doc = True  # Does this token imply DocumentStartToken?
     auto_filler = None  # Optional auto-filler (generator called with one argument: the current scanner)
-    produces_value = False  # Does this token produce a value?
+    has_same_line_value = False  # Does this token represent a same-line value (used to disambiguate simple keys)?
 
     def __init__(self, linenum, indent, value=None):
         self.linenum = linenum
@@ -195,7 +195,7 @@ class DirectiveToken(Token):
 
 class FlowMapToken(Token):
 
-    produces_value = True
+    has_same_line_value = True
 
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self):
@@ -204,7 +204,7 @@ class FlowMapToken(Token):
 
 class FlowSeqToken(Token):
 
-    produces_value = True
+    has_same_line_value = True
 
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self):
@@ -367,7 +367,7 @@ class AliasToken(Token):
 
 class ScalarToken(Token):
 
-    produces_value = True
+    has_same_line_value = True
 
     def __init__(self, linenum, indent, text, style=None):
         super(ScalarToken, self).__init__(linenum, indent, text)
