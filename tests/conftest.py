@@ -15,7 +15,7 @@ from zyaml.marshal import decode, ParseError
 
 from . import TestSettings
 from .benchmark import BenchmarkRunner
-from .ximpl import implementation_option, ImplementationCollection, json_sanitized, ParseResult, YmlImplementation
+from .ximpl import implementation_option, ImplementationCollection, ParseResult, YmlImplementation
 
 
 SAMPLE_FOLDER = runez.log.tests_path("samples")
@@ -177,8 +177,7 @@ def diff(compact, untyped, tokens, implementation, samples):
 
                     else:
                         result.data = impl.load_sample(sample)
-                        payload = json_sanitized(result.data, stringify=stringify, dt=simplified_date)
-                        result.text = runez.represented_json(payload)
+                        result.text = runez.represented_json(result.data, stringify=stringify, dt=simplified_date)
 
                 except Exception as e:
                     result.set_exception(e)
@@ -224,7 +223,7 @@ def diff(compact, untyped, tokens, implementation, samples):
 
 @main.command()
 @samples_arg()
-def find_samples(samples):
+def find(samples):
     """Show which samples match given filter"""
     for s in samples:
         print(s)
@@ -559,7 +558,7 @@ class Sample(object):
 
             else:
                 actual = load_path(self.path)
-                actual = json_sanitized(actual)
+                actual = runez.serialize.json_sanitized(actual, stringify=decode)
 
         except ParseError as e:
             actual = {"_error": runez.short(e)}

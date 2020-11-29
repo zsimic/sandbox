@@ -1,5 +1,3 @@
-import json
-
 import click
 import poyo
 import ruamel.yaml
@@ -59,13 +57,6 @@ def implementation_option(option=True, default="zyaml,ruamel", count=None, **kwa
         return click.option("--implementation", "-i", callback=_callback, **kwargs)
 
     return click.argument("implementations", callback=_callback, **kwargs)
-
-
-def json_sanitized(value, stringify=decode, dt=str):
-    if isinstance(value, strictyaml.representation.YAML):
-        return dt(value)
-
-    return runez.serialize.json_sanitized(value, stringify=stringify, dt=dt)
 
 
 class ImplementationCollection(object):
@@ -216,8 +207,7 @@ class YmlImplementation(object):
     def json_representation(self, result, stringify=decode, dt=str):
         try:
             payload = result.json_payload()
-            payload = json_sanitized(payload, stringify=stringify, dt=dt)
-            return "%s\n" % json.dumps(payload, sort_keys=True, indent=2)
+            return runez.represented_json(payload, stringify=stringify, dt=dt)
 
         except Exception:
             print("Failed to json serialize %s" % result.sample)
@@ -353,11 +343,12 @@ class PoyoImplementation(YmlImplementation):
     name = "poyo"
 
     def _load_string(self, text):
-        return [poyo.parse_string(text)]
+        return [poyo.parse_string("\n%s" % text)]
 
 
 class StrictImplementation(YmlImplementation):
     name = "strict"
 
     def _load_string(self, text):
-        return strictyaml.load(text)
+        obj = strictyaml.dirty_load(text, allow_flow_style=True)
+        return obj.data
