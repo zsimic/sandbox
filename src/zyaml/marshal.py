@@ -1,6 +1,5 @@
 import codecs
 import datetime
-import os
 import re
 import sys
 
@@ -9,7 +8,6 @@ import dateutil.tz
 
 
 PY2 = sys.version_info < (3, 0)
-DEBUG = os.environ.get("TRACE_YAML")
 UTC = dateutil.tz.tzoffset("UTC", 0)
 
 RE_SIMPLE_SCALAR = re.compile(
@@ -55,16 +53,6 @@ else:
 
     def base64_decode(value):
         return base64.decodebytes(_checked_scalar(value).encode("ascii"))
-
-
-def trace(message, *args):
-    """Output 'message' if tracing is on"""
-    if DEBUG:
-        if args:
-            message = message.format(*args)
-
-        sys.stderr.write(":: %s\n" % message)
-        sys.stderr.flush()
 
 
 def shortened(text, size=32):  # type: (str, int) -> str

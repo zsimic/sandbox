@@ -1,4 +1,3 @@
-import inspect
 import json
 import re
 
@@ -11,6 +10,8 @@ import yaml as pyyaml
 
 from zyaml import load_path, load_string, tokens_from_path, tokens_from_stream, tokens_from_string
 from zyaml.marshal import decode, default_marshal, represented_scalar
+
+from . import TestSettings
 
 
 def not_implemented():
@@ -168,20 +169,17 @@ class YmlImplementation(object):
     def name(self):
         return "_".join(s.lower() for s in re.findall("[A-Z][^A-Z]*", self.__class__.__name__.replace("Implementation", "")))
 
-    def tokens(self, source, stacktrace=True):
+    def tokens(self, source):
         if hasattr(source, "path"):
-            tokens, exc = self._protected_call(self._tokens_from_path, source.path, stacktrace)
+            value = TestSettings.protected_call(self._tokens_from_path, source.path)
 
         else:
-            tokens, exc = self._protected_call(self._tokens_from_string, source, stacktrace)
+            value = TestSettings.protected_call(self._tokens_from_string, source)
 
-        if tokens is None:
-            tokens = []
+        if isinstance(value, Exception):
+            value = [runez.red(value)]
 
-        if exc:
-            tokens.append(exc)
-
-        return tokens
+        return value
 
     def _tokenize(self, source):
         if hasattr(source, "path"):
@@ -211,48 +209,27 @@ class YmlImplementation(object):
         with open(path) as fh:
             return self._load_string(fh.read())
 
-    def _unprotected_call(self, func, target):
-        value = func(target)
-        if value is not None and inspect.isgenerator(value):
-            value = list(value)
-
-        value = self._simplified(value)
-        return value
-
-    def _protected_call(self, func, target, stacktrace):
-        if stacktrace:
-            value = self._unprotected_call(func, target)
-            return value, None
-
-        try:
-            value = self._unprotected_call(func, target)
-            return value, None
-
-        except Exception as e:
-            return None, e
-
-    def load_sample(self, sample, stacktrace=True):
+    def load_sample(self, sample):
         """
         Args:
             sample (Sample): Sample to load
-            stacktrace (bool): If True, don't catch parsing exceptions
 
         Returns:
             (ParseResult): Parsed sample
         """
-        data, exc = self._protected_call(self._load_path, sample.path, stacktrace)
-        result = ParseResult(self, sample, data)
-        if exc:
-            result.set_exception(exc)
+        value = TestSettings.protected_call(self._load_path, sample.path)
+        result = ParseResult(self, sample)
+        if isinstance(value, Exception):
+            result.set_exception(value)
+
+        else:
+            result.data = self._simplified(value)
 
         return result
 
-    def load_string(self, text, stacktrace=True):
-        data, exc = self._protected_call(self._load_string, text, stacktrace)
-        if exc:
-            return exc
-
-        return data
+    def load_string(self, text):
+        value = TestSettings.protected_call(self._load_string, text)
+        return self._simplified(value)
 
     def json_representation(self, result, stringify=decode, dt=str):
         try:

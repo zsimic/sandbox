@@ -3,6 +3,8 @@ import timeit
 
 import runez
 
+from . import TestSettings
+
 
 class BenchmarkedFunction(object):
     def __init__(self, name, function, iterations):
@@ -15,9 +17,9 @@ class BenchmarkedFunction(object):
     def __repr__(self):
         return self.report()
 
-    def run(self, stacktrace=False):
+    def run(self):
         t = timeit.Timer(stmt=self.function)
-        if stacktrace:
+        if TestSettings.stacktrace:
             self.seconds = t.timeit(self.iterations)
             return
 
@@ -60,9 +62,9 @@ class BenchmarkRunner(object):
         self.target_name = target_name
         self.fastest = None
 
-    def run(self, stacktrace=False):
+    def run(self, ):
         for bench in self.benchmarks:
-            bench.run(stacktrace=stacktrace)
+            bench.run()
             if bench.seconds is not None:
                 if self.fastest is None or self.fastest.seconds > bench.seconds:
                     self.fastest = bench

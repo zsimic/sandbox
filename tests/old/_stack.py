@@ -1,5 +1,21 @@
-from .marshal import Optional, ParseError, shortened, Union
-from .tokens import AnchorToken, ScalarToken, TagToken
+import os
+import sys
+
+from zyaml.marshal import Optional, ParseError, shortened, Union
+from zyaml.tokens import AnchorToken, ScalarToken, TagToken
+
+
+DEBUG = os.environ.get("TRACE_YAML")
+
+
+def trace(message, *args):
+    """Output 'message' if tracing is on"""
+    if DEBUG:
+        if args:
+            message = message.format(*args)
+
+        sys.stderr.write(":: %s\n" % message)
+        sys.stderr.flush()
 
 
 def _dbg_repr(value):

@@ -14,6 +14,7 @@ import runez
 from zyaml import load_path, tokens_from_path
 from zyaml.marshal import decode, ParseError
 
+from . import TestSettings
 from .benchmark import BenchmarkRunner
 from .ximpl import implementation_option, ImplementationCollection, json_sanitized, ParseResult, YmlImplementation
 
@@ -68,12 +69,6 @@ def scan_samples(sample_name):
                     yield sample
 
 
-def stacktrace_option():
-    return click.option(
-        "--stacktrace", "-x", default=None, is_flag=True, help="Leave exceptions uncaught (to conveniently stop in debugger)"
-    )
-
-
 def samples_arg(option=False, default=None, count=None, **kwargs):
     def _callback(_ctx, _param, value):
         if not option and not value:
@@ -116,20 +111,23 @@ def samples_arg(option=False, default=None, count=None, **kwargs):
 @runez.click.debug()
 @runez.click.dryrun()
 @runez.click.log()
-def main(debug, log):
+@click.option("--lines", "-l", default=None, is_flag=True, help="Show line numbers")
+@click.option("--stacktrace", "-x", default=None, is_flag=True, help="Leave exceptions uncaught (to conveniently stop in debugger)")
+def main(debug, log, lines, stacktrace):
     """Troubleshooting commands, useful for iterating on this library"""
+    TestSettings.line_numbers = lines
+    TestSettings.stacktrace = stacktrace
     runez.log.setup(debug=debug, console_level=logging.INFO, file_location=log, locations=None)
     logging.debug("Running with %s %s", runez.short(sys.executable), ".".join(str(s) for s in sys.version_info))
     runez.Anchored.add([runez.log.project_path(), SAMPLE_FOLDER])
 
 
 @main.command()
-@stacktrace_option()
 @click.option("--iterations", "-n", default=100, help="Number of iterations to average")
 @click.option("--tokens", "-t", is_flag=True, help="Tokenize only")
 @implementation_option()
 @samples_arg(default="bench")
-def benchmark(stacktrace, iterations, tokens, implementation, samples):
+def benchmark(iterations, tokens, implementation, samples):
     """Compare parsing speed of same file across yaml implementations"""
     for sample in samples:
         if tokens:
@@ -139,7 +137,7 @@ def benchmark(stacktrace, iterations, tokens, implementation, samples):
             impls = dict((i.name, partial(i.load_sample, sample)) for i in implementation)
 
         bench = BenchmarkRunner(impls, target_name=sample.name, iterations=iterations)
-        bench.run(stacktrace)
+        bench.run()
         print(bench.report())
 
 
@@ -285,23 +283,23 @@ def mv(sample, target):
 
 @main.command(name="print")
 @click.option("--tokens", "-t", is_flag=True, help="Show tokens as well")
-@stacktrace_option()
 @implementation_option()
 @click.argument("text", nargs=-1)
-def print_(tokens, stacktrace, implementation, text):
+def print_(tokens, implementation, text):
     """Deserialize given argument as yaml"""
     text = " ".join(text)
     text = codecs.decode(text, "unicode_escape")
-    show_lines(text)
+    TestSettings.show_lines(text)
     for impl in implementation:
         assert isinstance(impl, YmlImplementation)
         header = "%s" % impl
         if tokens:
-            result = "\n".join(str(s) for s in impl.tokens(text, stacktrace=stacktrace))
+            tokens = impl.tokens(text)
+            result = "\n".join(str(s) for s in tokens)
             header += " tokens"
             rtype = ""
 
-        elif stacktrace:
+        elif TestSettings.stacktrace:
             data = impl.load_string(text)
             rtype = data.__class__.__name__ if data is not None else "None"
             result = impl.json_representation(ParseResult(impl, None, data=data))[:-1]
@@ -341,7 +339,7 @@ def quick_bench(iterations, size):
             functions[name] = partial(func, size)
 
     bench = BenchmarkRunner(functions, iterations=iterations)
-    bench.run(stacktrace=True)
+    bench.run()
     print(bench.report())
 
 
@@ -458,23 +456,22 @@ def profiled(enabled):
 @main.command()
 @click.option("--profile", is_flag=True, help="Enable profiling")
 @click.option("--tokens", "-t", is_flag=True, help="Show yaml tokens as well")
-@stacktrace_option()
 @implementation_option()
 @samples_arg()
-def show(profile, tokens, stacktrace, implementation, samples):
+def show(profile, tokens, implementation, samples):
     """Show deserialized yaml objects as json"""
     with profiled(profile) as is_profiling:
         for sample in samples:
-            show_lines(sample)
+            TestSettings.show_lines(sample)
             assert isinstance(implementation, ImplementationCollection)
             for impl in implementation:
                 if tokens and impl.name == "zyaml":
-                    result = "\n".join(str(s) for s in impl.tokens(sample, stacktrace=stacktrace))
+                    result = "\n".join(str(s) for s in impl.tokens(sample))
                     print("---- %s tokens:\n%s" % (impl, result))
 
                 print("--------  %s  --------" % impl)
                 assert isinstance(impl, YmlImplementation)
-                result = impl.load_sample(sample, stacktrace=stacktrace)
+                result = impl.load_sample(sample)
                 if is_profiling:
                     return
 
@@ -497,39 +494,16 @@ def show(profile, tokens, stacktrace, implementation, samples):
                 print()
 
 
-def show_lines(content, line_numbers=None, header=None):
-    if hasattr(content, "path"):
-        header = header or str(content)
-        content = runez.readlines(content.path)
-
-    elif hasattr(content, "splitlines"):
-        content = content.splitlines()
-
-    if line_numbers is None:
-        line_numbers = len(content) > 3
-
-    result = []
-    for n, line in enumerate(content, start=1):
-        line = line.rstrip("\n")
-        result.append("%s%s" % (runez.dim("%3s: " % n) if line_numbers else "", line))
-
-    if header:
-        print("========  %s  ========" % header)
-
-    print("\n".join(result))
-
-
 @main.command()
-@stacktrace_option()
 @implementation_option(default="zyaml,pyyaml_base")
 @samples_arg()
-def tokens(stacktrace, implementation, samples):
+def tokens(implementation, samples):
     """Show tokens for given samples"""
     for sample in samples:
-        show_lines(sample)
+        TestSettings.show_lines(sample)
         for impl in implementation:
             print("--------  %s  --------" % impl)
-            for t in impl.tokens(sample, stacktrace=stacktrace):
+            for t in impl.tokens(sample):
                 print(impl.represented_token(t))
 
             print("")
