@@ -1,11 +1,11 @@
 from .scanner import Scanner
-from .visitor import BaseVistor, TokenVisitor
+from .visitor import BaseVisitor, TokenVisitor
 
 
 __version__ = "0.1.2"
 
 
-def load_path(path, visitor=BaseVistor):
+def load_path(path, visitor=BaseVisitor):
     """
     Args:
         path (str): Path to file to deserialize
@@ -18,7 +18,7 @@ def load_path(path, visitor=BaseVistor):
         return deserialized(Scanner(fh), visitor)
 
 
-def load_stream(stream, visitor=BaseVistor):
+def load_stream(stream, visitor=BaseVisitor):
     """
     Args:
         stream (collections.abc.Iterable): Yaml to deserialize (can be a callable that yields one line at a time)
@@ -30,7 +30,7 @@ def load_stream(stream, visitor=BaseVistor):
     return deserialized(Scanner(stream), visitor)
 
 
-def load_string(text, visitor=BaseVistor):
+def load_string(text, visitor=BaseVisitor):
     """
     Args:
         text (str): Yaml to deserialize

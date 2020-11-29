@@ -2,7 +2,6 @@ import codecs
 import datetime
 import logging
 import os
-import re
 import sys
 from contextlib import contextmanager
 from functools import partial
@@ -292,31 +291,22 @@ def print_(tokens, implementation, text):
     TestSettings.show_lines(text)
     for impl in implementation:
         assert isinstance(impl, YmlImplementation)
-        header = "%s" % impl
         if tokens:
-            tokens = impl.tokens(text)
-            result = "\n".join(str(s) for s in tokens)
-            header += " tokens"
-            rtype = ""
-
-        elif TestSettings.stacktrace:
-            data = impl.load_string(text)
-            rtype = data.__class__.__name__ if data is not None else "None"
-            result = impl.json_representation(ParseResult(impl, None, data=data))[:-1]
+            data = "\n".join(str(s) for s in impl.tokens(text))
+            rtype = "tokens"
 
         else:
-            try:
-                data = impl.load_string(text)
-                rtype = data.__class__.__name__ if data is not None else "None"
-                result = impl.json_representation(ParseResult(impl, None, data=data))[:-1]
+            data = impl.load_string(text)
+            rtype = data.__class__.__name__ if data is not None else "None"
 
-            except Exception as e:
-                rtype = "error"
-                result = str(e).replace("\n", " ") or e.__class__.__name__
-                result = re.sub(r"\s+", " ", result)
-                result = runez.short(result)
+        print("---- %s: %s\n%s" % (runez.bold(impl), runez.dim(rtype), represented_result(data)))
 
-        print("---- %s: %s\n%s" % (header, rtype, result))
+
+def represented_result(data):
+    if isinstance(data, Exception):
+        return runez.red(runez.short(data))
+
+    return runez.stringified(data, converter=runez.represented_json)
 
 
 def _bench1(size):

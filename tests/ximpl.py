@@ -294,7 +294,7 @@ class RuamelImplementation(YmlImplementation):
         if not value:
             return None
 
-        if len(value) == 1:
+        if isinstance(value, list) and len(value) == 1:
             return value[0]
 
         return value
