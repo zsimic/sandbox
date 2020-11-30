@@ -5,14 +5,10 @@ import runez
 import strictyaml
 import yaml as pyyaml
 
-from zyaml import load_path, load_string, tokens_from_path, tokens_from_stream, tokens_from_string
+from zyaml import load_path, load_stream, tokens_from_path, tokens_from_stream
 from zyaml.marshal import decode, default_marshal, represented_scalar
 
 from . import TestSettings
-
-
-def not_implemented():
-    raise NotImplementedError(runez.brown("not implemented"))
 
 
 def implementation_option(option=True, default="zyaml,ruamel", count=None, **kwargs):
@@ -86,7 +82,8 @@ class ImplementationCollection(object):
 
         self.combinations = None
 
-    def track_result_combination(self, impl, value):
+    def track_result_combination(self, impl, data):
+        value = runez.stringified(data) if isinstance(data, Exception) else runez.represented_json(data, stringify=decode)
         name = impl.name
         if self.combinations is None:
             self.combinations = {}
@@ -110,30 +107,6 @@ class ImplementationCollection(object):
             yield i
 
 
-class ParseResult(object):
-    def __init__(self, impl, sample, data=None):
-        self.impl = impl  # type: YmlImplementation
-        self.sample = sample
-        self.data = data
-        self.exception = None
-        self.error = None
-
-    def __repr__(self):
-        if self.error:
-            return "Error: %s" % self.error
-
-        return str(self.data)
-
-    def set_exception(self, exc):
-        self.exception = exc
-        self.error = runez.short(exc)
-        if not self.error:
-            self.error = exc.__class__.__name__
-
-    def json_payload(self):
-        return {"_error": self.error} if self.error else self.data
-
-
 class YmlImplementation(object):
     """Implementation of loading a yml file"""
 
@@ -142,32 +115,65 @@ class YmlImplementation(object):
     def __repr__(self):
         return self.name
 
+    def show_result(self, data, tokens=False):
+        rtype = "tokens" if tokens else data.__class__.__name__ if data is not None else "None"
+        rep = data
+        if not tokens or isinstance(data, Exception):
+            rep = TestSettings.represented(data)
+
+        message = "---- %s: %s" % (runez.bold(self.name), runez.dim(rtype))
+        if isinstance(data, NotImplementedError):
+            print("%s - %s" % (message, rep))
+            return
+
+        print(message)
+        print(rep)
+
+    def get_outcome(self, content, tokens=False):
+        if tokens:
+            data = self.tokens(content)
+            if isinstance(data, list):
+                data = "\n".join(self.represented_token(t) for t in data)
+
+            return data
+
+        return self.deserialized(content)
+
+    def deserialized(self, source):
+        value = TestSettings.protected_call(self._deserialized, source)
+        return self._simplified(value)
+
     def tokens(self, source):
+        return TestSettings.protected_call(self._tokenize, source)
+
+    def represented_token(self, token):
+        return str(token)
+
+    def _deserialized(self, source):
         if hasattr(source, "path"):
-            value = TestSettings.protected_call(self._tokens_from_path, source.path)
+            return self._deserialized_from_path(source.path)
 
-        else:
-            value = TestSettings.protected_call(self._tokens_from_string, source)
+        return self._deserialized_from_stream(source)
 
-        if isinstance(value, Exception):
-            value = [runez.red(value)]
+    def _deserialized_from_path(self, path):
+        with open(path) as fh:
+            return self._deserialized_from_stream(fh.read())
 
-        return value
+    def _deserialized_from_stream(self, source):
+        raise NotImplementedError()
 
     def _tokenize(self, source):
         if hasattr(source, "path"):
             return self._tokens_from_path(source.path)
 
-        return self._tokens_from_string(source)
+        return self._tokens_from_stream(source)
 
     def _tokens_from_path(self, path):
-        not_implemented()
+        with open(path) as fh:
+            return TestSettings.unwrapped(self._tokens_from_stream(fh))
 
-    def _tokens_from_stream(self, stream):
-        not_implemented()
-
-    def _tokens_from_string(self, text):
-        not_implemented()
+    def _tokens_from_stream(self, source):
+        raise NotImplementedError()
 
     def _simplified(self, value):
         if isinstance(value, list) and len(value) == 1:
@@ -175,68 +181,21 @@ class YmlImplementation(object):
 
         return value
 
-    def _load_string(self, text):
-        not_implemented()
-
-    def _load_path(self, path):
-        with open(path) as fh:
-            return self._load_string(fh.read())
-
-    def load_sample(self, sample):
-        """
-        Args:
-            sample (Sample): Sample to load
-
-        Returns:
-            (ParseResult): Parsed sample
-        """
-        value = TestSettings.protected_call(self._load_path, sample.path)
-        result = ParseResult(self, sample)
-        if isinstance(value, Exception):
-            result.set_exception(value)
-
-        else:
-            result.data = self._simplified(value)
-
-        return result
-
-    def load_string(self, text):
-        value = TestSettings.protected_call(self._load_string, text)
-        return self._simplified(value)
-
-    def json_representation(self, result, stringify=decode, dt=str):
-        try:
-            payload = result.json_payload()
-            return runez.represented_json(payload, stringify=stringify, dt=dt)
-
-        except Exception:
-            print("Failed to json serialize %s" % result.sample)
-            raise
-
-    def represented_token(self, token):
-        if isinstance(token, Exception):
-            return runez.red(token)
-
-        return str(token)
-
 
 class ZyamlImplementation(YmlImplementation):
     name = "zyaml"
 
-    def _load_string(self, text):
-        return load_string(text)
-
-    def _load_path(self, path):
+    def _deserialized_from_path(self, path):
         return load_path(path)
+
+    def _deserialized_from_stream(self, source):
+        return load_stream(source)
 
     def _tokens_from_path(self, path):
         return tokens_from_path(path)
 
-    def _tokens_from_stream(self, stream):
-        return tokens_from_stream(stream)
-
-    def _tokens_from_string(self, text):
-        return tokens_from_string(text)
+    def _tokens_from_stream(self, source):
+        return tokens_from_stream(source)
 
     def _simplified(self, value):
         return value
@@ -266,38 +225,29 @@ def ruamel_passthrough_tags(loader, tag, node):
 class RuamelImplementation(YmlImplementation):
     name = "ruamel"
 
-    def _simplified(self, value):
-        if not value:
-            return None
-
-        if isinstance(value, list) and len(value) == 1:
-            return value[0]
-
-        return value
-
-    def _load_string(self, text):
+    def _deserialized_from_stream(self, source):
         y = ruamel.yaml.YAML(typ="safe")
         ruamel.yaml.add_multi_constructor("", ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
-        return y.load_all(text)
+        return y.load_all(source)
 
-    def _tokens_from_path(self, path):
-        with open(path) as fh:
-            return list(ruamel.yaml.main.scan(fh))
-
-    def _tokens_from_string(self, text):
-        return ruamel.yaml.main.scan(text)
+    def _tokens_from_stream(self, source):
+        return ruamel.yaml.main.scan(source)
 
 
 class PyyamlBaseImplementation(YmlImplementation):
     name = "pyyaml"
 
-    def _load_string(self, text):
-        return pyyaml.load_all(text, Loader=pyyaml.BaseLoader)
+    def _deserialized_from_stream(self, source):
+        return pyyaml.load_all(source, Loader=pyyaml.BaseLoader)
+
+    def _tokens_from_stream(self, source):
+        yaml_loader = pyyaml.BaseLoader(source)
+        curr = yaml_loader.get_token()
+        while curr is not None:
+            yield curr
+            curr = yaml_loader.get_token()
 
     def represented_token(self, token):
-        if isinstance(token, Exception):
-            return runez.red(token)
-
         linenum = token.start_mark.line + 1
         column = token.start_mark.column + 1
         result = "%s[%s,%s]" % (token.__class__.__name__, linenum, column)
@@ -327,28 +277,17 @@ class PyyamlBaseImplementation(YmlImplementation):
 
         return result
 
-    def _tokens_from_path(self, path):
-        with open(path) as fh:
-            return list(self._tokens_from_string(fh))
-
-    def _tokens_from_string(self, text):
-        yaml_loader = pyyaml.BaseLoader(text)
-        curr = yaml_loader.get_token()
-        while curr is not None:
-            yield curr
-            curr = yaml_loader.get_token()
-
 
 class PoyoImplementation(YmlImplementation):
     name = "poyo"
 
-    def _load_string(self, text):
-        return [poyo.parse_string("\n%s" % text)]
+    def _deserialized_from_stream(self, source):
+        return [poyo.parse_string(source)]
 
 
 class StrictImplementation(YmlImplementation):
     name = "strict"
 
-    def _load_string(self, text):
-        obj = strictyaml.dirty_load(text, allow_flow_style=True)
+    def _deserialized_from_stream(self, source):
+        obj = strictyaml.dirty_load(source, allow_flow_style=True)
         return obj.data

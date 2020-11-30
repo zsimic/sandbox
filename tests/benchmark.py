@@ -19,8 +19,8 @@ class BenchmarkedFunction(object):
 
     def resolved_call(self):
         result = self.function()
-        if result.exception:
-            raise result.exception
+        if isinstance(result, Exception):
+            raise result
 
     def run(self):
         t = timeit.Timer(stmt=self.resolved_call)
@@ -32,14 +32,15 @@ class BenchmarkedFunction(object):
             self.seconds = t.timeit(self.iterations)
 
         except Exception as e:
-            self.error = runez.short(e)
+            self.error = e
 
     def report(self, fastest=None, indent=""):
+        message = "%s%s: " % (indent, self.name)
         if self.error:
-            return "%s%s: %s" % (indent, self.name, runez.red(self.error))
+            return "%s%s" % (message, TestSettings.represented(self.error, size=-len(message)))
 
         if self.seconds is None:
-            return self.name
+            return "%s%s" % (message, runez.red("no result"))
 
         info = ""
         if fastest and self.seconds and fastest.seconds and self.seconds != fastest.seconds:

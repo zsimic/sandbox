@@ -26,8 +26,7 @@ There is an extra `./run` command that provides useful things while developing, 
     - **print**: Deserialize given CLI arg as yml, handy for troubleshooting
     - **refresh**: regenerate baseline `test/samples/*/_xpct-*`
     - **replay**: rerun all samples and compare outcome to baseline `test/samples/*/_xpct-*`
-    - **show**: show how given sample(s) are deserialized (json representation)
-    - **tokens**: see parse tokens (implemented for pyyaml and zyaml only for now)
+    - **show**: show how given sample(s) are deserialized
 
 Tests exercise all samples, and verify that the outcome is as expected
 - each `.yml` sample is deserialized with this library

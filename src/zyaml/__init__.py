@@ -63,10 +63,13 @@ def tokens_from_path(path):
 
 
 def tokens_from_stream(stream):
+    if hasattr(stream, "splitlines"):
+        stream = stream.splitlines()
+
     scanner = Scanner(stream)
-    return list(scanner.tokens())
+    return scanner.tokens()
 
 
 def tokens_from_string(text):
     scanner = Scanner(text.splitlines())
-    return list(scanner.tokens())
+    return scanner.tokens()

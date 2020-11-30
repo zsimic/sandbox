@@ -7,13 +7,13 @@ from zyaml import load_string
 from zyaml.marshal import ParseError, UTC
 
 
-from .conftest import K_TOKEN
+from .model import TestSamples
 
 
 def test_samples(all_samples):
     skipped = []
     for sample in all_samples:
-        problem = sample.replay(K_TOKEN)
+        problem = sample.replay(TestSamples.K_TOKEN)
         assert not problem
         if problem is runez.UNSET:
             skipped.append(sample)
