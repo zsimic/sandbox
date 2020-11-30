@@ -14,7 +14,7 @@ from zyaml.marshal import decode
 from . import TestSettings
 from .benchmark import BenchmarkRunner
 from .model import TestSamples
-from .ximpl import implementation_option, YmlImplementation
+from .ximpl import Implementation
 
 
 TESTED_SAMPLES = "flex,invalid,misc,valid"
@@ -52,16 +52,16 @@ def main(debug, log, lines, profile, stacktrace):
 @main.command()
 @click.option("--iterations", "-n", default=100, help="Number of iterations to average")
 @click.option("--tokens", "-t", is_flag=True, help="Tokenize only")
-@implementation_option()
-@TestSamples.samples_arg(default="bench")
-def benchmark(iterations, tokens, implementation, samples):
+@Implementation.option()
+@TestSamples.option(default="bench")
+def benchmark(iterations, tokens, implementations, samples):
     """Compare parsing speed of same file across yaml implementations"""
     for sample in samples:
         if tokens:
-            impls = dict((i.name, partial(i.tokens, sample)) for i in implementation)
+            impls = dict((i.name, partial(i.tokens, sample)) for i in implementations)
 
         else:
-            impls = dict((i.name, partial(i.deserialized, sample)) for i in implementation)
+            impls = dict((i.name, partial(i.deserialized, sample)) for i in implementations)
 
         bench = BenchmarkRunner(impls, target_name=sample.name, iterations=iterations)
         bench.run()
@@ -89,9 +89,9 @@ def simplified_date(value):
 @click.option("--compact/--no-compact", "-1", is_flag=True, default=None, help="Do not show diff text")
 @click.option("--untyped", "-u", is_flag=True, help="Parse everything as strings")
 @click.option("--tokens", "-t", is_flag=True, help="Compare tokens")
-@implementation_option(count=2)
-@TestSamples.samples_arg()
-def diff(compact, untyped, tokens, implementation, samples):
+@Implementation.option(count=2)
+@TestSamples.option()
+def diff(compact, untyped, tokens, implementations, samples):
     """Compare deserialization of 2 implementations"""
     stringify = runez.stringified if untyped else decode
     if compact is None:
@@ -101,8 +101,8 @@ def diff(compact, untyped, tokens, implementation, samples):
         generated_files = []
         for sample in samples:
             generated_files.append([sample])
-            for impl in implementation:
-                assert isinstance(impl, YmlImplementation)
+            for impl in implementations:
+                assert isinstance(impl, Implementation)
                 data = impl.get_outcome(sample, tokens=tokens)
                 rep = TestSettings.represented(data, size=None, stringify=stringify, dt=simplified_date)
                 fname = "%s-%s.text" % (impl.name, sample.basename)
@@ -149,7 +149,7 @@ def diff(compact, untyped, tokens, implementation, samples):
 
 
 @main.command()
-@TestSamples.samples_arg()
+@TestSamples.option()
 def find(samples):
     """Show which samples match given filter"""
     for s in samples:
@@ -157,7 +157,7 @@ def find(samples):
 
 
 @main.command()
-@TestSamples.samples_arg(count=1)
+@TestSamples.option(count=1)
 @click.argument("target", nargs=1)
 def mv(sample, target):
     """Move a test sample (and its baseline) to a new place"""
@@ -190,7 +190,7 @@ def mv(sample, target):
 def show_outcome(content, implementations, tokens=False):
     TestSettings.show_lines(content)
     for impl in implementations:
-        assert isinstance(impl, YmlImplementation)
+        assert isinstance(impl, Implementation)
         data = impl.get_outcome(content, tokens=tokens)
         impl.show_result(data, tokens=tokens)
         if TestSettings.profiler:
@@ -219,13 +219,13 @@ def show_outcome(content, implementations, tokens=False):
 
 @main.command(name="print")
 @click.option("--tokens", "-t", is_flag=True, help="Show tokens")
-@implementation_option()
-@click.argument("text", nargs=-1)
-def print_(tokens, implementation, text):
+@Implementation.option()
+@click.argument("text", nargs=-1, metavar="TEXT")
+def print_(tokens, implementations, text):
     """Deserialize given argument as yaml"""
     text = " ".join(text)
     text = codecs.decode(text, "unicode_escape")
-    show_outcome(text, implementation, tokens=tokens)
+    show_outcome(text, implementations, tokens=tokens)
 
 
 @main.command()
@@ -247,7 +247,7 @@ def quick_bench(iterations, size):
 @main.command()
 @click.option("--existing", is_flag=True, help="Refresh existing case only")
 @click.option("--tokens", "-t", is_flag=True, help="Refresh tokens only")
-@TestSamples.samples_arg(default=TESTED_SAMPLES)
+@TestSamples.option(default=TESTED_SAMPLES)
 def refresh(existing, tokens, samples):
     """Refresh expected baseline for each test sample"""
     kinds = []
@@ -262,7 +262,7 @@ def refresh(existing, tokens, samples):
 @main.command()
 @click.option("--existing", is_flag=True, help="Replay existing case only")
 @click.option("--tokens", "-t", is_flag=True, help="Replay tokens only")
-@TestSamples.samples_arg(default=TESTED_SAMPLES)
+@TestSamples.option(default=TESTED_SAMPLES)
 def replay(existing, tokens, samples):
     """Rerun samples and compare them with their current baseline"""
     kinds = []
@@ -291,12 +291,12 @@ def replay(existing, tokens, samples):
 
 @main.command()
 @click.option("--tokens", "-t", is_flag=True, help="Show tokens")
-@implementation_option()
-@TestSamples.samples_arg()
-def show(tokens, implementation, samples):
+@Implementation.option()
+@TestSamples.option()
+def show(tokens, implementations, samples):
     """Show deserialized yaml objects as json"""
     for sample in samples:
-        show_outcome(sample, implementation, tokens=tokens)
+        show_outcome(sample, implementations, tokens=tokens)
 
 
 def _bench1(size):

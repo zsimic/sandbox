@@ -16,9 +16,9 @@ class TestSamples:
     K_TOKEN = "token"
 
     @classmethod
-    def samples_arg(cls, option=False, default=None, count=None, **kwargs):
+    def option(cls, default=None, count=None, **kwargs):
         def _callback(_ctx, _param, value):
-            if not option and not value:
+            if not value:
                 value = default
 
             if count == 1 and hasattr(value, "endswith") and not value.endswith("."):
@@ -39,16 +39,17 @@ class TestSamples:
 
             return s
 
-        kwargs.setdefault("metavar", "SAMPLE")
+        if count == 1:
+            metavar = "SAMPLE"
+
+        elif count:
+            metavar = ",".join("SAMPLE%s" % (i + 1) for i in range(count))
+
+        else:
+            metavar = "SAMPLES..."
+
+        kwargs.setdefault("metavar", metavar)
         name = "sample" if count == 1 else "samples"
-        if option:
-            if default:
-                kwargs["default"] = default
-
-            kwargs.setdefault("help", "Sample(s) to use")
-            kwargs.setdefault("show_default", True)
-            return click.option("--%s" % name, "-s", callback=_callback, **kwargs)
-
         kwargs.setdefault("nargs", count if count and count >= 1 else -1)
         return click.argument(name, callback=_callback, **kwargs)
 

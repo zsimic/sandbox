@@ -11,50 +11,6 @@ from zyaml.marshal import decode, default_marshal, represented_scalar
 from . import TestSettings
 
 
-def implementation_option(option=True, default="zyaml,ruamel", count=None, **kwargs):
-    """
-    Args:
-        option (bool): If True, make this an option
-        default (str | None): Default implementation(s) to use
-        count (int | None): Exact number of implementations needed (when applicable)
-        **kwargs: Passed-through to click
-    """
-    kwargs["default"] = default
-
-    def _callback(_ctx, _param, value):
-        if not value:
-            return None
-
-        implementations = ImplementationCollection(value, default=default)
-        if implementations.unknown:
-            raise click.BadParameter("Unknown implementation(s): %s" % ", ".join(implementations.unknown))
-
-        if count and len(implementations) != count:
-            if count == 1:
-                raise click.BadParameter("Need exactly 1 implementation")
-
-            raise click.BadParameter("Need exactly %s implementations" % count)
-
-        if count == 1:
-            return implementations.selected[0]
-
-        return implementations
-
-    if option:
-        if count and count > 1:
-            hlp = "%s implementations to use" % count
-
-        else:
-            hlp = "Implementation(s) to use"
-
-        kwargs.setdefault("help", hlp)
-        kwargs.setdefault("show_default", True)
-        kwargs.setdefault("metavar", "IMPL" if count == 1 else "CSV")
-        return click.option("--implementation", "-i", callback=_callback, **kwargs)
-
-    return click.argument("implementations", callback=_callback, **kwargs)
-
-
 class ImplementationCollection(object):
     def __init__(self, names, default="zyaml,ruamel"):
         av = [ZyamlImplementation, RuamelImplementation, PyyamlBaseImplementation, PoyoImplementation, StrictImplementation]
@@ -107,13 +63,54 @@ class ImplementationCollection(object):
             yield i
 
 
-class YmlImplementation(object):
+class Implementation(object):
     """Implementation of loading a yml file"""
 
     name = None  # type: str
 
     def __repr__(self):
         return self.name
+
+    @classmethod
+    def option(cls, default="zyaml,ruamel", count=None, **kwargs):
+        """
+        Args:
+            default (str | None): Default implementation(s) to use
+            count (int | None): Optional: exact number of implementations that have to specified
+            **kwargs: Passed-through to click
+        """
+        kwargs["default"] = default
+
+        def _callback(_ctx, _param, value):
+            if not value:
+                return None
+
+            impls = ImplementationCollection(value, default=default)
+            if impls.unknown:
+                raise click.BadParameter("Unknown implementation(s): %s" % ", ".join(impls.unknown))
+
+            if count and len(impls) != count:
+                if count == 1:
+                    raise click.BadParameter("Need exactly 1 implementation")
+
+                raise click.BadParameter("Need exactly %s" % runez.plural(count, "implementation"))
+
+            if count == 1:
+                return impls.selected[0]
+
+            return impls
+
+        metavar = "I1,..."
+        hlp = "Implementation(s)"
+        if count:
+            hlp = runez.plural(count, "implementation")
+            metavar = ",".join("I%s" % (i + 1) for i in range(count))
+
+        kwargs.setdefault("help", "%s to use" % hlp)
+        kwargs.setdefault("show_default", True)
+        kwargs.setdefault("metavar", metavar)
+        name = "implementation" if count == 1 else "implementations"
+        return click.option(name, "-i", callback=_callback, **kwargs)
 
     def show_result(self, data, tokens=False):
         rtype = "tokens" if tokens else data.__class__.__name__ if data is not None else "None"
@@ -182,7 +179,7 @@ class YmlImplementation(object):
         return value
 
 
-class ZyamlImplementation(YmlImplementation):
+class ZyamlImplementation(Implementation):
     name = "zyaml"
 
     def _deserialized_from_path(self, path):
@@ -222,7 +219,7 @@ def ruamel_passthrough_tags(loader, tag, node):
     return default_marshal(node.value)
 
 
-class RuamelImplementation(YmlImplementation):
+class RuamelImplementation(Implementation):
     name = "ruamel"
 
     def _deserialized_from_stream(self, source):
@@ -234,7 +231,7 @@ class RuamelImplementation(YmlImplementation):
         return ruamel.yaml.main.scan(source)
 
 
-class PyyamlBaseImplementation(YmlImplementation):
+class PyyamlBaseImplementation(Implementation):
     name = "pyyaml"
 
     def _deserialized_from_stream(self, source):
@@ -278,14 +275,14 @@ class PyyamlBaseImplementation(YmlImplementation):
         return result
 
 
-class PoyoImplementation(YmlImplementation):
+class PoyoImplementation(Implementation):
     name = "poyo"
 
     def _deserialized_from_stream(self, source):
         return [poyo.parse_string(source)]
 
 
-class StrictImplementation(YmlImplementation):
+class StrictImplementation(Implementation):
     name = "strict"
 
     def _deserialized_from_stream(self, source):
