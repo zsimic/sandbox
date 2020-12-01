@@ -100,13 +100,13 @@ def test_edge_cases():
     # assert loaded("- a:\nb") == "Value must be indented at least 4 columns, line 2 column 1"
     # assert loaded("- a:\n  b") == "Value must be indented at least 4 columns, line 2 column 3"
     assert loaded("- a:\n   b") == [{"a": "b"}]
-    assert loaded("- a: b\n c: d") == "List values are not allowed here, line 2 column 3"
+    assert loaded("- a: b\n c: d") == "Scalar is under-indented relative to map, line 2 column 2"
     assert loaded("- a: b\n  c: d") == [{"a": "b", "c": "d"}]
-    assert loaded("- a:\n - b\n- c") == "Bad sequence entry indentation, line 2 column 2"
+    assert loaded("- a:\n - b\n- c") == "Block sequence is under-indented relative to previous sequence, line 2 column 2"
     # assert loaded("a:\n  - b\n- c") == "Simple key must be indented in order to continue previous line, line 3 column 1"
     # assert loaded("- a:\n  - b\n- c") == [{"a": ["b"]}, "c"]
 
-    assert loaded("a: b\n  c: d\ne: f") == "Mapping values are not allowed here, line 2 column 4"
+    assert loaded("a: b\n  c: d\ne: f") == "Scalar is over-indented relative to map, line 2 column 3"
     assert loaded("a: \n  c: d\ne: f") == {"a": {"c": "d"}, "e": "f"}
 
     assert loaded("[a\n- b]") == ["a - b"]

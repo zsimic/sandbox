@@ -5,7 +5,7 @@ import runez
 import strictyaml
 import yaml as pyyaml
 
-from zyaml import load_path, load_stream, tokens_from_path, tokens_from_stream
+from zyaml import load_path, load_string, tokens_from_path, tokens_from_string
 from zyaml.marshal import decode, default_marshal, represented_scalar
 
 from . import TestSettings
@@ -39,7 +39,12 @@ class ImplementationCollection(object):
         self.combinations = None
 
     def track_result_combination(self, impl, data):
-        value = runez.stringified(data) if isinstance(data, Exception) else runez.represented_json(data, stringify=decode)
+        if isinstance(data, Exception):
+            value = runez.stringified(data)
+
+        else:
+            value = runez.represented_json(data, stringify=decode, keep_none=True)
+
         name = impl.name
         if self.combinations is None:
             self.combinations = {}
@@ -150,26 +155,26 @@ class Implementation(object):
         if hasattr(source, "path"):
             return self._deserialized_from_path(source.path)
 
-        return self._deserialized_from_stream(source)
+        return self._deserialized_from_string(source)
 
     def _deserialized_from_path(self, path):
         with open(path) as fh:
-            return self._deserialized_from_stream(fh.read())
+            return self._deserialized_from_string(fh.read())
 
-    def _deserialized_from_stream(self, source):
+    def _deserialized_from_string(self, source):
         raise NotImplementedError()
 
     def _tokenize(self, source):
         if hasattr(source, "path"):
             return self._tokens_from_path(source.path)
 
-        return self._tokens_from_stream(source)
+        return self._tokens_from_string(source)
 
     def _tokens_from_path(self, path):
         with open(path) as fh:
-            return TestSettings.unwrapped(self._tokens_from_stream(fh))
+            return TestSettings.unwrapped(self._tokens_from_string(fh.read()))
 
-    def _tokens_from_stream(self, source):
+    def _tokens_from_string(self, source):
         raise NotImplementedError()
 
     def _simplified(self, value):
@@ -185,14 +190,14 @@ class ZyamlImplementation(Implementation):
     def _deserialized_from_path(self, path):
         return load_path(path)
 
-    def _deserialized_from_stream(self, source):
-        return load_stream(source)
+    def _deserialized_from_string(self, source):
+        return load_string(source)
 
     def _tokens_from_path(self, path):
         return tokens_from_path(path)
 
-    def _tokens_from_stream(self, source):
-        return tokens_from_stream(source)
+    def _tokens_from_string(self, source):
+        return tokens_from_string(source)
 
     def _simplified(self, value):
         return value
@@ -222,22 +227,22 @@ def ruamel_passthrough_tags(loader, tag, node):
 class RuamelImplementation(Implementation):
     name = "ruamel"
 
-    def _deserialized_from_stream(self, source):
+    def _deserialized_from_string(self, source):
         y = ruamel.yaml.YAML(typ="safe")
         ruamel.yaml.add_multi_constructor("", ruamel_passthrough_tags, Loader=ruamel.yaml.SafeLoader)
         return y.load_all(source)
 
-    def _tokens_from_stream(self, source):
+    def _tokens_from_string(self, source):
         return ruamel.yaml.main.scan(source)
 
 
 class PyyamlBaseImplementation(Implementation):
     name = "pyyaml"
 
-    def _deserialized_from_stream(self, source):
+    def _deserialized_from_string(self, source):
         return pyyaml.load_all(source, Loader=pyyaml.BaseLoader)
 
-    def _tokens_from_stream(self, source):
+    def _tokens_from_string(self, source):
         yaml_loader = pyyaml.BaseLoader(source)
         curr = yaml_loader.get_token()
         while curr is not None:
@@ -278,13 +283,13 @@ class PyyamlBaseImplementation(Implementation):
 class PoyoImplementation(Implementation):
     name = "poyo"
 
-    def _deserialized_from_stream(self, source):
+    def _deserialized_from_string(self, source):
         return [poyo.parse_string(source)]
 
 
 class StrictImplementation(Implementation):
     name = "strict"
 
-    def _deserialized_from_stream(self, source):
+    def _deserialized_from_string(self, source):
         obj = strictyaml.dirty_load(source, allow_flow_style=True)
         return obj.data

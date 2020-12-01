@@ -29,7 +29,7 @@ class TestSettings:
 
             return runez.red(runez.short(value, size=size))
 
-        return runez.represented_json(value, stringify=stringify, dt=dt)
+        return runez.represented_json(value, stringify=stringify, dt=dt, keep_none=True)
 
     @classmethod
     def colored_if_meaningful(cls, count, text, color):

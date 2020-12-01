@@ -18,18 +18,6 @@ def load_path(path, visitor=BaseVisitor):
         return deserialized(Scanner(fh), visitor)
 
 
-def load_stream(stream, visitor=BaseVisitor):
-    """
-    Args:
-        stream (collections.abc.Iterable): Yaml to deserialize (can be a callable that yields one line at a time)
-        visitor (type(TokenVisitor)): Visitor to use
-
-    Returns:
-        (list): Deserialized documents
-    """
-    return deserialized(Scanner(stream), visitor)
-
-
 def load_string(text, visitor=TokenVisitor):
     """
     Args:
@@ -60,14 +48,6 @@ def tokens_from_path(path):
     with open(path) as fh:
         scanner = Scanner(fh)
         return list(scanner.tokens())
-
-
-def tokens_from_stream(stream):
-    if hasattr(stream, "splitlines"):
-        stream = stream.splitlines()
-
-    scanner = Scanner(stream)
-    return scanner.tokens()
 
 
 def tokens_from_string(text):

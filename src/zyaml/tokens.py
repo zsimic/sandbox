@@ -358,9 +358,9 @@ class AliasToken(Token):
     def __repr__(self):
         return "AliasToken[%s,%s] *%s" % (self.linenum, self.column, self.anchor)
 
-    def resolved_value(self, clean):
-        if not clean:
-            raise ParseError("Alias should not have any properties", token=self)
+    def resolved_value(self):
+        # if not clean:
+        #     raise ParseError("Alias should not have any properties", token=self)
 
         return self.value
 
@@ -378,12 +378,9 @@ class ScalarToken(Token):
     def represented_value(self):
         return represented_scalar(self.style, self.value)
 
-    def resolved_value(self, clean):
+    def resolved_value(self):
         value = self.value
-        if self.style is None and value is not None:
-            value = value.strip()
-
-        if clean and self.style is None:
+        if self.style is None:
             value = default_marshal(value)
 
         return value

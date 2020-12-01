@@ -7,6 +7,7 @@ from .tokens import (
     AliasToken,
     AnchorToken,
     BlockEndToken,
+    BlockSeqToken,
     ColonToken,
     CommaToken,
     CommentToken,
@@ -273,6 +274,10 @@ class BlockScanner(ModalScanner):
         if token.has_same_line_value:
             tb.track_same_line_value(token)
 
+        if isinstance(token, DashToken) and isinstance(tb, BlockSeqToken):
+            if token.indent != tb.indent and token.linenum != tb.linenum:
+                raise ParseError("Block sequence is under-indented relative to previous sequence", token=token)
+
         if tb.indent != token.indent:
             verify_indentation(last_popped, token)
             self.top_block = tb = block(token.linenum, token.indent)
@@ -344,7 +349,7 @@ class Scanner(object):
     def accumulate_scalar(self, scalar):
         sk = self.simple_key
         if sk is None:
-            self.simple_key = scalar if scalar.value else None
+            self.simple_key = scalar
             return
 
         acc = self.accumulated_scalar

@@ -1,9 +1,4 @@
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from io import StringIO
-
-from zyaml import tokens_from_stream, tokens_from_string
+from zyaml import tokens_from_string
 from zyaml.scanner import Scanner
 from zyaml.tokens import DocumentEndToken, DocumentStartToken, StreamEndToken, StreamStartToken
 
@@ -114,6 +109,7 @@ def test_document_markers():
 
 
 def test_edge_cases():
+    assert tokens("''") == "ScalarToken[1,2] ''"
     assert tokens("a{x") == "ScalarToken[1,1] a{x"
     assert tokens("\n\na::#b") == "ScalarToken[3,1] a::#b"
     assert tokens("--- a") == "ScalarToken[1,5] a"
@@ -239,12 +235,3 @@ def test_partial():
     ]
     assert tokens("", ignored=[]) == ["StreamStartToken[1,1]", "StreamEndToken[1,1]"]
     assert tokens("# Comment only", ignored=[]) == ["StreamStartToken[1,1]", "StreamEndToken[1,1]"]
-
-
-def test_stream():
-    s = StringIO()
-    s.write("--")
-    s.seek(0)
-    x = list(tokens_from_stream(s))
-    assert len(x) == 5
-    assert str(x[2]) == "ScalarToken[1,1] --"
