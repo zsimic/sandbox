@@ -1,6 +1,6 @@
 import collections
 
-from .marshal import Optional, ParseError
+from .marshal import ParseError
 from .tokens import Token
 
 
@@ -91,9 +91,11 @@ class SeqLayer(DocumentLayer):
 
 class TokenVisitor(object):
 
-    docs = 0
-    top = None  # type: Optional[DocumentLayer]
-    root = None  # type: Optional[collections.deque]
+    top = None  # type: DocumentLayer
+
+    def __init__(self):
+        self.docs = []
+        self.root = collections.deque()
 
     def consume(self, token):
         """
@@ -123,19 +125,13 @@ class TokenVisitor(object):
         Returns:
             (list): Deserialized documents
         """
-        self.top = None
-        self.root = None
         for token in tokens:
             self.consume(token)
 
-        value = self.top.resolved_value()
-        if self.docs == 0:
-            return None
+        if len(self.docs) == 1:
+            self.docs = self.docs[0]
 
-        if self.docs == 1:
-            return value[0]
-
-        return value
+        return self.docs
 
     def push(self, element):
         self.top = element
@@ -148,20 +144,18 @@ class TokenVisitor(object):
         self.top.consume_value(value)
 
     def StreamStartToken(self, token):
-        self.docs = 0
-        self.root = collections.deque()
-        self.push(SeqLayer())
+        pass
 
     def StreamEndToken(self, token):
-        assert len(self.root) == 1
         self.root = None
 
     def DocumentStartToken(self, token):
-        self.docs += 1
         self.push(DocumentLayer())
 
     def DocumentEndToken(self, token):
-        self.pop()
+        popped = self.root.pop()
+        value = popped.resolved_value()
+        self.docs.append(value)
 
     def DirectiveToken(self, token):
         pass

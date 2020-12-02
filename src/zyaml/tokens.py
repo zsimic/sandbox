@@ -1,22 +1,17 @@
 import re
 
-from .marshal import default_marshal, Marshallers, ParseError, represented_scalar, shortened, unicode_escaped
+from .marshal import default_marshal, Marshallers, ParseError, represented_scalar, unicode_escaped
 
 
 RE_COMMENT = re.compile(r"\s+#.*$")
 
 
-def is_significant(token):
-    if isinstance(token, ScalarToken):
-        return token.value
-
-
 def verify_indentation(reference, token, over=True, under=True):
     if reference is not None and token is not None:
-        if under and token.indent < reference.indent and is_significant(token):
+        if under and token.indent < reference.indent and token.textually_significant:
             raise ParseError("%s is under-indented relative to %s" % (token.short_name, reference.short_name.lower()), token=token)
 
-        if over and token.indent > reference.indent and is_significant(token):
+        if over and token.indent > reference.indent and token.textually_significant:
             raise ParseError("%s is over-indented relative to %s" % (token.short_name, reference.short_name.lower()), token=token)
 
 
@@ -85,17 +80,17 @@ class Token(object):
 
     auto_start_doc = True  # Does this token imply DocumentStartToken?
     auto_filler = None  # Optional auto-filler (generator called with one argument: the current scanner)
-    has_same_line_value = False  # Does this token represent a same-line value (used to disambiguate simple keys)?
+    has_same_line_text = False  # Used to disambiguate simple keys
 
-    def __init__(self, linenum, indent, value=None):
+    def __init__(self, linenum, indent, text=None):
         self.linenum = linenum
         self.indent = indent
-        self.value = value
+        self.text = text
 
     def __repr__(self):
         result = "%s[%s,%s]" % (self.__class__.__name__, self.linenum, self.column)
-        if self.value is not None:
-            result = "%s %s" % (result, self.represented_value())
+        if self.text is not None:
+            result = "%s %s" % (result, self.represented_text())
 
         return result
 
@@ -107,15 +102,22 @@ class Token(object):
     def short_name(self):
         return self.__class__.__name__.replace("Token", "").replace("Block", "").replace("Flow", "").replace("Sequence", "List")
 
-    def represented_value(self):
-        return unicode_escaped(self.value)
+    @property
+    def textually_significant(self):
+        return False
+
+    def represented_text(self):
+        return unicode_escaped(self.text)
 
     def auto_injected(self, scanner):
         """Optional token to automatically inject"""
         return scanner.popped_scalar()
 
-    def track_same_line_value(self, token):
-        """Used to track same-line values for mapping blocks"""
+    def track_same_line_text(self, token):
+        """Used to disambiguate simple keys"""
+
+    def evaluate(self, visitor):
+        pass
 
 
 class CommentToken(Token):
@@ -142,6 +144,9 @@ class DocumentStartToken(Token):
 
         scanner.started_doc = True
         yield self
+
+    def evaluate(self, visitor):
+        visitor.push(self)
 
 
 class DocumentEndToken(Token):
@@ -174,9 +179,9 @@ class DirectiveToken(Token):
 
         super(DirectiveToken, self).__init__(linenum, 0, text.strip())
 
-    def represented_value(self):
-        if self.value:
-            return "%s %s" % (self.name, unicode_escaped(self.value))
+    def represented_text(self):
+        if self.text:
+            return "%s %s" % (self.name, unicode_escaped(self.text))
 
         return self.name
 
@@ -195,7 +200,7 @@ class DirectiveToken(Token):
 
 class FlowMapToken(Token):
 
-    has_same_line_value = True
+    has_same_line_text = True
 
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self):
@@ -204,7 +209,7 @@ class FlowMapToken(Token):
 
 class FlowSeqToken(Token):
 
-    has_same_line_value = True
+    has_same_line_text = True
 
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self):
@@ -223,21 +228,21 @@ class CommaToken(Token):
 
 class BlockMapToken(Token):
 
-    current_line_value = None
+    current_line_text = None
 
-    def track_same_line_value(self, token):
+    def track_same_line_text(self, token):
         if self.linenum == token.linenum:
             verify_indentation(self, token, over=False)
-            self.current_line_value = token
+            self.current_line_text = token
 
-        elif self.current_line_value is not None:
+        elif self.current_line_text is not None:
             verify_indentation(self, token)
-            self.current_line_value = None
+            self.current_line_text = None
 
 
 class BlockSeqToken(Token):
-    def track_same_line_value(self, token):
-        if token.indent <= self.indent and is_significant(token):
+    def track_same_line_text(self, token):
+        if token.indent <= self.indent and token.textually_significant:
             raise ParseError("%s under-indented relative to previous sequence" % token.short_name, token=token)
 
 
@@ -323,16 +328,6 @@ class TagToken(Token):
         super(TagToken, self).__init__(linenum, indent, text)
         self.marshaller = Marshallers.get_marshaller(text)
 
-    def marshalled(self, value):
-        if self.marshaller is None:
-            return value
-
-        try:
-            return self.marshaller(value)
-
-        except ValueError:
-            raise ParseError("'%s' can't be converted using %s" % (shortened(value), self.value), token=self)
-
     def auto_injected(self, scanner):
         scanner.decorators.appendleft(self)
         return True
@@ -342,8 +337,8 @@ class AnchorToken(Token):
     def __init__(self, linenum, indent, text):
         super(AnchorToken, self).__init__(linenum, indent, text[1:])
 
-    def represented_value(self):
-        return "&%s" % unicode_escaped(self.value)
+    def represented_text(self):
+        return "&%s" % unicode_escaped(self.text)
 
     def auto_injected(self, scanner):
         scanner.decorators.appendleft(self)
@@ -359,15 +354,12 @@ class AliasToken(Token):
         return "AliasToken[%s,%s] *%s" % (self.linenum, self.column, self.anchor)
 
     def resolved_value(self):
-        # if not clean:
-        #     raise ParseError("Alias should not have any properties", token=self)
-
-        return self.value
+        return self.text
 
 
 class ScalarToken(Token):
 
-    has_same_line_value = True
+    has_same_line_text = True
 
     def __init__(self, linenum, indent, text, style=None):
         super(ScalarToken, self).__init__(linenum, indent, text)
@@ -375,29 +367,33 @@ class ScalarToken(Token):
         self.multiline = None
         self.has_comment = False
 
-    def represented_value(self):
-        return represented_scalar(self.style, self.value)
+    @property
+    def textually_significant(self):
+        return self.text or self.style
+
+    def represented_text(self):
+        return represented_scalar(self.style, self.text)
 
     def resolved_value(self):
-        value = self.value
+        text = self.text
         if self.style is None:
-            value = default_marshal(value)
+            text = default_marshal(text)
 
-        return value
+        return text
 
     def add_line(self, text):
-        if not self.value:
-            self.value = text
+        if not self.text:
+            self.text = text
 
         elif self.multiline:
             self.multiline.append(text)
 
         else:
-            self.multiline = [self.value, text]
+            self.multiline = [self.text, text]
 
     def apply_multiline(self):
         if isinstance(self.multiline, list):
-            self.value = yaml_lines(self.multiline)
+            self.text = yaml_lines(self.multiline)
             self.multiline = True
 
     def auto_injected(self, scanner):

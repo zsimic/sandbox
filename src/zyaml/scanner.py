@@ -95,16 +95,16 @@ def _consume_literal(generator, linenum, start, style):
             text = yaml_lines(lines, indent=indent, folded=folded, keep=keep)
             if keep is None:
                 if text:
-                    token.value = "%s\n" % text.rstrip()
+                    token.text = "%s\n" % text.rstrip()
 
                 else:
-                    token.value = text
+                    token.text = text
 
             elif keep is False:
-                token.value = text.rstrip()
+                token.text = text.rstrip()
 
             else:
-                token.value = "%s\n" % text
+                token.text = "%s\n" % text
 
             if start >= end:
                 line_text = None
@@ -138,7 +138,7 @@ def _double_quoted(generator, linenum, start, end, line_text):
                     lines.append(text)
                     text = yaml_lines(lines, keep=True, continuations=True)
 
-                token.value = codecs.decode(text, "unicode_escape")
+                token.text = codecs.decode(text, "unicode_escape")
                 start, end = m.span(2)
                 return _checked_string(linenum, start, end, line_text, token)
 
@@ -177,7 +177,7 @@ def _single_quoted(generator, linenum, start, end, line_text):
                     text = yaml_lines(lines, keep=True)
                     token.multiline = True
 
-                token.value = text.replace("''", "'")
+                token.text = text.replace("''", "'")
                 m = RE_CONTENT.match(line_text, quote_pos + 1)
                 start, end = m.span(1)
                 return _checked_string(linenum, start, end, line_text, token)
@@ -213,7 +213,7 @@ class ModalScanner(object):
     def mode_name(self):
         return self.__class__.__name__.replace("Scanner", "")
 
-    def track_same_line_value(self, token):
+    def track_same_line_text(self, token):
         """
         Args:
             token (Token): Track same-line values for mapping blocks
@@ -246,11 +246,11 @@ class BlockScanner(ModalScanner):
     top_block = None  # type: Optional[Token]
     line_regex = re.compile(r"""(#|\?\s|[!&*][^\s:\[\]{}]+|[:\[\]{}])\s*(\S?)""")
 
-    def track_same_line_value(self, token):
-        if token.has_same_line_value:
+    def track_same_line_text(self, token):
+        if token.has_same_line_text:
             tb = self.top_block
             if tb is not None:
-                tb.track_same_line_value(token)
+                tb.track_same_line_text(token)
 
     def auto_push(self, token, block):
         tb = self.top_block
@@ -271,8 +271,8 @@ class BlockScanner(ModalScanner):
             yield tb
             return
 
-        if token.has_same_line_value:
-            tb.track_same_line_value(token)
+        if token.has_same_line_text:
+            tb.track_same_line_text(token)
 
         if isinstance(token, DashToken) and isinstance(tb, BlockSeqToken):
             if token.indent != tb.indent and token.linenum != tb.linenum:
@@ -303,13 +303,13 @@ class FlowScanner(ModalScanner):
     def auto_pop(self, token):
         try:
             popped = self.stack.pop()
-            mismatched = popped.__class__ != self.flow_closers[token.value]
+            mismatched = popped.__class__ != self.flow_closers[token.text]
 
         except (KeyError, IndexError):
             mismatched = True
 
         if mismatched:
-            raise ParseError("Unexpected flow closing character '%s'" % token.value)
+            raise ParseError("Unexpected flow closing character '%s'" % token.text)
 
         yield token
 
@@ -349,19 +349,19 @@ class Scanner(object):
     def accumulate_scalar(self, scalar):
         sk = self.simple_key
         if sk is None:
-            self.simple_key = scalar
+            self.simple_key = scalar if scalar.textually_significant else None
             return
 
         acc = self.accumulated_scalar
         if acc is None:
-            self.mode.track_same_line_value(sk)
+            self.mode.track_same_line_text(sk)
             self.accumulated_scalar = sk
-            self.simple_key = scalar if scalar.value else None
+            self.simple_key = scalar if scalar.textually_significant else None
             return
 
         acc.has_comment = acc.has_comment or sk.has_comment
-        acc.add_line(sk.value)
-        self.simple_key = scalar if scalar.value else None
+        acc.add_line(sk.text)
+        self.simple_key = scalar if scalar.textually_significant else None
 
     def extracted_decorators(self, token):
         result = None
@@ -386,8 +386,8 @@ class Scanner(object):
                 if acc.has_comment:
                     raise ParseError("Trailing content after comment", token=sk)
 
-                self.mode.track_same_line_value(sk)
-                acc.add_line(sk.value)
+                self.mode.track_same_line_text(sk)
+                acc.add_line(sk.text)
                 self.simple_key = None
 
         if acc is not None:
@@ -425,7 +425,7 @@ class Scanner(object):
                 for t in decorators:
                     yield t
 
-            self.mode.track_same_line_value(sk)
+            self.mode.track_same_line_text(sk)
             yield sk
 
         while self.decorators:
@@ -577,12 +577,12 @@ class Scanner(object):
 
     def mark_comment(self):
         sk = self.simple_key
-        if sk is not None and sk.value:
+        if sk is not None and sk.text:
             sk.has_comment = True
             return
 
         sk = self.accumulated_scalar
-        if sk is not None and sk.value:
+        if sk is not None and sk.text:
             sk.has_comment = True
 
     # noinspection PyAssignmentToLoopOrWithParameter
@@ -605,7 +605,7 @@ class Scanner(object):
                         for t in decorators:
                             yield t
 
-                    self.mode.track_same_line_value(injected)
+                    self.mode.track_same_line_text(injected)
                     yield injected
 
                 if token.auto_filler is not None:
@@ -613,7 +613,7 @@ class Scanner(object):
                         yield token
 
                 else:
-                    self.mode.track_same_line_value(token)
+                    self.mode.track_same_line_text(token)
                     yield token
 
             for token in self.auto_pop_all(token):

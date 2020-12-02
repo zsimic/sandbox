@@ -105,7 +105,7 @@ def diff(compact, untyped, tokens, implementations, samples):
                 assert isinstance(impl, Implementation)
                 data = impl.get_outcome(sample, tokens=tokens)
                 rep = TestSettings.represented(data, size=None, stringify=stringify, dt=simplified_date)
-                fname = "%s-%s.text" % (impl.name, sample.basename)
+                fname = "%s-%s.txt" % (impl.name, sample.basename)
                 generated_files[-1].extend([fname, rep])
                 if not compact:
                     with open(fname, "w") as fh:
