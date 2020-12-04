@@ -86,6 +86,13 @@ def test_invalid():
 
 
 @pytest.mark.skip("broken after refactor")
+def test_decorators():
+    assert loaded("!!str") == ""
+    assert loaded("!!str\n...") == ""
+    assert loaded("!!map\n!!str a: !!seq\n- !!str b") == {"a": ["b"]}
+
+
+@pytest.mark.skip("broken after refactor")
 def test_edge_cases():
     assert loaded("") is None
     assert loaded("#comment\\n\n") is None
@@ -97,7 +104,6 @@ def test_edge_cases():
     assert loaded("[]\n---\n[]") == [[], []]
     assert loaded("-   ") == [None]
 
-    # assert loaded("- a:\nb") == "Value must be indented at least 4 columns, line 2 column 1"
     # assert loaded("- a:\n  b") == "Value must be indented at least 4 columns, line 2 column 3"
     assert loaded("- a:\n   b") == [{"a": "b"}]
     assert loaded("- a: b\n c: d") == "Scalar is under-indented relative to map, line 2 column 2"
@@ -111,7 +117,7 @@ def test_edge_cases():
 
     assert loaded("[a\n- b]") == ["a - b"]
     assert loaded("{a\n- b}") == {"a - b": None}
-    assert loaded("[\n:\n]") == [{"": None}]
+    assert loaded("[\n:\n]") == [{None: None}]
     assert loaded("[\na:\n]") == [{"a": None}]
     assert loaded("[::]") == ["::"]
     assert loaded("[:: ]") == [{":": None}]
@@ -119,10 +125,6 @@ def test_edge_cases():
     assert loaded("[::a]") == ["::a"]
     assert loaded("[a::]") == ["a::"]
     assert loaded("[a::a]") == ["a::a"]
-
-    assert loaded("!!str") == ""
-    assert loaded("!!str\n...") == ""
-    assert loaded("!!map\n!!str a: !!seq\n- !!str b") == {"a": ["b"]}
 
     assert loaded("foo # bar") == "foo"
     assert loaded("foo# bar") == "foo# bar"

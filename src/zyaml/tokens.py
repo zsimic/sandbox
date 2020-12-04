@@ -75,17 +75,38 @@ def yaml_lines(lines, text=None, indent=None, folded=None, keep=False, continuat
     return text
 
 
-class Token(object):
+class VisitedToken(object):
+
+    value = None
+
+    def resolved_value(self):
+        return self.value
+
+    def consume_key(self, visitor, value):
+        raise ParseError("Unexpected key '%s' in %s" % (value, self))
+
+    def consume_value(self, visitor, value):
+        self.value = value
+
+    def auto_pop(self, visitor, token):
+        raise ParseError("Can't auto-pop '%s' from %s" % (token, self))
+
+    def evaluate(self, visitor):
+        raise ParseError("Can't evaluate '%s'" % self)
+
+
+class Token(VisitedToken):
     """Represents one scanned token"""
 
     auto_start_doc = True  # Does this token imply DocumentStartToken?
     auto_filler = None  # Optional auto-filler (generator called with one argument: the current scanner)
     has_same_line_text = False  # Used to disambiguate simple keys
 
-    def __init__(self, linenum, indent, text=None):
+    def __init__(self, linenum, indent, text=None, value=None):
         self.linenum = linenum
         self.indent = indent
         self.text = text
+        self.value = value
 
     def __repr__(self):
         result = "%s[%s,%s]" % (self.__class__.__name__, self.linenum, self.column)
@@ -116,9 +137,6 @@ class Token(object):
     def track_same_line_text(self, token):
         """Used to disambiguate simple keys"""
 
-    def evaluate(self, visitor):
-        pass
-
 
 class CommentToken(Token):
     pass
@@ -128,10 +146,16 @@ class StreamStartToken(Token):
 
     auto_start_doc = False
 
+    def evaluate(self, visitor):
+        pass
+
 
 class StreamEndToken(Token):
 
     auto_start_doc = False
+
+    def evaluate(self, visitor):
+        pass
 
 
 class DocumentStartToken(Token):
@@ -144,6 +168,9 @@ class DocumentStartToken(Token):
 
         scanner.started_doc = True
         yield self
+
+    def auto_pop(self, visitor, token):
+        self.value = token.resolved_value()
 
     def evaluate(self, visitor):
         visitor.push(self)
@@ -158,6 +185,11 @@ class DocumentEndToken(Token):
             yield t
 
         yield self
+
+    def evaluate(self, visitor):
+        popped = visitor.pop()
+        value = popped.resolved_value()
+        visitor.consume_value(value)
 
 
 class DirectiveToken(Token):
@@ -198,7 +230,93 @@ class DirectiveToken(Token):
         yield self
 
 
-class FlowMapToken(Token):
+class StackedValue(Token):
+
+    def evaluate(self, visitor):
+        while True:
+            popped = visitor.pop()
+            self.value = popped.resolved_value()
+            visitor.trigger_auto_pop(self)
+            if isinstance(popped, StackedValue):
+                return
+
+
+class StackedMap(StackedValue):
+
+    def __init__(self, linenum, indent, text=None):
+        super(StackedMap, self).__init__(linenum, indent, text=text, value={})
+        self.needs_wrap = False
+        self.pending_key = None
+
+    def resolved_value(self):
+        if self.needs_wrap:
+            self.value[self.pending_key] = None
+            self.pending_key = None
+            self.needs_wrap = False
+
+        return self.value
+
+    def consume_key(self, visitor, value):
+        self.pending_key = value
+        self.needs_wrap = True
+
+    def consume_value(self, visitor, value):
+        self.value[self.pending_key] = value
+        self.pending_key = None
+        self.needs_wrap = False
+
+    def auto_pop(self, visitor, token):
+        value = token.resolved_value()
+        if self.needs_wrap:
+            self.value[self.pending_key] = value
+            self.needs_wrap = False
+
+        else:
+            self.value[value] = None
+
+        self.pending_key = None
+
+    def evaluate(self, visitor):
+        visitor.push(self)
+
+
+class StackedSequence(StackedValue):
+
+    def __init__(self, linenum, indent, text=None):
+        super(StackedSequence, self).__init__(linenum, indent, text=text, value=[])
+        self.needs_wrap = False
+
+    def consume_key(self, visitor, value):
+        self.needs_wrap = (value, None)
+
+    def resolved_value(self):
+        if self.needs_wrap is True:
+            self.value.append(None)
+            self.needs_wrap = False
+
+        elif isinstance(self.needs_wrap, tuple):
+            self.value.append(dict(self.needs_wrap))
+            self.needs_wrap = False
+
+        return self.value
+
+    def consume_value(self, visitor, value):
+        if isinstance(self.needs_wrap, tuple):
+            self.value.append({self.needs_wrap[0]: value})
+
+        else:
+            self.value.append(value)
+
+        self.needs_wrap = False
+
+    def auto_pop(self, visitor, token):
+        self.consume_value(visitor, token.resolved_value())
+
+    def evaluate(self, visitor):
+        visitor.push(self)
+
+
+class FlowMapToken(StackedMap):
 
     has_same_line_text = True
 
@@ -207,7 +325,7 @@ class FlowMapToken(Token):
             yield t
 
 
-class FlowSeqToken(Token):
+class FlowSeqToken(StackedSequence):
 
     has_same_line_text = True
 
@@ -215,8 +333,11 @@ class FlowSeqToken(Token):
         for t in scanner.auto_push(self):
             yield t
 
+    def evaluate(self, visitor):
+        visitor.push(self)
 
-class FlowEndToken(Token):
+
+class FlowEndToken(StackedValue):
     def auto_filler(self, scanner):
         for t in scanner.auto_pop(self):
             yield t
@@ -226,7 +347,7 @@ class CommaToken(Token):
     pass
 
 
-class BlockMapToken(Token):
+class BlockMapToken(StackedMap):
 
     current_line_text = None
 
@@ -240,13 +361,14 @@ class BlockMapToken(Token):
             self.current_line_text = None
 
 
-class BlockSeqToken(Token):
+class BlockSeqToken(StackedSequence):
+
     def track_same_line_text(self, token):
         if token.indent <= self.indent and token.textually_significant:
             raise ParseError("%s under-indented relative to previous sequence" % token.short_name, token=token)
 
 
-class BlockEndToken(Token):
+class BlockEndToken(StackedValue):
     pass
 
 
@@ -271,19 +393,35 @@ class ExplicitMapToken(Token):
 
 
 class DashToken(Token):
+
     def auto_filler(self, scanner):
         for t in scanner.auto_push(self, BlockSeqToken):
             yield t
 
         yield self
 
+    def evaluate(self, visitor):
+        visitor.top.needs_wrap = True
+
 
 class KeyToken(Token):
-    pass
+
+    def auto_pop(self, visitor, token):
+        visitor.pop()
+        visitor.consume_key(token.resolved_value())
+
+    def evaluate(self, visitor):
+        visitor.push(self)
 
 
 class ValueToken(Token):
-    pass
+
+    def auto_pop(self, visitor, token):
+        visitor.pop()
+        visitor.consume_value(token.resolved_value())
+
+    def evaluate(self, visitor):
+        visitor.push(self)
 
 
 class ColonToken(Token):
@@ -305,21 +443,21 @@ class ColonToken(Token):
             if scanner.mode is scanner.block_scanner:
                 raise ParseError("Incomplete explicit mapping pair", token=self)
 
-        else:
-            if sk.multiline and sk.style is None:
-                raise ParseError("Mapping keys must be on a single line", token=self)
+            sk = ScalarToken(self.linenum, self.indent, None)
 
-            decorators = scanner.extracted_decorators(sk)
-            for t in scanner.auto_push(sk, BlockMapToken):
+        if sk.multiline and sk.style is None:
+            raise ParseError("Mapping keys must be on a single line", token=self)
+
+        decorators = scanner.extracted_decorators(sk)
+        for t in scanner.auto_push(sk, BlockMapToken):
+            yield t
+
+        yield KeyToken(sk.linenum, sk.indent)
+        if decorators is not None:
+            for t in decorators:
                 yield t
 
-            yield KeyToken(sk.linenum, sk.indent)
-            if decorators is not None:
-                for t in decorators:
-                    yield t
-
-            yield sk
-
+        yield sk
         yield ValueToken(self.linenum, self.indent)
 
 
@@ -352,9 +490,6 @@ class AliasToken(Token):
 
     def __repr__(self):
         return "AliasToken[%s,%s] *%s" % (self.linenum, self.column, self.anchor)
-
-    def resolved_value(self):
-        return self.text
 
 
 class ScalarToken(Token):
@@ -399,3 +534,6 @@ class ScalarToken(Token):
     def auto_injected(self, scanner):
         scanner.accumulate_scalar(self)
         return True
+
+    def evaluate(self, visitor):
+        visitor.trigger_auto_pop(self)

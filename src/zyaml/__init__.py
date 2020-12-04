@@ -1,11 +1,11 @@
 from .scanner import Scanner
-from .visitor import BaseVisitor, TokenVisitor
+from .visitor import TokenVisitor
 
 
 __version__ = "0.1.2"
 
 
-def load_path(path, visitor=BaseVisitor):
+def load_path(path, visitor=TokenVisitor):
     """
     Args:
         path (str): Path to file to deserialize
