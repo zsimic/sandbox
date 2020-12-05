@@ -10,6 +10,7 @@
   "DashToken[2,3]",
   "BlockSeqToken[2,5]",
   "DashToken[2,5]",
+  "ScalarToken[2,7] a",
   "BlockEndToken[3,5]",
   "BlockEndToken[3,3]",
   "DashToken[3,1]",

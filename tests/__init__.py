@@ -21,7 +21,7 @@ class TestSettings:
             if size is None:
                 return {"_error": "not implemented"}
 
-            return runez.brown("not implemented")
+            return runez.orange("not implemented")
 
         if isinstance(value, Exception):
             if size is None:

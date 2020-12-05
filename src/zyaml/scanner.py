@@ -226,19 +226,6 @@ class ModalScanner(object):
             block (type | None): Block mode to start when applicable
         """
 
-    def auto_pop(self, token):
-        """
-        Args:
-            token (Token): Token that is requesting the pop
-        """
-        yield None
-
-    def auto_pop_all(self, token):
-        """
-        Args:
-            token (Token): Token that is requesting the pop
-        """
-
 
 class BlockScanner(ModalScanner):
     """Scan tokens for block mode (default, exclusive with flow mode started by '[' or '{')"""
@@ -284,10 +271,6 @@ class BlockScanner(ModalScanner):
             self.stack.append(tb)
             yield tb
 
-    def auto_pop_all(self, token):
-        while self.stack:
-            yield BlockEndToken(token.linenum, self.stack.pop().indent)
-
 
 class FlowScanner(ModalScanner):
     """Scan tokens for flow mode (started by '[' or '{', exclusive with block mode)"""
@@ -299,22 +282,6 @@ class FlowScanner(ModalScanner):
         if block is None and token is not None:
             self.stack.append(token)
             yield token
-
-    def auto_pop(self, token):
-        try:
-            popped = self.stack.pop()
-            mismatched = popped.__class__ != self.flow_closers[token.text]
-
-        except (KeyError, IndexError):
-            mismatched = True
-
-        if mismatched:
-            raise ParseError("Unexpected flow closing character '%s'" % token.text)
-
-        yield token
-
-    def auto_pop_all(self, token):
-        raise ParseError("Expected flow map end", token=token)
 
 
 class Scanner(object):
@@ -407,17 +374,10 @@ class Scanner(object):
         for t in self.mode.auto_push(token, block):
             yield t
 
-    def auto_pop(self, token):
-        while self.decorators:
-            yield self.decorators.popleft()
-
-        for t in self.mode.auto_pop(token):
-            yield t
-
-        if self.mode is self.flow_scanner and not self.mode.stack:
-            self.mode = self.block_scanner
-
     def auto_pop_all(self, token):
+        if self.mode is self.flow_scanner:
+            raise ParseError("Expected flow map end", token=token)
+
         sk = self.popped_scalar()
         if sk is not None:
             decorators = self.extracted_decorators(sk)
@@ -431,8 +391,8 @@ class Scanner(object):
         while self.decorators:
             yield self.decorators.popleft()
 
-        for t in self.mode.auto_pop_all(token):
-            yield t
+        while self.block_scanner.stack:
+            yield BlockEndToken(token.linenum, self.block_scanner.stack.pop().indent)
 
         if self.started_doc:
             self.started_doc = False
@@ -454,9 +414,12 @@ class Scanner(object):
                 if line_text[mstart - 1] not in " \t":
                     continue
 
+                if start < mstart:
+                    yield None, start, line_text[start:mstart].rstrip()
+
                 self.mark_comment()
                 if self.comments:
-                    yield CommentToken(linenum, start, line_text[start:]), None, None
+                    yield CommentToken(linenum, mstart, line_text[mstart:]), None, None
 
                 return
 

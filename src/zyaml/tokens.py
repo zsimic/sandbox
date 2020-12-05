@@ -89,10 +89,10 @@ class VisitedToken(object):
         self.value = value
 
     def auto_pop(self, visitor, token):
-        raise ParseError("Can't auto-pop '%s' from %s" % (token, self))
+        raise ParseError("Internal error: can't auto-pop '%s' from %s" % (token, self))
 
     def evaluate(self, visitor):
-        raise ParseError("Can't evaluate '%s'" % self)
+        raise ParseError("Internal error: can't evaluate '%s'" % self)
 
 
 class Token(VisitedToken):
@@ -338,9 +338,25 @@ class FlowSeqToken(StackedSequence):
 
 
 class FlowEndToken(StackedValue):
+
     def auto_filler(self, scanner):
-        for t in scanner.auto_pop(self):
-            yield t
+        while scanner.decorators:
+            yield scanner.decorators.popleft()
+
+        try:
+            popped = scanner.flow_scanner.stack.pop()
+            mismatched = popped.__class__ != scanner.flow_scanner.flow_closers[self.text]
+
+        except (KeyError, IndexError):
+            mismatched = True
+
+        if mismatched:
+            raise ParseError("Unexpected flow closing character '%s'" % self.text)
+
+        if not scanner.flow_scanner.stack:
+            scanner.mode = scanner.block_scanner
+
+        yield self
 
 
 class CommaToken(Token):
