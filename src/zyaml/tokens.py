@@ -6,15 +6,6 @@ from .marshal import default_marshal, Marshallers, ParseError, represented_scala
 RE_COMMENT = re.compile(r"\s+#.*$")
 
 
-def verify_indentation(reference, token, over=True, under=True):
-    if reference is not None and token is not None:
-        if under and token.indent < reference.indent and token.textually_significant:
-            raise ParseError("%s is under-indented relative to %s" % (token.short_name, reference.short_name.lower()), token=token)
-
-        if over and token.indent > reference.indent and token.textually_significant:
-            raise ParseError("%s is over-indented relative to %s" % (token.short_name, reference.short_name.lower()), token=token)
-
-
 def yaml_lines(lines, text=None, indent=None, folded=None, keep=False, continuations=False):
     """
     Args:
@@ -98,7 +89,6 @@ class VisitedToken(object):
 class Token(VisitedToken):
     """Represents one scanned token"""
 
-    auto_start_doc = True  # Does this token imply DocumentStartToken?
     has_same_line_text = False  # Used to disambiguate simple keys
 
     def __init__(self, linenum, indent, text=None, value=None):
@@ -138,36 +128,42 @@ class Token(VisitedToken):
 
         yield self
 
+    def verify_indentation(self, token, over=True, under=True):
+        if token is not None:
+            if under and token.indent < self.indent and token.textually_significant:
+                raise ParseError("%s is under-indented relative to %s" % (token.short_name, self.short_name.lower()), token=token)
+
+            if over and token.indent > self.indent and token.textually_significant:
+                raise ParseError("%s is over-indented relative to %s" % (token.short_name, self.short_name.lower()), token=token)
+
 
 class CommentToken(Token):
     pass
 
 
-class StreamStartToken(Token):
-
-    auto_start_doc = False
-
-    def evaluate(self, visitor):
-        pass
+class DocAgnostic(Token):
+    pass
 
 
-class StreamEndToken(Token):
-
-    auto_start_doc = False
+class StreamStartToken(DocAgnostic):
 
     def evaluate(self, visitor):
         pass
 
 
-class DocumentStartToken(Token):
+class StreamEndToken(DocAgnostic):
 
-    auto_start_doc = False
+    def evaluate(self, visitor):
+        pass
+
+
+class DocumentStartToken(DocAgnostic):
 
     def auto_filler(self, scanner):
         for t in scanner.auto_pop_all(self):
             yield t
 
-        scanner.started_doc = True
+        scanner.needs_doc = False
         yield self
 
     def auto_pop(self, visitor, token):
@@ -177,9 +173,7 @@ class DocumentStartToken(Token):
         visitor.push(self)
 
 
-class DocumentEndToken(Token):
-
-    auto_start_doc = False
+class DocumentEndToken(DocAgnostic):
 
     def auto_filler(self, scanner):
         for t in scanner.auto_pop_all(self):
@@ -193,9 +187,7 @@ class DocumentEndToken(Token):
         visitor.consume_value(value)
 
 
-class DirectiveToken(Token):
-
-    auto_start_doc = False
+class DirectiveToken(DocAgnostic):
 
     def __init__(self, linenum, indent, text):
         if indent != 1:
@@ -219,7 +211,7 @@ class DirectiveToken(Token):
         return self.name
 
     def auto_filler(self, scanner):
-        if scanner.started_doc:
+        if not scanner.needs_doc:
             raise ParseError("Directives allowed only at document start", token=self)
 
         if self.name == "YAML":
@@ -376,11 +368,11 @@ class BlockMapToken(StackedMap):
 
     def track_same_line_text(self, token):
         if self.linenum == token.linenum:
-            verify_indentation(self, token, over=False)
+            self.verify_indentation(token, over=False)
             self.current_line_text = token
 
         elif self.current_line_text is not None:
-            verify_indentation(self, token)
+            self.verify_indentation(token)
             self.current_line_text = None
 
 
@@ -396,7 +388,12 @@ class BlockEndToken(StackedValue):
 
 
 class ExplicitMapToken(Token):
-    pass
+
+    def auto_filler(self, scanner):
+        for t in scanner.auto_push(KeyToken(self.linenum, self.indent), BlockMapToken):
+            yield t
+
+        scanner.explicit_map = self
 
 
 class DashToken(Token):
@@ -434,6 +431,10 @@ class ValueToken(Token):
 class ColonToken(Token):
 
     def auto_filler(self, scanner):
+        if scanner.explicit_map is not None:
+            for t in scanner.auto_popped_scalar():
+                yield t
+
         sk = scanner.simple_key
         scanner.simple_key = None
         if sk is None:

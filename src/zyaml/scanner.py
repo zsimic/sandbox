@@ -13,6 +13,7 @@ from .tokens import (
     CommentToken,
     DashToken,
     DirectiveToken,
+    DocAgnostic,
     DocumentEndToken,
     DocumentStartToken,
     ExplicitMapToken,
@@ -24,7 +25,6 @@ from .tokens import (
     StreamStartToken,
     TagToken,
     Token,
-    verify_indentation,
     yaml_lines,
 )
 
@@ -266,7 +266,9 @@ class BlockScanner(ModalScanner):
                 raise ParseError("Block sequence is under-indented relative to previous sequence", token=token)
 
         if tb.indent != token.indent:
-            verify_indentation(last_popped, token)
+            if last_popped is not None:
+                last_popped.verify_indentation(token)
+
             self.top_block = tb = block(token.linenum, token.indent)
             self.stack.append(tb)
             yield tb
@@ -293,7 +295,7 @@ class Scanner(object):
         self.mode = self.block_scanner
         self.yaml_directive = None
         self.directives = None
-        self.started_doc = None
+        self.needs_doc = True
         self.accumulated_scalar = None  # type: Optional[ScalarToken]
         self.simple_key = None  # type: Optional[ScalarToken]
         self.explicit_map = None  # type: Optional[ExplicitMapToken]
@@ -348,7 +350,9 @@ class Scanner(object):
                     yield t
 
             if self.mode is self.block_scanner:
-                verify_indentation(self.mode.top_block, sk, over=False)
+                tb = self.mode.top_block
+                if tb is not None:
+                    tb.verify_indentation(sk, over=False)
 
             self.mode.track_same_line_text(acc)
             yield acc
@@ -377,8 +381,8 @@ class Scanner(object):
         while self.block_scanner.stack:
             yield BlockEndToken(token.linenum, self.block_scanner.stack.pop().indent)
 
-        if self.started_doc:
-            self.started_doc = False
+        if not self.needs_doc:
+            self.needs_doc = True
             if not isinstance(token, DocumentEndToken):
                 yield DocumentEndToken(token.linenum + 1, 0)
 
@@ -537,8 +541,8 @@ class Scanner(object):
         yield token
         try:
             for token in self._raw_tokens():
-                if token.auto_start_doc and not self.started_doc:
-                    self.started_doc = True
+                if self.needs_doc and not isinstance(token, DocAgnostic):
+                    self.needs_doc = False
                     yield DocumentStartToken(token.linenum, 0)
 
                 af = token.auto_filler(self)
