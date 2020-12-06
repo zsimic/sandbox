@@ -445,14 +445,14 @@ class ColonToken(Token):
         return None
 
     def auto_filler(self, scanner):
-        sk = scanner.popped_scalar(with_simple_key=False)
-        if sk is not None:
-            decorators = scanner.extracted_decorators(sk)
+        acc = scanner.popped_accumulated_scalar()
+        if acc is not None:
+            decorators = scanner.extracted_decorators(acc)
             if decorators is not None:
                 for t in decorators:
                     yield t
 
-            yield sk
+            yield acc
 
         sk = scanner.popped_scalar()
         if sk is None:
@@ -532,15 +532,16 @@ class ScalarToken(Token):
 
         return text
 
-    def add_line(self, text):
+    def cumulate_scalar(self, other):
+        self.has_comment |= other.has_comment
         if not self.text:
-            self.text = text
+            self.text = other.text
 
         elif self.multiline:
-            self.multiline.append(text)
+            self.multiline.append(other.text)
 
         else:
-            self.multiline = [self.text, text]
+            self.multiline = [self.text, other.text]
 
     def apply_multiline(self):
         if isinstance(self.multiline, list):

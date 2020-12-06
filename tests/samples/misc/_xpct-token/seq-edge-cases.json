@@ -23,7 +23,7 @@
   "KeyToken[6,1]",
   "ScalarToken[6,1] a",
   "ValueToken[6,2]",
-  "ScalarToken[6,5] b c",
+  "ScalarToken[6,5] b\\nc",
   "KeyToken[10,1]",
   "ScalarToken[10,1] x",
   "ValueToken[10,2]",

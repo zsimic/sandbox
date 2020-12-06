@@ -234,7 +234,7 @@ class BlockScanner(ModalScanner):
     line_regex = re.compile(r"""(#|\?\s|[!&*][^\s:\[\]{}]+|[:\[\]{}])\s*(\S?)""")
 
     def track_same_line_text(self, token):
-        if token.has_same_line_text:
+        if token is not None and token.has_same_line_text:
             tb = self.top_block
             if tb is not None:
                 tb.track_same_line_text(token)
@@ -323,12 +323,16 @@ class Scanner(object):
         if acc is None:
             self.mode.track_same_line_text(sk)
             self.accumulated_scalar = sk
-            self.simple_key = scalar if scalar.textually_significant else None
-            return
+            if scalar.textually_significant:
+                self.simple_key = scalar
 
-        acc.has_comment = acc.has_comment or sk.has_comment
-        acc.add_line(sk.text)
-        self.simple_key = scalar if scalar.textually_significant else None
+            else:
+                sk.cumulate_scalar(scalar)
+                self.simple_key = None
+
+        else:
+            acc.cumulate_scalar(sk)
+            self.simple_key = scalar if scalar.textually_significant else None
 
     def extracted_decorators(self, token):
         result = None
@@ -341,21 +345,28 @@ class Scanner(object):
         if result is not None:
             return reversed(result)
 
-    def popped_scalar(self, with_simple_key=True):
+    def popped_accumulated_scalar(self):
         acc = self.accumulated_scalar
-        if with_simple_key:
-            sk = self.simple_key
-            if acc is None:
-                acc = sk
-                self.simple_key = None
+        if acc is not None:
+            acc.apply_multiline()
+            self.accumulated_scalar = None
 
-            elif sk is not None:
-                if acc.has_comment:
-                    raise ParseError("Trailing content after comment", token=sk)
+        return acc
 
-                self.mode.track_same_line_text(sk)
-                acc.add_line(sk.text)
-                self.simple_key = None
+    def popped_scalar(self):
+        acc = self.accumulated_scalar
+        sk = self.simple_key
+        if acc is None:
+            acc = sk
+            self.simple_key = None
+
+        elif sk is not None:
+            if acc.has_comment:
+                raise ParseError("Trailing content after comment", token=sk)
+
+            self.mode.track_same_line_text(sk)
+            acc.cumulate_scalar(sk)
+            self.simple_key = None
 
         if acc is not None:
             acc.apply_multiline()
@@ -385,6 +396,7 @@ class Scanner(object):
                 for t in decorators:
                     yield t
 
+            verify_indentation(self.mode.top_block, sk, over=False)
             self.mode.track_same_line_text(sk)
             yield sk
 

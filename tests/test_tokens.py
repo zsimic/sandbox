@@ -217,7 +217,7 @@ def test_invalid():
     assert tokens("a: : b") == "Nested mappings are not allowed in compact mappings, line 1 column 4"
     assert tokens("a\n#\nb") == "Trailing content after comment, line 3 column 1"
     assert tokens("- a\nb") == "Scalar under-indented relative to previous sequence, line 2 column 1"
-    # assert tokens("- a:\nb") == "Scalar under-indented relative to previous sequence, line 2 column 1"
+    assert tokens("- a:\nb") == "Scalar is under-indented relative to map, line 2 column 1"
     assert tokens("-  a: x\n b: y") == "Scalar is under-indented relative to map, line 2 column 2"
     assert tokens("a: b\n c: d") == "Scalar is over-indented relative to map, line 2 column 2"
     assert tokens("a: b\n cc: d") == "Scalar is over-indented relative to map, line 2 column 2"
