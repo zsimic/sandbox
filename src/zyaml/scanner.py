@@ -296,6 +296,7 @@ class Scanner(object):
         self.started_doc = None
         self.accumulated_scalar = None  # type: Optional[ScalarToken]
         self.simple_key = None  # type: Optional[ScalarToken]
+        self.explicit_map = None  # type: Optional[ExplicitMapToken]
         self.decorators = collections.deque()
         self.tokenizer_map = {
             "!": TagToken,
@@ -374,9 +375,26 @@ class Scanner(object):
 
         return acc
 
-    def auto_push(self, token, block=None):
+    def auto_popped_scalar(self):
+        sk = self.popped_scalar()
+        if sk is not None:
+            decorators = self.extracted_decorators(sk)
+            if decorators is not None:
+                for t in decorators:
+                    yield t
+
+            if self.mode is self.block_scanner:
+                verify_indentation(self.mode.top_block, sk, over=False)
+
+            self.mode.track_same_line_text(sk)
+            yield sk
+
         while self.decorators:
             yield self.decorators.popleft()
+
+    def auto_push(self, token, block=None):
+        for t in self.auto_popped_scalar():
+            yield t
 
         if block is None and self.mode is self.block_scanner:
             # Pushing a flow opener: '{' or '[' character, automatically switch to flow mode
@@ -389,19 +407,8 @@ class Scanner(object):
         if self.mode is self.flow_scanner:
             raise ParseError("Expected flow map end", token=token)
 
-        sk = self.popped_scalar()
-        if sk is not None:
-            decorators = self.extracted_decorators(sk)
-            if decorators is not None:
-                for t in decorators:
-                    yield t
-
-            verify_indentation(self.mode.top_block, sk, over=False)
-            self.mode.track_same_line_text(sk)
-            yield sk
-
-        while self.decorators:
-            yield self.decorators.popleft()
+        for t in self.auto_popped_scalar():
+            yield t
 
         while self.block_scanner.stack:
             yield BlockEndToken(token.linenum, self.block_scanner.stack.pop().indent)
@@ -570,26 +577,10 @@ class Scanner(object):
                     self.started_doc = True
                     yield DocumentStartToken(token.linenum, 0)
 
-                injected = token.auto_injected(self)
-                if injected is not None:
-                    if injected is True:
-                        continue
-
-                    decorators = self.extracted_decorators(injected)
-                    if decorators is not None:
-                        for t in decorators:
-                            yield t
-
-                    self.mode.track_same_line_text(injected)
-                    yield injected
-
-                if token.auto_filler is not None:
-                    for token in token.auto_filler(self):
+                af = token.auto_filler(self)
+                if af is not None:
+                    for token in af:
                         yield token
-
-                else:
-                    self.mode.track_same_line_text(token)
-                    yield token
 
             for token in self.auto_pop_all(token):
                 yield token

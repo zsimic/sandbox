@@ -99,7 +99,6 @@ class Token(VisitedToken):
     """Represents one scanned token"""
 
     auto_start_doc = True  # Does this token imply DocumentStartToken?
-    auto_filler = None  # Optional auto-filler (generator called with one argument: the current scanner)
     has_same_line_text = False  # Used to disambiguate simple keys
 
     def __init__(self, linenum, indent, text=None, value=None):
@@ -130,12 +129,14 @@ class Token(VisitedToken):
     def represented_text(self):
         return unicode_escaped(self.text)
 
-    def auto_injected(self, scanner):
-        """Optional token to automatically inject"""
-        return scanner.popped_scalar()
-
     def track_same_line_text(self, token):
         """Used to disambiguate simple keys"""
+
+    def auto_filler(self, scanner):
+        for t in scanner.auto_popped_scalar():
+            yield t
+
+        yield self
 
 
 class CommentToken(Token):
@@ -257,6 +258,9 @@ class StackedMap(StackedValue):
         return self.value
 
     def consume_key(self, visitor, value):
+        if self.needs_wrap:
+            self.value[self.pending_key] = None
+
         self.pending_key = value
         self.needs_wrap = True
 
@@ -287,6 +291,9 @@ class StackedSequence(StackedValue):
         self.needs_wrap = False
 
     def consume_key(self, visitor, value):
+        if self.needs_wrap:
+            self.consume_value(visitor, None)
+
         self.needs_wrap = (value, None)
 
     def resolved_value(self):
@@ -340,8 +347,8 @@ class FlowSeqToken(StackedSequence):
 class FlowEndToken(StackedValue):
 
     def auto_filler(self, scanner):
-        while scanner.decorators:
-            yield scanner.decorators.popleft()
+        for t in scanner.auto_popped_scalar():
+            yield t
 
         try:
             popped = scanner.flow_scanner.stack.pop()
@@ -389,23 +396,7 @@ class BlockEndToken(StackedValue):
 
 
 class ExplicitMapToken(Token):
-    def auto_injected(self, scanner):
-        return None
-
-    def auto_filler(self, scanner):
-        sk = scanner.popped_scalar()
-        if sk is not None:
-            decorators = scanner.extracted_decorators(sk)
-            if decorators is not None:
-                for t in decorators:
-                    yield t
-
-            yield sk
-
-        for t in scanner.auto_push(self, BlockMapToken):
-            yield t
-
-        yield KeyToken(self.linenum, self.indent)
+    pass
 
 
 class DashToken(Token):
@@ -441,20 +432,10 @@ class ValueToken(Token):
 
 
 class ColonToken(Token):
-    def auto_injected(self, scanner):
-        return None
 
     def auto_filler(self, scanner):
-        acc = scanner.popped_accumulated_scalar()
-        if acc is not None:
-            decorators = scanner.extracted_decorators(acc)
-            if decorators is not None:
-                for t in decorators:
-                    yield t
-
-            yield acc
-
-        sk = scanner.popped_scalar()
+        sk = scanner.simple_key
+        scanner.simple_key = None
         if sk is None:
             if scanner.mode is scanner.block_scanner:
                 raise ParseError("Incomplete explicit mapping pair", token=self)
@@ -478,28 +459,29 @@ class ColonToken(Token):
 
 
 class TagToken(Token):
+
     def __init__(self, linenum, indent, text):
         super(TagToken, self).__init__(linenum, indent, text)
         self.marshaller = Marshallers.get_marshaller(text)
 
-    def auto_injected(self, scanner):
+    def auto_filler(self, scanner):
         scanner.decorators.appendleft(self)
-        return True
 
 
 class AnchorToken(Token):
+
     def __init__(self, linenum, indent, text):
         super(AnchorToken, self).__init__(linenum, indent, text[1:])
 
     def represented_text(self):
         return "&%s" % unicode_escaped(self.text)
 
-    def auto_injected(self, scanner):
+    def auto_filler(self, scanner):
         scanner.decorators.appendleft(self)
-        return True
 
 
 class AliasToken(Token):
+
     def __init__(self, linenum, indent, text):
         super(AliasToken, self).__init__(linenum, indent)
         self.anchor = text[1:]
@@ -548,9 +530,8 @@ class ScalarToken(Token):
             self.text = yaml_lines(self.multiline)
             self.multiline = True
 
-    def auto_injected(self, scanner):
+    def auto_filler(self, scanner):
         scanner.accumulate_scalar(self)
-        return True
 
     def evaluate(self, visitor):
         visitor.trigger_auto_pop(self)
