@@ -346,15 +346,7 @@ class Scanner(object):
         if result is not None:
             return reversed(result)
 
-    def popped_accumulated_scalar(self):
-        acc = self.accumulated_scalar
-        if acc is not None:
-            acc.apply_multiline()
-            self.accumulated_scalar = None
-
-        return acc
-
-    def popped_scalar(self):
+    def auto_popped_scalar(self):
         acc = self.accumulated_scalar
         sk = self.simple_key
         if acc is None:
@@ -373,12 +365,8 @@ class Scanner(object):
             acc.apply_multiline()
             self.accumulated_scalar = None
 
-        return acc
-
-    def auto_popped_scalar(self):
-        sk = self.popped_scalar()
-        if sk is not None:
-            decorators = self.extracted_decorators(sk)
+        if acc is not None:
+            decorators = self.extracted_decorators(acc)
             if decorators is not None:
                 for t in decorators:
                     yield t
@@ -386,8 +374,8 @@ class Scanner(object):
             if self.mode is self.block_scanner:
                 verify_indentation(self.mode.top_block, sk, over=False)
 
-            self.mode.track_same_line_text(sk)
-            yield sk
+            self.mode.track_same_line_text(acc)
+            yield acc
 
         while self.decorators:
             yield self.decorators.popleft()
