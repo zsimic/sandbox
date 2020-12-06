@@ -314,27 +314,6 @@ class Scanner(object):
     def __repr__(self):
         return str(self.mode)
 
-    def accumulate_scalar(self, scalar):
-        sk = self.simple_key
-        if sk is None:
-            self.simple_key = scalar if scalar.textually_significant else None
-            return
-
-        acc = self.accumulated_scalar
-        if acc is None:
-            self.mode.track_same_line_text(sk)
-            self.accumulated_scalar = sk
-            if scalar.textually_significant:
-                self.simple_key = scalar
-
-            else:
-                sk.cumulate_scalar(scalar)
-                self.simple_key = None
-
-        else:
-            acc.cumulate_scalar(sk)
-            self.simple_key = scalar if scalar.textually_significant else None
-
     def extracted_decorators(self, token):
         result = None
         while self.decorators and self.decorators[-1].linenum == token.linenum:
@@ -354,9 +333,6 @@ class Scanner(object):
             self.simple_key = None
 
         elif sk is not None:
-            if acc.has_comment:
-                raise ParseError("Trailing content after comment", token=sk)
-
             self.mode.track_same_line_text(sk)
             acc.cumulate_scalar(sk)
             self.simple_key = None

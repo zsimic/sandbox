@@ -515,7 +515,10 @@ class ScalarToken(Token):
         return text
 
     def cumulate_scalar(self, other):
-        self.has_comment |= other.has_comment
+        if self.has_comment and other.text:
+            raise ParseError("Trailing content after comment", token=other)
+
+        self.has_comment = other.has_comment
         if not self.text:
             self.text = other.text
 
@@ -531,7 +534,19 @@ class ScalarToken(Token):
             self.multiline = True
 
     def auto_filler(self, scanner):
-        scanner.accumulate_scalar(self)
+        sk = scanner.simple_key
+        significant = self if self.textually_significant else None
+        scanner.simple_key = significant
+        if sk is not None:
+            acc = scanner.accumulated_scalar
+            if acc is None:
+                scanner.mode.track_same_line_text(sk)
+                scanner.accumulated_scalar = sk
+                if significant is None:
+                    sk.cumulate_scalar(self)
+
+            else:
+                acc.cumulate_scalar(sk)
 
     def evaluate(self, visitor):
         visitor.trigger_auto_pop(self)
