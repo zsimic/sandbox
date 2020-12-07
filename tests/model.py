@@ -199,7 +199,7 @@ class Sample(object):
 
             else:
                 actual = load_path(self.path)
-                actual = runez.serialize.json_sanitized(actual, stringify=decode)
+                actual = runez.serialize.json_sanitized(actual, stringify=decode, none_key="-null-")
 
         except Exception as e:
             actual = {"_error": runez.short(e)}
@@ -269,8 +269,8 @@ def textual_diff(kind, actual, expected):
         expected = "%s\n" % "\n".join(expected)
 
     else:
-        actual = runez.represented_json(actual, keep_none=True)
-        expected = runez.represented_json(expected, keep_none=True)
+        actual = runez.represented_json(actual, keep_none=True, none_key="-null-")
+        expected = runez.represented_json(expected, keep_none=True, none_key="-null-")
 
     if actual != expected:
         with runez.TempFolder(dryrun=False):

@@ -43,7 +43,7 @@ class ImplementationCollection(object):
             value = runez.stringified(data)
 
         else:
-            value = runez.represented_json(data, stringify=decode, keep_none=True)
+            value = runez.represented_json(data, stringify=decode, keep_none=True, none_key="-null-")
 
         name = impl.name
         if self.combinations is None:

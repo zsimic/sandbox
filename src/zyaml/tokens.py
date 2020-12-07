@@ -94,6 +94,7 @@ class Token(VisitedToken):
     def __init__(self, linenum, indent, text=None, value=None):
         self.linenum = linenum
         self.indent = indent
+        self.indent_constraint = None
         self.text = text
         self.value = value
 
@@ -128,13 +129,27 @@ class Token(VisitedToken):
 
         yield self
 
-    def verify_indentation(self, token, over=True, under=True):
+    def verify_indentation(self, token, over=True):
         if token is not None:
-            if under and token.indent < self.indent and token.textually_significant:
+            if token.indent < self.indent and token.textually_significant:
                 raise ParseError("%s is under-indented relative to %s" % (token.short_name, self.short_name.lower()), token=token)
 
             if over and token.indent > self.indent and token.textually_significant:
                 raise ParseError("%s is over-indented relative to %s" % (token.short_name, self.short_name.lower()), token=token)
+
+    def verify_indentation2(self):
+        """Try via adaptable per-token constraint"""
+        # ic = self.indent_constraint
+        # if ic is None:
+        #     return
+        #
+        # if ic < 0:
+        #     ic = -ic
+        #     if self.indent > ic:
+        #         raise ParseError("%s should be indented exactly %s" % (self.short_name, ic + 1), token=self)
+        #
+        # if self.indent < ic:
+        #     raise ParseError("%s should be indented at least %s" % (self.short_name, ic + 1), token=self)
 
 
 class CommentToken(Token):
@@ -516,8 +531,9 @@ class ScalarToken(Token):
         return text
 
     def cumulate_scalar(self, other):
-        if self.has_comment and other.text:
-            raise ParseError("Trailing content after comment", token=other)
+        if other.text:
+            if self.has_comment:
+                raise ParseError("Trailing content after comment", token=other)
 
         self.has_comment = other.has_comment
         if not self.text:
@@ -536,18 +552,34 @@ class ScalarToken(Token):
 
     def auto_filler(self, scanner):
         sk = scanner.simple_key
-        significant = self if self.textually_significant else None
-        scanner.simple_key = significant
-        if sk is not None:
+        if sk is None:
+            if self.text or self.style:
+                self.indent_constraint = self.indent
+                scanner.simple_key = self
+
+            return
+
+        if not self.text and not self.style:
+            scanner.simple_key = None
             acc = scanner.accumulated_scalar
             if acc is None:
                 scanner.mode.track_same_line_text(sk)
+                sk.cumulate_scalar(self)
                 scanner.accumulated_scalar = sk
-                if significant is None:
-                    sk.cumulate_scalar(self)
 
             else:
                 acc.cumulate_scalar(sk)
+
+            return
+
+        scanner.simple_key = self
+        acc = scanner.accumulated_scalar
+        if acc is None:
+            scanner.mode.track_same_line_text(sk)
+            scanner.accumulated_scalar = sk
+
+        else:
+            acc.cumulate_scalar(sk)
 
     def evaluate(self, visitor):
         visitor.trigger_auto_pop(self)

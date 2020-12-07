@@ -548,9 +548,11 @@ class Scanner(object):
                 af = token.auto_filler(self)
                 if af is not None:
                     for token in af:
+                        token.verify_indentation2()
                         yield token
 
             for token in self.auto_pop_all(token):
+                token.verify_indentation2()
                 yield token
 
             yield StreamEndToken(token.linenum, 0)
