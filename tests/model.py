@@ -11,7 +11,7 @@ from zyaml.marshal import decode
 
 class TestSamples:
 
-    SAMPLE_FOLDER = runez.SYS_INFO.tests_path("samples")
+    SAMPLE_FOLDER = runez.DEV.tests_path("samples")
     K_DESERIALIZED = "json"
     K_TOKEN = "token"
 

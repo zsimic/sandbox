@@ -39,7 +39,7 @@ def main(debug, log, lines, profile, stacktrace):
     TestSettings.stacktrace = stacktrace
     runez.log.setup(debug=debug, console_level=logging.INFO, file_location=log, locations=None)
     logging.debug("Running with %s, v%s", runez.short(sys.executable), ".".join(str(s) for s in sys.version_info[:3]))
-    runez.Anchored.add([runez.SYS_INFO.dev_project_location, TestSamples.SAMPLE_FOLDER])
+    runez.Anchored.add([runez.DEV.project_folder, TestSamples.SAMPLE_FOLDER])
     if profile:
         import atexit
         import cProfile

@@ -81,7 +81,7 @@ class TestSettings:
     @classmethod
     def stop_profiler(cls):
         cls.profiler.disable()
-        filepath = runez.SYS_INFO.project_path(".tox", "lastrun.profile")
+        filepath = runez.DEV.project_path(".tox", "lastrun.profile")
         try:
             cls.profiler.dump_stats(filepath)
             if runez.which("qcachegrind") is None:
