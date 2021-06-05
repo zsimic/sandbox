@@ -39,7 +39,7 @@ def main(debug, log, lines, profile, stacktrace):
     TestSettings.stacktrace = stacktrace
     runez.log.setup(debug=debug, console_level=logging.INFO, file_location=log, locations=None)
     logging.debug("Running with %s, v%s", runez.short(sys.executable), ".".join(str(s) for s in sys.version_info[:3]))
-    runez.Anchored.add([runez.log.project_path(), TestSamples.SAMPLE_FOLDER])
+    runez.Anchored.add([runez.SYS_INFO.dev_project_location, TestSamples.SAMPLE_FOLDER])
     if profile:
         import atexit
         import cProfile
@@ -215,6 +215,86 @@ def show_outcome(content, implementations, tokens=False):
 
         if differs:
             print("-- differs: %s" % runez.red(", ".join(sorted(differs, reverse=True))))
+
+
+@main.command()
+@click.option("--target", "-t", default="_tmp/names.tsv", help="Where to save result")
+@click.argument("name", nargs=-1)
+def name_available(target, name):
+    """Check whether a name is taken or not (.com, .org, .dev and github"""
+    import datetime
+    import socket
+    import requests
+
+    now = datetime.datetime.now()
+    now = now.strftime("%Y-%m-%d")
+    names = runez.flattened(name)
+    domains = "com org dev io net".split()
+    k_github = "github"
+    k_pypi = "pypi"
+    k_available = "----"
+    k_taken = "taken"
+
+    report = {}
+    existing = {}
+    has_header = False
+    if os.path.exists(target):
+        with open(target) as fh:
+            for line in fh:
+                if line.startswith("Name"):
+                    has_header = True
+                    continue
+
+                line = line.rstrip("\n")
+                name, _, _ = line.partition("\t")
+                name = name.strip()
+                existing[name] = line
+
+    if names == ["_redo"]:
+        has_header = False
+        names = sorted(existing)
+        existing = {}
+
+    for name in names:
+        if name in existing:
+            print("Skipping '%s': already queried %s" % (name, existing[name]))
+            continue
+
+        report[name] = "%-8s\t%-10s" % (name, now)
+        r = requests.head("https://github.com/%s" % name)
+        report[name] += "\t%s" % (k_available if r.status_code >= 400 else k_taken)
+        r = requests.head("https://pypi.org/project/%s/" % name)
+        report[name] += "\t%s" % (k_available if r.status_code >= 400 else k_taken)
+        for domain in domains:
+            hostname = "%s.%s" % (name, domain)
+            try:
+                socket.gethostbyname_ex(hostname)
+                status = k_taken
+
+            except socket.gaierror:
+                status = k_available
+
+            report[name] += "\t%-4s" % status
+
+    header = ["%-8s" % "Name", "%-10s" % "Checked", k_github, k_pypi]
+    header += [".%-4s" % s for s in domains]
+    header = "\t".join(header)
+    header = "%s\n" % header.strip()
+    if not has_header:
+        with open(target, "w") as fh:
+            fh.write(header)
+
+    if report:
+        print(header.strip())
+        with open(target, "a") as fh:
+            for name, line in sorted(report.items()):
+                fh.write(line)
+                fh.write("\n")
+                print(line)
+
+        print("")
+
+    print("%s names added" % len(report))
 
 
 @main.command(name="print")

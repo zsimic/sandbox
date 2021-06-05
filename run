@@ -21,7 +21,7 @@ if not sys.exec_prefix.startswith(PROJECT_FOLDER):
     if RECURSION_MARKER in sys.argv:
         sys.exit("Something's wrong, recursive call")
 
-    venvs = (".venv", ".tox/py39", ".tox/py27")
+    venvs = (".venv", ".tox/py39", ".tox/py36")
     for path in venvs:
         folder = os.path.join(PROJECT_FOLDER, path)
         pyexe = os.path.join(folder, "bin", "python")
